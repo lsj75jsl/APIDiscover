@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pentasecurity.apidiscover.classify.ApiScorer;
 import com.pentasecurity.apidiscover.classify.Classifier;
 import com.pentasecurity.apidiscover.config.ApiDiscoverProperties;
 import com.pentasecurity.apidiscover.match.EndpointMatcher;
@@ -72,7 +73,7 @@ class LokiLiveIntegrationTest {
         EndpointMatcher matcher = new EndpointMatcher(List.<CanonicalEndpoint>of());
         InventoryBuilder inventory = new InventoryBuilder(new PathNormalizer(), new EndpointKindClassifier());
         List<DiscoveredEndpoint> discovered = inventory.build(requests, matcher);
-        List<Finding> findings = new Classifier().classify(discovered, List.of(), matcher);
+        List<Finding> findings = new Classifier(new ApiScorer()).classify(discovered, List.of(), matcher);
         DiscoveryReport report = new ReportBuilder().build(DOMAIN, 0L, window, discovered.size(), findings);
 
         // 검증

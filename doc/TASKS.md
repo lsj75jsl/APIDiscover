@@ -9,21 +9,20 @@
 ## TODO
 
 ### API 후보 점수화 모델 + 프로파일 (08 문서, **린 채택** — 평가 완료)
-> 전체 복제 아님. 우리 가용 신호만으로 린하게. 가중치는 **잠정값**이며 **보정 선행** 후 적용.
-- [ ] **(선행) 가중치 보정**: 실 Loki 샘플 라벨링(API/비API) → 잠정 가중치 검증 → 임계/가중치 조정
-- [ ] `ApiScorer` — 가용 신호 가산식 점수(clamp 0..1), Classifier 앞단 게이트
-- [ ] 신호 추출: path prefix/regex, path shape(api/version/id/graphql/machine), write_method, query,
-      non_browser_ua(UA 클래스), `$type` 기반 html/static penalty, repeat_observation_bonus
-- [ ] 프로파일 `high/middle/low/custom` (threshold + weight preset), custom 만 override 허용
-- [ ] api_confidence(후보성) vs shadow/zombie confidence(실재성) 역할 분리 명확화 (08 §6)
-- [ ] `min_api_confidence` 게이트 → API 후보만 매칭/분류 대상, 미만은 `dropped(not_api)` 집계
-- [ ] explicit hint 모드 vs pathless strict 모드 분기 (둘 다 비면 pathless, 보수적)
-- [ ] 기존 `EndpointKindClassifier`(static/web_page)를 점수 penalty 입력으로 흡수, Classifier 연동
-- [ ] 매처 설정: `api_path_prefixes`/`api_path_regexes`/`exclude_path_prefixes` (compile·상한, ReDoS 타임아웃, exclude 최우선)
-- [ ] include/exclude 매처 전역+도메인 합집합 병합, `include_web_forms` 토글
-- [ ] 설정 저장: 전역 classification(DB 단일 레코드) + 도메인 override, 병합 규칙(profile/scalar/weight)
+> 전체 복제 아님. 우리 가용 신호만으로 린하게. **가중치 보정 완료(08 §8)** — 보정된 weight 사용.
+- [x] **(완료) 가중치 보정**: api.weble.net(API) vs dreampark(웹) 실데이터 → html penalty 제거, host_api_subdomain+cors_preflight 추가, static 강화. 분리 마진 0.82 vs 0.27 (08 §8)
+- [x] `ApiScorer` — 가용 신호 가산식 점수(clamp 0..1), Classifier 앞단 게이트 (보정 weight)
+- [x] 신호 추출: path shape(api/version/id/graphql/machine), write_method, query, non_browser_ua,
+      host_api_subdomain, cors_preflight(OPTIONS sibling), static penalty(확장자/library), repeat_bonus (html penalty 미사용)
+- [x] api_confidence(후보성) vs shadow/zombie confidence(실재성) 역할 분리 — Classifier 게이트 후 매칭/분류
+- [x] `min_api_confidence` 게이트 → 미달 unmatched 는 보고 안 함, OPTIONS 는 CORS 신호로만(미보고)
+- [x] 기존 `EndpointKindClassifier`(static/web_page)를 점수 penalty 입력으로 흡수
+- [x] 프로파일 HIGH/MIDDLE/LOW preset (threshold+weights) — **custom(override)는 설정 연동 시**
+- [ ] explicit hint 모드(`api_path_prefixes`/`api_path_regexes`) — 현재 pathless만 구현
+- [ ] 매처 설정: prefixes/regexes/exclude (compile·상한, ReDoS 타임아웃, exclude 최우선) + 전역/도메인 합집합 병합, `include_web_forms`
+- [ ] 설정 저장: 전역 classification(DB 단일 레코드) + 도메인 override(custom weights/threshold), 병합 규칙
 - [ ] 중앙 API: `GET/PUT /classification`(전역), `GET/PUT /domains/{host}/classification`(도메인, effective 노출)
-- [ ] non_api dropped observation 메트릭
+- [ ] non_api dropped observation 메트릭 (현재 단순 제외)
 
 ### 보류 (08 §9 — 현 시점 미채택)
 - [ ] (보류) endpoint decision cache — 배치 재집계 구조라 이득 작음, 필요 시 재검토

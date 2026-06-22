@@ -69,6 +69,24 @@ public class InventoryBuilder {
 
     private record Resolved(String template, TemplateSource source) {}
 
+    private static final String[] SDK_UA = {
+            "okhttp", "python-requests", "axios", "java/", "go-http", "curl", "wget",
+            "postman", "apache-httpclient", "node-fetch", "dart", "ktor", "feign", "httpie"};
+
+    /** SDK/CLI 클라이언트 user-agent 여부 (프로그램적 호출 신호). */
+    private static boolean isSdkUserAgent(String ua) {
+        if (ua == null) {
+            return false;
+        }
+        String u = ua.toLowerCase();
+        for (String s : SDK_UA) {
+            if (u.contains(s)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** 시그니처별 누적기. */
     private static final class Acc {
         private final String method;
@@ -83,6 +101,8 @@ public class InventoryBuilder {
         private final Set<String> clients = new HashSet<>();
         private final List<Long> respTimes = new ArrayList<>();
         private final Map<String, Long> typeDist = new HashMap<>(); // $type 분포 (endpoint_kind)
+        private boolean hadQuery;
+        private long sdkUaCount; // SDK/CLI user-agent 관측 수
 
         Acc(String method, String host, String template, TemplateSource source) {
             this.method = method;
@@ -120,6 +140,12 @@ public class InventoryBuilder {
             if (r.clientIp() != null) {
                 clients.add(r.clientIp());
             }
+            if (r.queryKeys() != null && !r.queryKeys().isEmpty()) {
+                hadQuery = true;
+            }
+            if (isSdkUserAgent(r.userAgent())) {
+                sdkUaCount++;
+            }
             respTimes.add(r.respTimeMs());
         }
 
@@ -137,8 +163,10 @@ public class InventoryBuilder {
                     clients.size(), percentile(respTimes, 50), percentile(respTimes, 95));
 
             String signature = method + " " + host + " " + template;
+            boolean nonBrowserUa = sdkUaCount * 2 >= hits; // 다수가 SDK/CLI
             return new DiscoveredEndpoint(
-                    signature, method, host, template, source, kind, kindConfidence, metrics);
+                    signature, method, host, template, source, kind, kindConfidence,
+                    hadQuery, nonBrowserUa, metrics);
         }
 
         private static long percentile(List<Long> sorted, double p) {

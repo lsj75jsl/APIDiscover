@@ -1,4 +1,4 @@
-// Classifier 2-pass 분류 + Shadow 신뢰도 단위 테스트 (doc/04 §3, §4)
+// Classifier 2-pass 분류 + ApiScorer 게이트 단위 테스트 (doc/04, doc/08)
 package com.pentasecurity.apidiscover.classify;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -17,9 +17,10 @@ import org.junit.jupiter.api.Test;
 
 class ClassifierTest {
 
-    private static final String HOST = "api.example.com";
+    // 비-api 호스트 (host_api 신호 미발화 → 게이트가 path/method 신호로 결정)
+    private static final String HOST = "shop.example.com";
 
-    private final Classifier classifier = new Classifier();
+    private final Classifier classifier = new Classifier(new ApiScorer());
 
     private final List<CanonicalEndpoint> spec = List.of(
             ce("GET", "/v2/users/{id}", false),
@@ -28,12 +29,11 @@ class ClassifierTest {
     private final EndpointMatcher matcher = new EndpointMatcher(spec);
 
     @Test
-    void classifiesAllFiveOutcomes() {
+    void classifiesActiveZombieUnusedAndGatedShadow() {
         List<DiscoveredEndpoint> discovered = List.of(
                 de("GET", "/v2/users/{id}", TemplateSource.SPEC, EndpointKind.UNKNOWN, 100, "2xx", 5),
                 de("GET", "/v2/orders/{orderId}", TemplateSource.SPEC, EndpointKind.UNKNOWN, 50, "2xx", 4),
-                de("GET", "/internal/debug", TemplateSource.INFERRED, EndpointKind.UNKNOWN, 100, "2xx", 5),
-                de("GET", "/admin/login", TemplateSource.INFERRED, EndpointKind.WEB_PAGE, 30, "2xx", 3));
+                de("POST", "/api/debug", TemplateSource.INFERRED, EndpointKind.UNKNOWN, 100, "2xx", 5));
 
         List<Finding> findings = classifier.classify(discovered, spec, matcher);
 
@@ -43,54 +43,71 @@ class ClassifierTest {
                 .extracting(Finding::pathTemplate).containsExactly("/v2/orders/{orderId}");
         assertThat(byClass(findings, Classification.UNUSED))
                 .extracting(Finding::pathTemplate).containsExactly("/v2/legacy");
+        // /api/debug: api_seg + write + repeat → 게이트 통과 → Shadow
         assertThat(byClass(findings, Classification.SHADOW))
-                .extracting(Finding::pathTemplate).containsExactly("/internal/debug");
-        assertThat(byClass(findings, Classification.UNDOCUMENTED_WEB_PAGE))
-                .extracting(Finding::pathTemplate).containsExactly("/admin/login");
+                .extracting(Finding::pathTemplate).containsExactly("/api/debug");
     }
 
     @Test
-    void shadowConfidenceDropsForFourxxOnlyAndInferred() {
-        // 거의 전부 4xx + INFERRED + 단일 클라이언트 → 큰 감산
+    void staticBelowGateIsDropped() {
+        DiscoveredEndpoint staticJs =
+                de("GET", "/theme/app.js", TemplateSource.INFERRED, EndpointKind.STATIC, 200, "2xx", 5);
+        List<Finding> findings = classifier.classify(List.of(staticJs), spec, matcher);
+
+        assertThat(byClass(findings, Classification.SHADOW)).isEmpty();
+        assertThat(byClass(findings, Classification.UNUSED)).hasSize(2); // users/{id}, legacy
+    }
+
+    @Test
+    void lowSignalUnmatchedIsDropped() {
+        // 웹페이지류 /m03/{id}: id + repeat 만 → 0.27 < 0.70 → 보고 안 함
+        DiscoveredEndpoint page =
+                de("GET", "/m03/{id}", TemplateSource.INFERRED, EndpointKind.WEB_PAGE, 100, "2xx", 5);
+        List<Finding> findings = classifier.classify(List.of(page), spec, matcher);
+
+        assertThat(byClass(findings, Classification.SHADOW)).isEmpty();
+    }
+
+    @Test
+    void optionsIsCorsSignalNotReported() {
+        // OPTIONS 자체는 보고 안 함. 단 sibling GET 에 CORS 신호 전파.
+        List<DiscoveredEndpoint> withCors = List.of(
+                de("OPTIONS", "/api/widgets", TemplateSource.INFERRED, EndpointKind.UNKNOWN, 10, "2xx", 5),
+                de("GET", "/api/widgets", TemplateSource.INFERRED, EndpointKind.UNKNOWN, 100, "2xx", 5));
+
+        List<Finding> findings = classifier.classify(withCors, spec, matcher);
+
+        assertThat(findings).noneMatch(f -> f.method().equals("OPTIONS"));
+        // GET /api/widgets: api_seg + repeat (0.67) + cors(0.30) → 통과
+        assertThat(byClass(findings, Classification.SHADOW))
+                .extracting(Finding::pathTemplate).containsExactly("/api/widgets");
+
+        // CORS sibling 없으면 0.67 < 0.70 → 탈락
+        List<Finding> noCors = classifier.classify(
+                List.of(de("GET", "/api/widgets", TemplateSource.INFERRED, EndpointKind.UNKNOWN, 100, "2xx", 5)),
+                spec, matcher);
+        assertThat(byClass(noCors, Classification.SHADOW)).isEmpty();
+    }
+
+    @Test
+    void shadowConfidenceDropsForFourxxOnly() {
+        // api-like 라 게이트는 통과, 4xx-only + 단일클라 + inferred → shadow 신뢰도 0
         DiscoveredEndpoint noisy =
-                de("GET", "/probe/{id}", TemplateSource.INFERRED, EndpointKind.UNKNOWN, 100, "4xx", 1);
+                de("POST", "/api/probe", TemplateSource.INFERRED, EndpointKind.UNKNOWN, 100, "4xx", 1);
         List<Finding> findings = classifier.classify(List.of(noisy), spec, matcher);
 
         Finding.Shadow shadow = (Finding.Shadow) byClass(findings, Classification.SHADOW).get(0);
-        // 1.0 - 0.7(4xx) - 0.2(단일클라) - 0.1(inferred) = 0.0
         assertThat(shadow.confidence()).isEqualTo(0.0);
     }
 
     @Test
     void healthyShadowKeepsHighConfidence() {
         DiscoveredEndpoint healthy =
-                de("GET", "/internal/metrics", TemplateSource.SPEC, EndpointKind.UNKNOWN, 500, "2xx", 20);
+                de("POST", "/api/reports", TemplateSource.SPEC, EndpointKind.UNKNOWN, 500, "2xx", 20);
         List<Finding> findings = classifier.classify(List.of(healthy), spec, matcher);
 
         Finding.Shadow shadow = (Finding.Shadow) byClass(findings, Classification.SHADOW).get(0);
         assertThat(shadow.confidence()).isEqualTo(1.0);
-    }
-
-    @Test
-    void staticUnmatchedIsNotReportedAsShadow() {
-        // 정적 리소스(STATIC)는 문서에 없어도 Shadow 로 보고하지 않음 (doc/02 §2.3)
-        DiscoveredEndpoint staticJs =
-                de("GET", "/theme/app.js", TemplateSource.INFERRED, EndpointKind.STATIC, 200, "2xx", 5);
-        List<Finding> findings = classifier.classify(List.of(staticJs), spec, matcher);
-
-        assertThat(byClass(findings, Classification.SHADOW)).isEmpty();
-        assertThat(byClass(findings, Classification.UNDOCUMENTED_WEB_PAGE)).isEmpty();
-        // 스펙 3건 미관찰: users/{id}·legacy → Unused 2건, orders(deprecated) → 미발행
-        assertThat(byClass(findings, Classification.UNUSED)).hasSize(2);
-    }
-
-    @Test
-    void deprecatedButUnobservedEmitsNoFinding() {
-        // /v2/orders/{orderId} 가 트래픽에 없으면 Zombie 도 아니고 Finding 미발행(Deprecated-clean)
-        List<Finding> findings = classifier.classify(List.of(), spec, matcher);
-        assertThat(byClass(findings, Classification.ZOMBIE)).isEmpty();
-        // /v2/users/{id} 와 /v2/legacy 는 미관찰 → Unused 2건
-        assertThat(byClass(findings, Classification.UNUSED)).hasSize(2);
     }
 
     // --- helpers ---
@@ -110,6 +127,7 @@ class ClassifierTest {
                 hits, Instant.EPOCH, Instant.EPOCH, Map.of(statusBucket, hits),
                 distinctClients, 10, 50);
         return new DiscoveredEndpoint(
-                method + " " + HOST + " " + template, method, HOST, template, source, kind, 0.9, metrics);
+                method + " " + HOST + " " + template, method, HOST, template, source, kind, 0.9,
+                false, false, metrics);
     }
 }

@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.pentasecurity.apidiscover.classify.ApiScorer;
 import com.pentasecurity.apidiscover.classify.Classifier;
 import com.pentasecurity.apidiscover.config.ApiDiscoverProperties;
 import com.pentasecurity.apidiscover.domain.DomainConfigRepository;
@@ -44,7 +45,7 @@ class DiscoveryJobServiceTest {
             new LogLineParser(),
             new InventoryBuilder(new PathNormalizer(), new EndpointKindClassifier()),
             specStore,
-            new Classifier(),
+            new Classifier(new ApiScorer()),
             new ReportBuilder(),
             scanRepo,
             mock(DomainConfigRepository.class),
@@ -62,10 +63,11 @@ class DiscoveryJobServiceTest {
         when(scanRepo.findById(HOST)).thenReturn(Optional.empty());
         when(scanRepo.save(any(ScanResult.class))).thenAnswer(inv -> inv.getArgument(0));
 
+        // HOST=api.example.com(host_api) + query + repeat → 게이트 통과 → Shadow
         ScanResult result = service.analyze(HOST, List.of(
-                line("GET", "/users/1", 200),
-                line("GET", "/users/2", 200),
-                line("GET", "/users/3", 200)), window);
+                line("GET", "/users/1?x=1", 200),
+                line("GET", "/users/2?x=2", 200),
+                line("GET", "/users/3?x=3", 200)), window);
 
         assertThat(result.discovered).isEqualTo(1);   // /users/{id} 1건
         assertThat(result.shadow).isEqualTo(1);

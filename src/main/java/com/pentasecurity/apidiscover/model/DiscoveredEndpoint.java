@@ -12,6 +12,8 @@ public record DiscoveredEndpoint(
         TemplateSource templateSource,
         EndpointKind endpointKind,
         double kindConfidence,
+        boolean hadQuery,        // 관측 중 query string 존재 (ApiScorer 신호)
+        boolean nonBrowserUa,    // SDK/CLI user-agent 다수 (ApiScorer 신호)
         Metrics metrics
 ) {
     /** 시그니처별 누적 트래픽 메트릭. */
