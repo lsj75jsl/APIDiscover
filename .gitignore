@@ -1,0 +1,26 @@
+# Gradle
+.gradle/
+build/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+
+# OS
+.DS_Store
+
+# Java
+*.class
+
+# 로컬 데이터/시크릿
+data/
+*.local.yml
+
+# Claude 멀티에이전트 로컬 도구 (프로젝트 산출물 아님)
+.claude/
+.claude-team/
+tmux_setups_team.sh

@@ -1,0 +1,167 @@
+// DiscoveryJobService.analyze() end-to-end 파이프라인 테스트 (Loki 제외)
+package com.pentasecurity.apidiscover.batch;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.pentasecurity.apidiscover.classify.Classifier;
+import com.pentasecurity.apidiscover.config.ApiDiscoverProperties;
+import com.pentasecurity.apidiscover.domain.DomainConfigRepository;
+import com.pentasecurity.apidiscover.domain.ScanResult;
+import com.pentasecurity.apidiscover.domain.ScanResultRepository;
+import com.pentasecurity.apidiscover.domain.SpecRecord;
+import com.pentasecurity.apidiscover.domain.WatermarkRepository;
+import com.pentasecurity.apidiscover.ingest.LogWindow;
+import com.pentasecurity.apidiscover.ingest.LokiClient;
+import com.pentasecurity.apidiscover.ingest.LokiQueryBuilder;
+import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
+import com.pentasecurity.apidiscover.model.ParsedRequest;
+import com.pentasecurity.apidiscover.normalize.EndpointKindClassifier;
+import com.pentasecurity.apidiscover.normalize.InventoryBuilder;
+import com.pentasecurity.apidiscover.normalize.PathNormalizer;
+import com.pentasecurity.apidiscover.parse.LogLineParser;
+import com.pentasecurity.apidiscover.report.ReportBuilder;
+import com.pentasecurity.apidiscover.spec.SpecStore;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import org.junit.jupiter.api.Test;
+
+class DiscoveryJobServiceTest {
+
+    private static final String HOST = "api.example.com";
+
+    private final SpecStore specStore = mock(SpecStore.class);
+    private final ScanResultRepository scanRepo = mock(ScanResultRepository.class);
+    private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
+
+    private final DiscoveryJobService service = new DiscoveryJobService(
+            new LogLineParser(),
+            new InventoryBuilder(new PathNormalizer(), new EndpointKindClassifier()),
+            specStore,
+            new Classifier(),
+            new ReportBuilder(),
+            scanRepo,
+            mock(DomainConfigRepository.class),
+            mock(WatermarkRepository.class),
+            mock(LokiClient.class),
+            mock(LokiQueryBuilder.class),
+            objectMapper,
+            props());
+
+    private final LogWindow window = new LogWindow(Instant.EPOCH, Instant.EPOCH.plusSeconds(3600));
+
+    @Test
+    void noSpecMakesEverythingShadow() {
+        when(specStore.activeMeta(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.findById(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.save(any(ScanResult.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        ScanResult result = service.analyze(HOST, List.of(
+                line("GET", "/users/1", 200),
+                line("GET", "/users/2", 200),
+                line("GET", "/users/3", 200)), window);
+
+        assertThat(result.discovered).isEqualTo(1);   // /users/{id} 1건
+        assertThat(result.shadow).isEqualTo(1);
+        assertThat(result.active).isZero();
+        assertThat(result.version).isNotBlank();
+        assertThat(result.reportJson).contains("\"shadow\"");
+    }
+
+    @Test
+    void specMakesMatchedTrafficActive() {
+        SpecRecord active = new SpecRecord();
+        active.specVersion = 5L;
+        when(specStore.activeMeta(HOST)).thenReturn(Optional.of(active));
+        when(specStore.loadActiveCanonical(HOST)).thenReturn(List.of(
+                new CanonicalEndpoint("GET", "/users/{id}", null, false, null, "ref")));
+        when(scanRepo.findById(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.save(any(ScanResult.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        ScanResult result = service.analyze(HOST, List.of(
+                line("GET", "/users/1", 200),
+                line("GET", "/users/2", 200)), window);
+
+        assertThat(result.active).isEqualTo(1);
+        assertThat(result.shadow).isZero();
+        assertThat(result.specVersion).isEqualTo(5L);
+    }
+
+    @Test
+    void versionIsStableAcrossIdenticalContent() {
+        when(specStore.activeMeta(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.findById(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.save(any(ScanResult.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        List<String> lines = List.of(line("GET", "/users/1", 200));
+        String v1 = service.analyze(HOST, lines, window).version;
+        // 다른 윈도우(시간대)라도 findings 내용이 같으면 version 동일 (doc/07 §8)
+        LogWindow later = new LogWindow(Instant.EPOCH.plusSeconds(7200), Instant.EPOCH.plusSeconds(10800));
+        String v2 = service.analyze(HOST, lines, later).version;
+
+        assertThat(v1).isEqualTo(v2);
+    }
+
+    @Test
+    void dedupRemovesDuplicateRequestIds() {
+        List<ParsedRequest> in = List.of(
+                pr("rid-1"), pr("rid-1"),   // 중복 → 1건
+                pr("rid-2"),                // 1건
+                pr(null), pr(null));        // id 없음 → 둘 다 보존
+
+        List<ParsedRequest> out = DiscoveryJobService.dedupByRequestId(in);
+
+        assertThat(out).hasSize(4); // rid-1(1) + rid-2(1) + null(2)
+    }
+
+    @Test
+    void windowForComputesIncrementalRange() {
+        Instant now = Instant.parse("2026-06-22T10:00:00Z");
+        Duration lag = Duration.ofMinutes(10);
+        Duration backfill = Duration.ofDays(7);
+
+        // watermark 없음 → [now-lag-backfill, now-lag]
+        LogWindow first = DiscoveryJobService.windowFor(now, null, lag, backfill).orElseThrow();
+        assertThat(first.to()).isEqualTo(now.minus(lag));
+        assertThat(first.from()).isEqualTo(now.minus(lag).minus(backfill));
+
+        // watermark 있음 → [watermark, now-lag]
+        Instant last = Instant.parse("2026-06-22T09:00:00Z");
+        LogWindow next = DiscoveryJobService.windowFor(now, last, lag, backfill).orElseThrow();
+        assertThat(next.from()).isEqualTo(last);
+        assertThat(next.to()).isEqualTo(now.minus(lag));
+
+        // watermark 가 end 이후 → 신규 구간 없음
+        assertThat(DiscoveryJobService.windowFor(now, now, lag, backfill)).isEmpty();
+    }
+
+    // --- helpers ---
+
+    private static ParsedRequest pr(String requestId) {
+        return new ParsedRequest("GET", "/x", List.of(), 200, HOST, "ip", "ua",
+                Instant.EPOCH, 1, 1, true, null, null, requestId);
+    }
+
+    /** ^|^ 구분 20필드 로그 한 줄 생성. */
+    private static String line(String method, String uri, int status) {
+        return String.join("^|^", List.of(
+                "203.0.113.5", "10.0.0.2", "51514", "2026-06-22T09:00:00+09:00", "MISS",
+                method + " " + uri + " HTTP/1.1", "OK", "0.010", uri, String.valueOf(status),
+                "100", "99", "on", "-", "ua", HOST, HOST, "10.0.0.10", "443", "api"));
+    }
+
+    private static ApiDiscoverProperties props() {
+        return new ApiDiscoverProperties(
+                new ApiDiscoverProperties.Loki("http://192.168.8.100:3200", "access_log",
+                        Duration.ofSeconds(30), Duration.ofMinutes(10), 2000, 2, Duration.ofMillis(200)),
+                new ApiDiscoverProperties.Schedule(Duration.ofHours(1), Duration.ofMinutes(10),
+                        Duration.ofDays(7), "01:00-06:00"),
+                new ApiDiscoverProperties.Central("https://central.internal"));
+    }
+}

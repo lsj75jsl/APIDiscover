@@ -1,0 +1,66 @@
+// 업로드 문서의 포맷 자동 감지 (doc/03 §5)
+package com.pentasecurity.apidiscover.spec;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.dataformat.yaml.YAMLMapper;
+import java.nio.charset.StandardCharsets;
+import org.springframework.stereotype.Component;
+
+@Component
+public class SpecFormatDetector {
+
+    // YAML 매퍼는 JSON 도 파싱한다(YAML 은 JSON 의 상위집합).
+    private final YAMLMapper yamlMapper = new YAMLMapper();
+
+    /** 지원 포맷을 판별한다. 인식 불가 시 IllegalArgumentException. */
+    public SpecFormat detect(byte[] content) {
+        String text = new String(content, StandardCharsets.UTF_8).strip();
+        if (text.isEmpty()) {
+            throw new IllegalArgumentException("empty document");
+        }
+
+        // 1) CSV: 헤더 행에 method,path 컬럼 (doc/03 §4)
+        if (looksLikeCsv(text)) {
+            return SpecFormat.CSV;
+        }
+
+        // 2) JSON/YAML 트리 검사
+        try {
+            JsonNode root = yamlMapper.readTree(content);
+            if (root != null && root.isObject()) {
+                if (root.has("openapi") || root.has("swagger")) {
+                    return SpecFormat.OPENAPI;
+                }
+                JsonNode info = root.get("info");
+                boolean postmanSchema = info != null && info.hasNonNull("schema")
+                        && info.get("schema").asText().contains("getpostman.com");
+                if (postmanSchema || (root.has("item") && info != null)) {
+                    return SpecFormat.POSTMAN;
+                }
+            }
+        } catch (Exception e) {
+            // 파싱 실패 → 아래 미지원 처리
+        }
+
+        throw new IllegalArgumentException("unsupported or unrecognized spec format");
+    }
+
+    private static boolean looksLikeCsv(String text) {
+        String firstLine = text.lines()
+                .map(String::strip)
+                .filter(line -> !line.isEmpty())
+                .findFirst()
+                .orElse("");
+        boolean hasMethod = false;
+        boolean hasPath = false;
+        for (String col : firstLine.toLowerCase().split(",")) {
+            String c = col.strip();
+            if (c.equals("method")) {
+                hasMethod = true;
+            } else if (c.equals("path")) {
+                hasPath = true;
+            }
+        }
+        return hasMethod && hasPath;
+    }
+}

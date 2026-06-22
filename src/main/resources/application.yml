@@ -1,0 +1,42 @@
+spring:
+  application:
+    name: apidiscover-worker
+  datasource:
+    url: jdbc:h2:mem:apidiscover;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+  batch:
+    job:
+      enabled: false          # 잡은 스케줄러가 트리거 (기동 시 자동 실행 금지)
+    jdbc:
+      initialize-schema: always
+
+# API Discovery 설정 (doc/05 §5, doc/07 §4)
+apidiscover:
+  loki:                       # 접속값은 sample/loki_sample.py 기준 (인증 없음)
+    addr: "http://192.168.8.100:3200"
+    job-label: "access_log"
+    query-timeout: "30s"
+    # --- 운영 서버 부하 보호 (doc/05 §2.4, §6) ---
+    chunk-window: "PT10M"          # range query 1회당 시간창
+    page-limit: 2000               # query_range limit (유한값, 1e8 금지)
+    max-concurrent-queries: 2      # Loki 동시 쿼리 상한
+    min-query-interval: "200ms"    # 쿼리 간 최소 간격(스로틀)
+  schedule:
+    default-interval: "PT1H"       # 도메인별 override 없으면 적용
+    ingest-lag: "PT10M"
+    initial-backfill: "P7D"
+    off-peak-window: "01:00-06:00" # (선택) 백필/대용량 저부하 시간대
+  central:
+    base-url: "https://central.internal"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
