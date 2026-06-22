@@ -3,12 +3,14 @@ package com.pentasecurity.apidiscover.classify;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.pentasecurity.apidiscover.match.ApiHintMatcher;
 import com.pentasecurity.apidiscover.match.EndpointMatcher;
 import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
 import com.pentasecurity.apidiscover.model.Classification;
 import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
 import com.pentasecurity.apidiscover.model.EndpointKind;
 import com.pentasecurity.apidiscover.model.Finding;
+import com.pentasecurity.apidiscover.model.MatcherConfig;
 import com.pentasecurity.apidiscover.model.TemplateSource;
 import java.time.Instant;
 import java.util.List;
@@ -108,6 +110,69 @@ class ClassifierTest {
 
         Finding.Shadow shadow = (Finding.Shadow) byClass(findings, Classification.SHADOW).get(0);
         assertThat(shadow.confidence()).isEqualTo(1.0);
+    }
+
+    // --- explicit-hint 매처 게이트 (doc/09) ---
+
+    private static final ApiHintMatcher NO_WEBFORMS = new ApiHintMatcher(
+            new MatcherConfig(List.of(), List.of(), List.of(), List.of(), false));
+
+    @Test
+    void specMatchBypassesExcludeAndWebForm() {
+        // exclude 가 /v2 를 덮어도 spec 매칭 경로는 권위 우회 → Active (게이트 미진입)
+        var hints = new ApiHintMatcher(
+                new MatcherConfig(List.of(), List.of(), List.of("/v2"), List.of(), false));
+        var observed = de("GET", "/v2/users/{id}", TemplateSource.SPEC, EndpointKind.UNKNOWN, 100, "2xx", 5);
+        var findings = classifier.classify(List.of(observed), spec, matcher, hints);
+        assertThat(byClass(findings, Classification.ACTIVE))
+                .extracting(Finding::pathTemplate).containsExactly("/v2/users/{id}");
+    }
+
+    @Test
+    void excludedUnmatchedPathNotReported() {
+        var hints = new ApiHintMatcher(
+                new MatcherConfig(List.of(), List.of(), List.of("/internal"), List.of(), false));
+        var d = de("POST", "/internal/debug", TemplateSource.INFERRED, EndpointKind.UNKNOWN, 100, "2xx", 5);
+        var findings = classifier.classify(List.of(d), spec, matcher, hints);
+        assertThat(byClass(findings, Classification.SHADOW)).isEmpty();
+    }
+
+    @Test
+    void hintedUnmatchedPathReportedAsShadow() {
+        // shop host 저득점 경로지만 api 힌트로 강제 admit → Shadow
+        var hints = new ApiHintMatcher(
+                new MatcherConfig(List.of("/custom"), List.of(), List.of(), List.of(), false));
+        var d = de("GET", "/custom/data", TemplateSource.INFERRED, EndpointKind.WEB_PAGE, 100, "2xx", 5);
+        var findings = classifier.classify(List.of(d), spec, matcher, hints);
+        assertThat(byClass(findings, Classification.SHADOW))
+                .extracting(Finding::pathTemplate).containsExactly("/custom/data");
+    }
+
+    @Test
+    void webFormPostNotReportedWithoutStrongSignal() {
+        var form = de("POST", "/account/save", TemplateSource.INFERRED, EndpointKind.WEB_PAGE, 100, "2xx", 5);
+        var findings = classifier.classify(List.of(form), spec, matcher, NO_WEBFORMS);
+        assertThat(byClass(findings, Classification.SHADOW)).isEmpty();
+    }
+
+    @Test
+    void webFormPostReportedWithCorsOverride() {
+        // OPTIONS sibling → CORS 강신호 → web-form drop override → Shadow
+        var form = de("POST", "/account/save", TemplateSource.INFERRED, EndpointKind.WEB_PAGE, 100, "2xx", 5);
+        var cors = de("OPTIONS", "/account/save", TemplateSource.INFERRED, EndpointKind.UNKNOWN, 10, "2xx", 5);
+        var findings = classifier.classify(List.of(cors, form), spec, matcher, NO_WEBFORMS);
+        assertThat(byClass(findings, Classification.SHADOW))
+                .extracting(Finding::pathTemplate).containsExactly("/account/save");
+    }
+
+    @Test
+    void legacyThreeArgMatchesFourArgWithNone() {
+        var d = de("POST", "/api/debug", TemplateSource.INFERRED, EndpointKind.UNKNOWN, 100, "2xx", 5);
+        var legacy = classifier.classify(List.of(d), spec, matcher);
+        var explicit = classifier.classify(List.of(d), spec, matcher, ApiHintMatcher.NONE);
+        assertThat(byClass(legacy, Classification.SHADOW))
+                .extracting(Finding::pathTemplate).containsExactly("/api/debug");
+        assertThat(explicit).usingRecursiveComparison().isEqualTo(legacy);
     }
 
     // --- helpers ---

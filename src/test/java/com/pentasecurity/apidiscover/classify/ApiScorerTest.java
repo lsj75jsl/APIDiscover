@@ -4,10 +4,13 @@ package com.pentasecurity.apidiscover.classify;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
+import com.pentasecurity.apidiscover.match.ApiHintMatcher;
 import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
 import com.pentasecurity.apidiscover.model.EndpointKind;
+import com.pentasecurity.apidiscover.model.MatcherConfig;
 import com.pentasecurity.apidiscover.model.TemplateSource;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -127,5 +130,73 @@ class ApiScorerTest {
         assertThat(middle.score(
                 de("www.example.com", "GET", "/health", EndpointKind.UNKNOWN, 2, false, false), false))
                 .isEqualTo(0.20);
+    }
+
+    // --- explicit-hint 매처 (doc/09) ---
+
+    private static ApiHintMatcher hints(List<String> apiPrefixes, List<String> excludePrefixes,
+                                        boolean includeWebForms) {
+        return new ApiHintMatcher(new MatcherConfig(
+                apiPrefixes, List.of(), excludePrefixes, List.of(), includeWebForms));
+    }
+
+    @Test
+    void explicitHintModeDisablesBuiltinPathShape() {
+        // www /api/v1/things: pathless 모드면 api_seg(0.55)+version(0.26)=0.81
+        var d = de("www.example.com", "GET", "/api/v1/things", EndpointKind.UNKNOWN, 2, false, false);
+        assertThat(middle.score(d, false)).isEqualTo(0.81);
+        // explicit-hint 모드(비매칭 힌트) → 내장 path-shape 비활성 + pathHint 미가산 → 0.0 (이중계상 없음)
+        assertThat(middle.score(d, false, hints(List.of("/zzz"), List.of(), false))).isEqualTo(0.0);
+    }
+
+    @Test
+    void explicitHintForceAdmitsBelowThreshold() {
+        // www /svc/data: score=pathHint 0.55 < 0.70 이지만 힌트 매치 → 임계 우회 ADMIT
+        var d = de("www.example.com", "GET", "/svc/data", EndpointKind.UNKNOWN, 2, false, false);
+        var matched = hints(List.of("/svc"), List.of(), false);
+        assertThat(middle.score(d, false, matched)).isEqualTo(0.55);
+        assertThat(middle.evaluate(d, false, matched)).isEqualTo(ApiScorer.Gate.ADMIT);
+    }
+
+    @Test
+    void excludeForceDropsHighScore() {
+        // api.* + cors + api_seg + write → 고득점(1.0)이지만 exclude 매치 → DROP_EXCLUDED
+        var d = de("api.example.com", "POST", "/api/admin", EndpointKind.UNKNOWN, 100, true, true);
+        var excl = hints(List.of(), List.of("/api/admin"), false);
+        assertThat(middle.score(d, true, excl)).isEqualTo(1.0);
+        assertThat(middle.evaluate(d, true, excl)).isEqualTo(ApiScorer.Gate.DROP_EXCLUDED);
+    }
+
+    @Test
+    void excludeBeatsHintWhenBothMatch() {
+        var d = de("www.example.com", "GET", "/x/y", EndpointKind.UNKNOWN, 2, false, false);
+        var both = hints(List.of("/x"), List.of("/x"), false);
+        assertThat(middle.evaluate(d, false, both)).isEqualTo(ApiScorer.Gate.DROP_EXCLUDED);
+    }
+
+    @Test
+    void webFormPostDroppedWithoutStrongSignalButGetIsNot() {
+        var matcher = hints(List.of(), List.of(), false); // includeWebForms=false
+        var post = de("www.example.com", "POST", "/account/update", EndpointKind.WEB_PAGE, 100, false, false);
+        assertThat(middle.evaluate(post, false, matcher)).isEqualTo(ApiScorer.Gate.DROP_WEB_FORM);
+        // GET 은 web-form 대상 아님 → score 게이트로(저득점) → DROP_LOW_SCORE (DROP_WEB_FORM 아님)
+        var get = de("www.example.com", "GET", "/account/update", EndpointKind.WEB_PAGE, 100, false, false);
+        assertThat(middle.evaluate(get, false, matcher)).isEqualTo(ApiScorer.Gate.DROP_LOW_SCORE);
+    }
+
+    @Test
+    void webFormPostAdmittedWithCorsOverride() {
+        var matcher = hints(List.of(), List.of(), false);
+        var post = de("www.example.com", "POST", "/account/update", EndpointKind.WEB_PAGE, 100, false, false);
+        // cors 강신호 → web-form drop override → score 게이트(cors 0.30+write 0.34+repeat 0.12=0.76) → ADMIT
+        assertThat(middle.evaluate(post, true, matcher)).isEqualTo(ApiScorer.Gate.ADMIT);
+    }
+
+    @Test
+    void webFormPostGoesToScoreGateWhenIncludeWebFormsTrue() {
+        var matcher = hints(List.of(), List.of(), true); // includeWebForms=true → drop 미적용
+        var post = de("www.example.com", "POST", "/account/update", EndpointKind.WEB_PAGE, 100, false, false);
+        // write 0.34 + repeat 0.12 = 0.46 < 0.70 → DROP_LOW_SCORE (DROP_WEB_FORM 아님)
+        assertThat(middle.evaluate(post, false, matcher)).isEqualTo(ApiScorer.Gate.DROP_LOW_SCORE);
     }
 }

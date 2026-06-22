@@ -15,6 +15,7 @@ import com.pentasecurity.apidiscover.domain.WatermarkRepository;
 import com.pentasecurity.apidiscover.ingest.LogWindow;
 import com.pentasecurity.apidiscover.ingest.LokiClient;
 import com.pentasecurity.apidiscover.ingest.LokiQueryBuilder;
+import com.pentasecurity.apidiscover.match.ApiHintMatcher;
 import com.pentasecurity.apidiscover.match.EndpointMatcher;
 import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
 import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
@@ -135,7 +136,10 @@ public class DiscoveryJobService {
 
         // (B) 인벤토리 → (E) 분류 → (F) 리포트
         List<DiscoveredEndpoint> discovered = inventoryBuilder.build(requests, matcher);
-        List<Finding> findings = classifier.classify(discovered, spec, matcher);
+        // TODO(doc/09 §6): effective MatcherConfig(전역∪도메인) 로드 → ApiHintMatcher 생성·주입.
+        //                  설정 저장(DB)·중앙 API 배선 전까지는 NONE 사용(현행 동작 불변).
+        ApiHintMatcher hints = ApiHintMatcher.NONE;
+        List<Finding> findings = classifier.classify(discovered, spec, matcher, hints);
         // OPTIONS 는 CORS 신호로만 쓰고 보고에서 제외되므로 인벤토리 카운트에서도 뺀다 (과대집계 방지)
         long reportedCount = discovered.stream()
                 .filter(d -> !"OPTIONS".equalsIgnoreCase(d.method()))

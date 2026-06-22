@@ -1,6 +1,7 @@
 // Shadow/Zombie/Active/Unused/WebPage 분류 + 신뢰도 (doc/04 §3, §4)
 package com.pentasecurity.apidiscover.classify;
 
+import com.pentasecurity.apidiscover.match.ApiHintMatcher;
 import com.pentasecurity.apidiscover.match.EndpointMatcher;
 import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
 import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
@@ -35,6 +36,18 @@ public class Classifier {
     public List<Finding> classify(List<DiscoveredEndpoint> discovered,
                                   List<CanonicalEndpoint> spec,
                                   EndpointMatcher matcher) {
+        // 레거시 3-arg: 힌트 없음(NONE) → 현행 동작과 동일 (doc/09 §6 하위호환)
+        return classify(discovered, spec, matcher, ApiHintMatcher.NONE);
+    }
+
+    /**
+     * explicit-hint 매처를 받는 4-arg 오버로드 (doc/09 §2). 게이트는 {@link ApiScorer#evaluate}.
+     * ADMIT 만 Shadow 로 보고하고 DROP_* 사유는 분리(메트릭 배선은 후속).
+     */
+    public List<Finding> classify(List<DiscoveredEndpoint> discovered,
+                                  List<CanonicalEndpoint> spec,
+                                  EndpointMatcher matcher,
+                                  ApiHintMatcher hints) {
         List<Finding> findings = new ArrayList<>();
         Set<String> observedSpecKeys = new HashSet<>();
 
@@ -59,13 +72,13 @@ public class Classifier {
                 observedSpecKeys.add(key(matched.get())); // Active/Zombie 는 2차 (스펙 권위, 게이트 우회)
                 continue;
             }
-            // 문서에 없음 → ApiScorer 게이트 (doc/08)
+            // 문서에 없음 → ApiScorer 게이트 (doc/08, doc/09 §2.2)
             boolean cors = corsKeys.contains(hostTemplateKey(d.host(), d.pathTemplate()));
-            if (apiScorer.isApiCandidate(d, cors)) {
+            if (apiScorer.evaluate(d, cors, hints) == ApiScorer.Gate.ADMIT) {
                 findings.add(new Finding.Shadow(d.host(), d.method(), d.pathTemplate(),
                         shadowConfidence(d), "트래픽 존재, 문서 내 매칭 템플릿 없음"));
             }
-            // 미달은 not_api 로 간주하여 보고하지 않음 (정적/웹페이지 등)
+            // DROP_EXCLUDED/DROP_WEB_FORM/DROP_LOW_SCORE 는 보고하지 않음 (not_api, 사유는 메트릭 후속)
         }
 
         // --- 2차: 문서 측(S) ---

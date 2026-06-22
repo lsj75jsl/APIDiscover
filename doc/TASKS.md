@@ -18,8 +18,6 @@
 - [x] `min_api_confidence` 게이트 → 미달 unmatched 는 보고 안 함, OPTIONS 는 CORS 신호로만(미보고)
 - [x] 기존 `EndpointKindClassifier`(static/web_page)를 점수 penalty 입력으로 흡수
 - [x] 프로파일 HIGH/MIDDLE/LOW preset (threshold+weights) — **custom(override)는 설정 연동 시**
-- [ ] explicit hint 모드(`api_path_prefixes`/`api_path_regexes`) — 현재 pathless만 구현
-- [ ] 매처 설정: prefixes/regexes/exclude (compile·상한, ReDoS 타임아웃, exclude 최우선) + 전역/도메인 합집합 병합, `include_web_forms`
 - [ ] 설정 저장: 전역 classification(DB 단일 레코드) + 도메인 override(custom weights/threshold), 병합 규칙
 - [ ] 중앙 API: `GET/PUT /classification`(전역), `GET/PUT /domains/{host}/classification`(도메인, effective 노출)
 - [ ] non_api dropped observation 메트릭 (현재 단순 제외)
@@ -101,3 +99,9 @@
 - [x] 내부 DB — H2(dev)/PostgreSQL(prod), 엔티티 DomainConfig/SpecRecord/ScanResult/Watermark
 - [x] watermark 증분 + request_id dedup
 - [x] 실 Loki(192.168.8.100:3200) end-to-end 호출 검증 (+분류 버그 1건 수정)
+
+### explicit-hint 매처 + 매처 설정 (2026-06-22, doc/09 / DECISIONS D16) — tests=110 green
+- [x] explicit hint 모드(`api_path_prefixes`/`api_path_regexes`) — `ApiScorer` explicit-hint 분기(pathHint weight, 내장 path-shape 비활성)
+- [x] 매처 설정: `MatcherConfig`(prefixes/regexes/exclude + `include_web_forms` + NONE + merge 전역∪도메인) + `ApiHintMatcher`(세그먼트경계 prefix·full-match regex·컴파일 캐시·개수/길이 상한·비공백/'/'시작 검증·ReDoS deadline 50ms)
+- [x] 게이트 `ApiScorer.evaluate→Gate`(exclude→hint admit→web-form→score), Classifier ADMIT만 Shadow, 하위호환(2-arg score/3-arg classify→NONE 위임)
+> 후속(TODO 유지): 설정 저장(DB)·중앙 API(`GET/PUT /classification`)·non_api dropped 메트릭
