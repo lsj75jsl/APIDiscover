@@ -8,6 +8,33 @@
 
 ## TODO
 
+### API 후보 점수화 모델 + 프로파일 (08 문서, **린 채택** — 평가 완료)
+> 전체 복제 아님. 우리 가용 신호만으로 린하게. 가중치는 **잠정값**이며 **보정 선행** 후 적용.
+- [ ] **(선행) 가중치 보정**: 실 Loki 샘플 라벨링(API/비API) → 잠정 가중치 검증 → 임계/가중치 조정
+- [ ] `ApiScorer` — 가용 신호 가산식 점수(clamp 0..1), Classifier 앞단 게이트
+- [ ] 신호 추출: path prefix/regex, path shape(api/version/id/graphql/machine), write_method, query,
+      non_browser_ua(UA 클래스), `$type` 기반 html/static penalty, repeat_observation_bonus
+- [ ] 프로파일 `high/middle/low/custom` (threshold + weight preset), custom 만 override 허용
+- [ ] api_confidence(후보성) vs shadow/zombie confidence(실재성) 역할 분리 명확화 (08 §6)
+- [ ] `min_api_confidence` 게이트 → API 후보만 매칭/분류 대상, 미만은 `dropped(not_api)` 집계
+- [ ] explicit hint 모드 vs pathless strict 모드 분기 (둘 다 비면 pathless, 보수적)
+- [ ] 기존 `EndpointKindClassifier`(static/web_page)를 점수 penalty 입력으로 흡수, Classifier 연동
+- [ ] 매처 설정: `api_path_prefixes`/`api_path_regexes`/`exclude_path_prefixes` (compile·상한, ReDoS 타임아웃, exclude 최우선)
+- [ ] include/exclude 매처 전역+도메인 합집합 병합, `include_web_forms` 토글
+- [ ] 설정 저장: 전역 classification(DB 단일 레코드) + 도메인 override, 병합 규칙(profile/scalar/weight)
+- [ ] 중앙 API: `GET/PUT /classification`(전역), `GET/PUT /domains/{host}/classification`(도메인, effective 노출)
+- [ ] non_api dropped observation 메트릭
+
+### 보류 (08 §9 — 현 시점 미채택)
+- [ ] (보류) endpoint decision cache — 배치 재집계 구조라 이득 작음, 필요 시 재검토
+- [ ] (보류) 참고 설계의 정확한 가중치 값 — 우리 데이터 보정 후 확정
+- [ ] (확장) `$type` taxonomy 에서 API성 값(xhr/json) 확인 시 `response_type_api` 양성 가중치 추가
+
+### 정규화 고카디널리티 방지 (02/08 통합)
+- [ ] 통계적 `{var}` 승격 + 도메인 endpoint template 상한 + endpoint별 param/field 상한, 초과 시 `dropped_limit`
+- [ ] 파라미터 후보(body 없음 → query/path만): query param name/presence/length bucket, path param 후보
+- [ ] sensitive key matcher (query key 저장 시 마스킹/제외)
+
 ### 스펙 파서 / Spec Store (03 문서)
 - [ ] `PostmanSpecParser` 실구현 (item 트리 DFS, url.path join, `:var`/`{{var}}`→`{var}`, `[DEPRECATED]` 규약)
 - [ ] `CsvSpecParser` 실구현 (헤더 검증, deprecated 파싱, `:var`→`{var}`)

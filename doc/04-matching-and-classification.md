@@ -3,6 +3,11 @@
 컴포넌트 (D) Matching Engine, (E) Classifier 의 상세 설계.
 **문서 기반 Shadow/Zombie 탐지의 핵심 로직.**
 
+> **전제(doc/08)**: Classifier 앞단에 **ApiScorer 게이트**가 있다. discovered endpoint 의
+> API 후보 점수가 `min_api_confidence` 미만이면 분류 대상에서 제외(`dropped not_api`)된다.
+> 즉 아래 매칭/분류는 **API 후보로 통과한 endpoint** 에만 적용된다.
+> 기존 endpoint_kind(static/web_page) 범주 제외는 점수 모델의 감점 신호로 흡수된다.
+
 ## 1. 매처 컴파일 (문서 템플릿 → 매처)
 
 집합 S(CanonicalEndpoint)의 각 템플릿을 빠른 매칭용 구조로 변환.

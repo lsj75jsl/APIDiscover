@@ -56,6 +56,18 @@ base: `/api/v1`. 인증은 §5. 응답은 JSON.
 | `GET` | `/domains/{host}/spec` | 현재 스펙 메타(format, specVersion, endpointCount, uploadedAt, warnings) |
 | `GET` | `/domains/{host}/spec/raw` | (선택) 저장된 원본 문서 다운로드 |
 
+#### 분류 설정 튜닝 API (doc/08 — 미탐/과탐 조정)
+운영자가 중앙에서 **전역·도메인별 프로파일과 가중치**를 조정해 API Discovery 정확도를 튜닝한다.
+| Method | Path | 설명 |
+|---|---|---|
+| `GET` | `/classification` | 시스템 전역 분류 설정 조회 |
+| `PUT` | `/classification` | 전역 분류 설정(profile/min_api_confidence/weights/path matchers) |
+| `GET` | `/domains/{host}/classification` | 도메인 override + effective(병합 결과) 조회 |
+| `PUT` | `/domains/{host}/classification` | 도메인 override 설정 |
+
+> 설정 항목·병합 규칙·프로파일(high/middle/low/custom)은 doc/08 §4~§5. `custom` 일 때만
+> `min_api_confidence`·`weights.*` 가 도메인에서 override 된다.
+
 도메인 설정 모델(예):
 ```jsonc
 {
@@ -117,7 +129,7 @@ base: `/api/v1`. 인증은 §5. 응답은 JSON.
 | 구분 | 항목 | 위치/방식 |
 |---|---|---|
 | **정적(인프라)** | Loki addr/auth/job 라벨/타임아웃, **부하 보호값(chunk-window·page-limit·동시성·스로틀·백오프)**, 전역 인터벌, ingest_lag, backfill, 중앙 서버 URL/인증 | `application.yml` + **ConfigMap/Secret**(또는 Spring Cloud Config). `@ConfigurationProperties` 바인딩 |
-| **동적(운영)** | 대상 도메인, 도메인별 **hostnames(엣지 서버)**, 스펙, 인터벌 override, enabled | 중앙 API(§3.1) → **DB 저장**. 런타임 변경 |
+| **동적(운영)** | 대상 도메인, 도메인별 **hostnames(엣지 서버)**, 스펙, 인터벌 override, enabled, **분류 설정(profile/weights/path matchers, doc/08)** | 중앙 API(§3.1) → **DB 저장**. 런타임 변경 |
 
 `application.yml` (정적) 예:
 ```yaml
