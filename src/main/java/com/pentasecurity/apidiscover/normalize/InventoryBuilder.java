@@ -14,6 +14,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -78,7 +79,7 @@ public class InventoryBuilder {
         if (ua == null) {
             return false;
         }
-        String u = ua.toLowerCase();
+        String u = ua.toLowerCase(Locale.ROOT);
         for (String s : SDK_UA) {
             if (u.contains(s)) {
                 return true;

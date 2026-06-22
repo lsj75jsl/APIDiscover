@@ -50,6 +50,7 @@
 ### 분류 (04 문서)
 - [ ] 버전 기반 Zombie 추정 (04 §5, deprecated 미표기 구버전)
 - [ ] Zombie severity 산정
+- [ ] (한계) preflight vs 진짜 OPTIONS 구분 불가로 스펙 OPTIONS operation Unused 오판 가능
 
 ### 리포트/출력 (01 문서)
 - [ ] `low_confidence` 분리 노출, `spec_source.warnings` 리포트 반영

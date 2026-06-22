@@ -136,8 +136,12 @@ public class DiscoveryJobService {
         // (B) 인벤토리 → (E) 분류 → (F) 리포트
         List<DiscoveredEndpoint> discovered = inventoryBuilder.build(requests, matcher);
         List<Finding> findings = classifier.classify(discovered, spec, matcher);
+        // OPTIONS 는 CORS 신호로만 쓰고 보고에서 제외되므로 인벤토리 카운트에서도 뺀다 (과대집계 방지)
+        long reportedCount = discovered.stream()
+                .filter(d -> !"OPTIONS".equalsIgnoreCase(d.method()))
+                .count();
         DiscoveryReport report =
-                reportBuilder.build(host, specVersion, window, discovered.size(), findings);
+                reportBuilder.build(host, specVersion, window, (int) reportedCount, findings);
 
         return persist(host, report);
     }

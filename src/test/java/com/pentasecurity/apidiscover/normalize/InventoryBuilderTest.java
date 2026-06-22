@@ -29,6 +29,11 @@ class InventoryBuilderTest {
                 "ua", Instant.EPOCH, respMs, 100, true, null, type, null);
     }
 
+    private static ParsedRequest reqUa(String path, String userAgent) {
+        return new ParsedRequest("GET", path, List.of(), 200, HOST, "a",
+                userAgent, Instant.EPOCH, 10, 100, true, null, null, null);
+    }
+
     @Test
     void aggregatesConcretePathsIntoOneTemplateHeuristically() {
         List<ParsedRequest> reqs = List.of(
@@ -95,6 +100,39 @@ class InventoryBuilderTest {
                 .isEqualTo(com.pentasecurity.apidiscover.model.EndpointKind.STATIC);
         assertThat(byTemplate.get("/api/orders").endpointKind())
                 .isEqualTo(com.pentasecurity.apidiscover.model.EndpointKind.API_CANDIDATE);
+    }
+
+    @Test
+    void flagsNonBrowserUaWhenSdkClientsAreMajority() {
+        // 3건 중 SDK 2건 → sdkUaCount*2=4 >= hits=3 → nonBrowserUa=true
+        List<ParsedRequest> reqs = List.of(
+                reqUa("/items/1", "okhttp/4.9"),
+                reqUa("/items/2", "python-requests/2.31"),
+                reqUa("/items/3", "Mozilla/5.0 (browser)"));
+
+        assertThat(builder.build(reqs, null)).singleElement()
+                .satisfies(e -> assertThat(e.nonBrowserUa()).isTrue());
+    }
+
+    @Test
+    void nonBrowserUaBoundaryIsInclusiveAtExactlyHalf() {
+        // 정확히 50%: SDK 2 / 전체 4 → sdkUaCount*2=4 == hits=4 → 포함(>=)이라 true
+        List<ParsedRequest> half = List.of(
+                reqUa("/items/1", "curl/8.0"),
+                reqUa("/items/2", "axios/1.6"),
+                reqUa("/items/3", "Mozilla/5.0 (browser)"),
+                reqUa("/items/4", "Mozilla/5.0 (browser)"));
+        assertThat(builder.build(half, null)).singleElement()
+                .satisfies(e -> assertThat(e.nonBrowserUa()).isTrue());
+
+        // 50% 미만: SDK 1 / 전체 4 → sdkUaCount*2=2 < hits=4 → false
+        List<ParsedRequest> minority = List.of(
+                reqUa("/items/1", "curl/8.0"),
+                reqUa("/items/2", "Mozilla/5.0 (browser)"),
+                reqUa("/items/3", "Mozilla/5.0 (browser)"),
+                reqUa("/items/4", "Mozilla/5.0 (browser)"));
+        assertThat(builder.build(minority, null)).singleElement()
+                .satisfies(e -> assertThat(e.nonBrowserUa()).isFalse());
     }
 
     @Test

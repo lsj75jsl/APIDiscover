@@ -2,6 +2,7 @@
 package com.pentasecurity.apidiscover.classify;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 
 import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
 import com.pentasecurity.apidiscover.model.EndpointKind;
@@ -65,5 +66,66 @@ class ApiScorerTest {
         assertThat(new ApiScorer(ApiScorer.Profile.MIDDLE).isApiCandidate(d, false)).isFalse();
         assertThat(new ApiScorer(ApiScorer.Profile.LOW).isApiCandidate(d, false)).isTrue();
         assertThat(new ApiScorer(ApiScorer.Profile.HIGH).threshold()).isEqualTo(0.85);
+    }
+
+    @Test
+    void scoreHandlesNullFieldsSafely() {
+        // host=null — LogLineParser 가 host 미존재 시 null 을 넘길 수 있음(F_HOST/F_REAL_HOST 모두 '-')
+        var m = new DiscoveredEndpoint.Metrics(10, Instant.EPOCH, Instant.EPOCH, Map.of("2xx", 10L), 1, 1, 1);
+        var nullHost = new DiscoveredEndpoint("GET null /users/{id}", "GET", null, "/users/{id}",
+                TemplateSource.INFERRED, EndpointKind.UNKNOWN, 0.0, false, false, m);
+        assertThatCode(() -> middle.score(nullHost, false)).doesNotThrowAnyException();
+
+        // template=null — segments() 가 빈 배열로 안전 처리
+        var nullTemplate = new DiscoveredEndpoint("GET api.example.com null", "GET", "api.example.com", null,
+                TemplateSource.INFERRED, EndpointKind.UNKNOWN, 0.0, false, false, m);
+        assertThatCode(() -> middle.score(nullTemplate, false)).doesNotThrowAnyException();
+
+        // metrics=null — repeat 신호 분기에서 null 가드
+        var nullMetrics = new DiscoveredEndpoint("GET api.example.com /x", "GET", "api.example.com", "/x",
+                TemplateSource.INFERRED, EndpointKind.UNKNOWN, 0.0, false, false, null);
+        assertThatCode(() -> middle.score(nullMetrics, false)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void scoreClampsToUpperBound() {
+        // 모든 양성 신호 + CORS → 가산합이 1.0 을 넘어 상한 clamp
+        var d = de("api.example.com", "POST", "/api/v1/users/{id}", EndpointKind.API_CANDIDATE, 100, true, true);
+        assertThat(middle.score(d, true)).isEqualTo(1.0);
+    }
+
+    @Test
+    void scoreClampsToLowerBound() {
+        // static penalty 만(양성 신호 없음, repeat 미달) → 음수합이 하한 clamp
+        var d = de("www.example.com", "GET", "/lib/app.js", EndpointKind.STATIC, 2, false, false);
+        assertThat(middle.score(d, false)).isEqualTo(0.0);
+    }
+
+    @Test
+    void individualSignalsContributeTheirWeight() {
+        // 중립 베이스라인: www host + 무신호 경로 + repeat 미달(hits<3) → 0.0
+        var base = de("www.example.com", "GET", "/x", EndpointKind.UNKNOWN, 2, false, false);
+        assertThat(middle.score(base, false)).isEqualTo(0.0);
+
+        // query 신호 (MIDDLE 0.12)
+        assertThat(middle.score(
+                de("www.example.com", "GET", "/x", EndpointKind.UNKNOWN, 2, true, false), false))
+                .isEqualTo(0.12);
+        // non_browser_ua(SDK) 신호 (MIDDLE 0.24)
+        assertThat(middle.score(
+                de("www.example.com", "GET", "/x", EndpointKind.UNKNOWN, 2, false, true), false))
+                .isEqualTo(0.24);
+        // version segment v\d+ (MIDDLE 0.26)
+        assertThat(middle.score(
+                de("www.example.com", "GET", "/v1", EndpointKind.UNKNOWN, 2, false, false), false))
+                .isEqualTo(0.26);
+        // graphql segment (MIDDLE 0.55)
+        assertThat(middle.score(
+                de("www.example.com", "GET", "/graphql", EndpointKind.UNKNOWN, 2, false, false), false))
+                .isEqualTo(0.55);
+        // machine endpoint (MIDDLE 0.20)
+        assertThat(middle.score(
+                de("www.example.com", "GET", "/health", EndpointKind.UNKNOWN, 2, false, false), false))
+                .isEqualTo(0.20);
     }
 }

@@ -49,6 +49,8 @@ public class Classifier {
         // --- 1차: 관찰 측(D) ---
         for (DiscoveredEndpoint d : discovered) {
             // OPTIONS 는 CORS preflight 신호로만 쓰고 그 자체는 보고하지 않는다
+            // (한계) preflight 와 진짜 OPTIONS operation 을 구분할 수 없어, 스펙에 OPTIONS 가 정의돼 있으면
+            //        매칭 전 skip 되어 observed 로 잡히지 않고 2차에서 Unused 로 오판될 수 있다 (doc/TASKS 분류)
             if ("OPTIONS".equalsIgnoreCase(d.method())) {
                 continue;
             }
@@ -122,8 +124,8 @@ public class Classifier {
 
     /** 문서/관찰 엔드포인트의 매칭 동일성 키. host=null 은 host-agnostic("*"). */
     private static String key(CanonicalEndpoint e) {
-        String host = (e.host() == null) ? "*" : e.host().toLowerCase();
-        return e.method().toUpperCase() + "|" + host + "|" + e.pathTemplate();
+        String host = (e.host() == null) ? "*" : e.host().toLowerCase(Locale.ROOT);
+        return e.method().toUpperCase(Locale.ROOT) + "|" + host + "|" + e.pathTemplate();
     }
 
     /** CORS 신호용 host+template 키 (method 무관 — sibling 메서드에 신호 전파). */

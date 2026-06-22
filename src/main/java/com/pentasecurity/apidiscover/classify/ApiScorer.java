@@ -87,7 +87,7 @@ public class ApiScorer {
         if (anyIn(segs, MACHINE)) {
             s += w.machineEndpoint();
         }
-        if (WRITE.contains(d.method().toUpperCase(Locale.ROOT))) {
+        if (d.method() != null && WRITE.contains(d.method().toUpperCase(Locale.ROOT))) {
             s += w.writeMethod();
         }
         if (d.hadQuery()) {
