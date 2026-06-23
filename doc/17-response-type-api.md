@@ -54,18 +54,20 @@
 
 ## 5. dev 구현 체크리스트 (8건)
 
+> ✅ **구현 완료 (PR 머지)** — 아래는 historical 체크리스트(2026-06-24 실제 머지 코드 대조 후 완료 표기). 잔여는 §'범위 밖/후속'·TASKS 참조.
+
 ### 수정 (ApiScorer 1파일)
-- [ ] `Weights` record — `responseTypeApi` 필드 추가(pathHint 뒤, threshold 앞).
-- [ ] `MIDDLE/HIGH/LOW` presets — 0.25 / 0.18 / 0.32 추가(1차값·캐비엇).
-- [ ] `WEIGHT_KEYS` — `"responseTypeApi"` 추가.
-- [ ] `applyOverrides` — `ov(...,"responseTypeApi", base.responseTypeApi())` 추가.
-- [ ] `score()` — 공통 섹션에 `endpointKind==API_CANDIDATE → += responseTypeApi`(양성-only).
+- [x] `Weights` record — `responseTypeApi` 필드 추가(pathHint 뒤, threshold 앞).
+- [x] `MIDDLE/HIGH/LOW` presets — 0.25 / 0.18 / 0.32 추가(1차값·캐비엇).
+- [x] `WEIGHT_KEYS` — `"responseTypeApi"` 추가.
+- [x] `applyOverrides` — `ov(...,"responseTypeApi", base.responseTypeApi())` 추가.
+- [x] `score()` — 공통 섹션에 `endpointKind==API_CANDIDATE → += responseTypeApi`(양성-only).
 
 ### 테스트
-- [ ] `ApiScorerTest` — API_CANDIDATE 가산(UNKNOWN 베이스라인 대비 차이=weight), **document(WEB_PAGE)/UNKNOWN/부재 무가산(비대칭)**,
+- [x] `ApiScorerTest` — API_CANDIDATE 가산(UNKNOWN 베이스라인 대비 차이=weight), **document(WEB_PAGE)/UNKNOWN/부재 무가산(비대칭)**,
       STATIC 은 penalty 만(responseTypeApi 미발화·상호배타), customWeights "responseTypeApi" 수용+적용, 기존 API_CANDIDATE exact-score 단언 갱신.
-- [ ] (가벼운) effective/REST — customWeights 에 responseTypeApi PUT→effective weights 반영(검증 통과). 컨트롤러/리졸버 무변경 회귀 green.
-- [ ] grep — 직접 `new Weights(...)` 하는 테스트/코드 전수 갱신(필드수 변경), 전체 스위트 green.
+- [x] (가벼운) effective/REST — customWeights 에 responseTypeApi PUT→effective weights 반영(검증 통과). 컨트롤러/리졸버 무변경 회귀 green.
+- [x] grep — 직접 `new Weights(...)` 하는 테스트/코드 전수 갱신(필드수 변경), 전체 스위트 green.
 
 ## 6. 범위 밖 / 후속
 

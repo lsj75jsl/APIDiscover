@@ -137,31 +137,33 @@ List<Finding> findings = classifier.classify(discovered, spec, matcher, eff.scor
 
 ## 7. dev 구현 체크리스트 (16건)
 
+> ✅ **구현 완료 (PR 머지)** — 아래는 historical 체크리스트(2026-06-24 실제 머지 코드 대조 후 완료 표기). 잔여는 §'범위 밖/후속'·TASKS 참조.
+
 ### 신규
-- [ ] `ClassificationProfile` enum (HIGH/MIDDLE/LOW/CUSTOM).
-- [ ] `ClassificationConfig` 엔티티(전역, 고정 PK=1L) + `ClassificationConfigRepository`.
-- [ ] `DomainClassificationConfig` 엔티티(host PK) + `DomainClassificationConfigRepository`.
-- [ ] `EffectiveClassification` record(profile/weights/matcher/scorer/hints).
-- [ ] `EffectiveClassificationResolver` `@Service` — 로드→§3 병합→§5 default·정규화→scorer/hints. JSON fail-fast.
+- [x] `ClassificationProfile` enum (HIGH/MIDDLE/LOW/CUSTOM).
+- [x] `ClassificationConfig` 엔티티(전역, 고정 PK=1L) + `ClassificationConfigRepository`.
+- [x] `DomainClassificationConfig` 엔티티(host PK) + `DomainClassificationConfigRepository`.
+- [x] `EffectiveClassification` record(profile/weights/matcher/scorer/hints).
+- [x] `EffectiveClassificationResolver` `@Service` — 로드→§3 병합→§5 default·정규화→scorer/hints. JSON fail-fast.
       (invalidate hook 은 시그니처만, 호출 배선은 후속.)
-- [ ] (선택) default 전역 레코드 idempotent seed(`CommandLineRunner`). resolver 는 부재도 무회귀(필수).
+- [x] (선택) default 전역 레코드 idempotent seed(`CommandLineRunner`). resolver 는 부재도 무회귀(필수).
 
 ### 수정
-- [ ] `ApiScorer`: `public ApiScorer(Weights)` ctor + `public Weights weights()` + `public static Weights presetWeights(Profile)`
+- [x] `ApiScorer`: `public ApiScorer(Weights)` ctor + `public Weights weights()` + `public static Weights presetWeights(Profile)`
       + `static Weights applyOverrides(base, Map<String,Double>, Double thresholdOverride)`(13 double+threshold 재구성, repeatMinCount=base).
-- [ ] `Classifier`: 5-arg `classify(...,ApiScorer scorer, ApiHintMatcher hints)` 오버로드, 기존 오버로드 위임.
-- [ ] `DiscoveryJobService`: resolver 주입 + analyze 139-141 교체(§6).
+- [x] `Classifier`: 5-arg `classify(...,ApiScorer scorer, ApiHintMatcher hints)` 오버로드, 기존 오버로드 위임.
+- [x] `DiscoveryJobService`: resolver 주입 + analyze 139-141 교체(§6).
 
 ### 테스트
-- [ ] `ClassificationConfigRepositoryTest` / `DomainClassificationConfigRepositoryTest` — 단일행 upsert, host 조회, 부재.
-- [ ] `EffectiveClassificationResolverTest`(핵심) — 무회귀(전역·도메인 부재→MIDDLE/0.70, WEB_PAGE+POST 무강신호가 DROP_WEB_FORM 아님),
+- [x] `ClassificationConfigRepositoryTest` / `DomainClassificationConfigRepositoryTest` — 단일행 upsert, host 조회, 부재.
+- [x] `EffectiveClassificationResolverTest`(핵심) — 무회귀(전역·도메인 부재→MIDDLE/0.70, WEB_PAGE+POST 무강신호가 DROP_WEB_FORM 아님),
       default seed=무회귀, HIGH→HIGH/0.85, threshold precedence(도메인>전역>preset), preset 에서도 threshold override,
       preset 은 weights override 무시, domain profile override(MIDDLE+LOW→LOW), CUSTOM weights merge(base+global+domain),
       matcher 합집합(apiHinted/excluded union), includeWebForms(도메인 false>전역 / 둘 부재→true).
-- [ ] JSON 라운드트립 — `MatcherConfig`(lists+nullable includeWebForms)·custom weights map 왕복, 손상 JSON→fail-fast.
-- [ ] `ApiScorer` 추가 — `ApiScorer(Weights)`/`weights()`/`presetWeights`/`applyOverrides`(override 키만, 나머지 MIDDLE).
-- [ ] `Classifier` 5-arg — 전달 scorer 결정(LOW scorer 가 MIDDLE 탈락 케이스 admit), 기존 3/4-arg 불변.
-- [ ] `DiscoveryJobService` analyze — resolver 경유 배선 + default 시 동작 불변(무회귀).
+- [x] JSON 라운드트립 — `MatcherConfig`(lists+nullable includeWebForms)·custom weights map 왕복, 손상 JSON→fail-fast.
+- [x] `ApiScorer` 추가 — `ApiScorer(Weights)`/`weights()`/`presetWeights`/`applyOverrides`(override 키만, 나머지 MIDDLE).
+- [x] `Classifier` 5-arg — 전달 scorer 결정(LOW scorer 가 MIDDLE 탈락 케이스 admit), 기존 3/4-arg 불변.
+- [x] `DiscoveryJobService` analyze — resolver 경유 배선 + default 시 동작 불변(무회귀).
       **주의**: `DiscoveryJobServiceTest`(line 44~) 가 12-arg 수동 생성자로 service 를 만든다 → resolver 인자 추가로
       **컴파일 깨짐**. mock 리포 2개(빈 결과 반환) 주입한 실제 resolver 로 갱신하면 무회귀 default 유지(기존 테스트 green).
 

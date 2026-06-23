@@ -74,23 +74,25 @@
 
 ## 6. dev 구현 체크리스트 (11건)
 
+> ✅ **구현 완료 (PR 머지)** — 아래는 historical 체크리스트(2026-06-24 실제 머지 코드 대조 후 완료 표기). 잔여는 §'범위 밖/후속'·TASKS 참조.
+
 ### 공유(신규)
-- [ ] `spec/SpecNormalize` — `template(raw)`(`:var`/`{{var}}`→`{var}`·슬래시 규칙)·`host(raw)`. Postman/CSV 공용(가능하면 OpenApi 슬래시 위임).
-- [ ] `spec/SpecCanonicalizer` — `canonicalize(list)`: dedupe(method,host,template)+deprecated OR+안정정렬. SpecStore.upload parse 직후 적용.
+- [x] `spec/SpecNormalize` — `template(raw)`(`:var`/`{{var}}`→`{var}`·슬래시 규칙)·`host(raw)`. Postman/CSV 공용(가능하면 OpenApi 슬래시 위임).
+- [x] `spec/SpecCanonicalizer` — `canonicalize(list)`: dedupe(method,host,template)+deprecated OR+안정정렬. SpecStore.upload parse 직후 적용.
 
 ### 파서(수정)
-- [ ] `spec/PostmanSpecParser` 구현 — ObjectMapper 주입, item DFS(폴더 deprecated 전파), url object/string, path 변수 변환,
+- [x] `spec/PostmanSpecParser` 구현 — ObjectMapper 주입, item DFS(폴더 deprecated 전파), url object/string, path 변수 변환,
       host 변수→null, `[DEPRECATED]`/`(deprecated)`/description, sourceRef 이름경로, method/url 누락 skip+warn.
-- [ ] `spec/CsvSpecParser` 구현 — univocity header 추출·필수 헤더 검증, 행→endpoint, deprecated 파싱, `:var`→`{var}`, 따옴표/BOM, 불량행 skip+warn.
-- [ ] `spec/SpecStore` — parse 결과에 `SpecCanonicalizer.canonicalize` 적용(전 포맷 균일).
-- [ ] (선택) `spec/SpecFormatDetector` — Postman 스키마 host `schema.postman.com` 추가(무회귀 확인).
+- [x] `spec/CsvSpecParser` 구현 — univocity header 추출·필수 헤더 검증, 행→endpoint, deprecated 파싱, `:var`→`{var}`, 따옴표/BOM, 불량행 skip+warn.
+- [x] `spec/SpecStore` — parse 결과에 `SpecCanonicalizer.canonicalize` 적용(전 포맷 균일).
+- [x] (선택) `spec/SpecFormatDetector` — Postman 스키마 host `schema.postman.com` 추가(무회귀 확인).
 
 ### 테스트
-- [ ] `PostmanSpecParserTest` — 중첩 DFS, url 배열/문자열, `:var`/`{{var}}`→`{var}`, host 배열·`{{baseUrl}}`→null, `[DEPRECATED]` 이름/폴더상속/description, method 누락 skip, sourceRef.
-- [ ] `CsvSpecParserTest` — 필수 헤더 누락→예외, 행 변환, deprecated 전 표기, `:var`→`{var}`, 따옴표·내장콤마·BOM, host 빈값→null, header-only→빈, 불량행 skip.
-- [ ] `SpecFormatDetectorTest` — Postman(스키마 변형)·CSV·OpenAPI 라우팅, 미지원→예외(무회귀).
-- [ ] `SpecCanonicalizerTest` — dedupe·deprecated OR·안정 정렬.
-- [ ] `ThreeFormatEquivalenceTest` — 동일 논리 스펙 3종 → (method,host,template,deprecated,version) 동일(sourceRef 제외). 품질 항목 충족.
+- [x] `PostmanSpecParserTest` — 중첩 DFS, url 배열/문자열, `:var`/`{{var}}`→`{var}`, host 배열·`{{baseUrl}}`→null, `[DEPRECATED]` 이름/폴더상속/description, method 누락 skip, sourceRef.
+- [x] `CsvSpecParserTest` — 필수 헤더 누락→예외, 행 변환, deprecated 전 표기, `:var`→`{var}`, 따옴표·내장콤마·BOM, host 빈값→null, header-only→빈, 불량행 skip.
+- [x] `SpecFormatDetectorTest` — Postman(스키마 변형)·CSV·OpenAPI 라우팅, 미지원→예외(무회귀).
+- [x] `SpecCanonicalizerTest` — dedupe·deprecated OR·안정 정렬.
+- [x] `ThreeFormatEquivalenceTest` — 동일 논리 스펙 3종 → (method,host,template,deprecated,version) 동일(sourceRef 제외). 품질 항목 충족.
 
 ## 7. 범위 밖 / 후속
 
