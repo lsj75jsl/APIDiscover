@@ -4,6 +4,8 @@ package com.pentasecurity.apidiscover.classify;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -86,6 +88,7 @@ class EffectiveClassificationResolverTest {
         assertThat(resolver.resolve(HOST).scorer().threshold()).isEqualTo(0.60); // 도메인 승
 
         domain(domainCfg(null, null, null, null)); // 도메인 threshold 없음 → 전역
+        resolver.invalidate(HOST); // 설정 변경 시뮬레이션 → 캐시 무효화 후 재빌드 (doc/11 §3)
         assertThat(resolver.resolve(HOST).scorer().threshold()).isEqualTo(0.80);
     }
 
@@ -178,9 +181,11 @@ class EffectiveClassificationResolverTest {
 
     @Test
     void failsFastOnInvalidMatcherConfig() {
-        // 빈 prefix → ApiHintMatcher 빌드 시 IllegalArgumentException (조용히 default 금지)
+        // 빈 prefix → ApiHintMatcher 빌드 IAE 가 '저장 손상' 으로 ISE 래핑(cause 보존, doc/11 §2 P3-1)
         global(globalCfg(ClassificationProfile.MIDDLE, null, null, "{\"apiPathPrefixes\":[\"\"]}"));
-        assertThatThrownBy(() -> resolver.resolve(HOST)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> resolver.resolve(HOST))
+                .isInstanceOf(IllegalStateException.class)
+                .hasCauseInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
@@ -192,22 +197,51 @@ class EffectiveClassificationResolverTest {
 
     @Test
     void presetProfileRejectsUnknownWeightKey() {
-        // P2-1/P3-1: preset 라도 오타 키 reject (always-validate)
+        // 저장된 오타 키 → 검증 IAE 가 ISE 로 래핑(저장 손상=서버오류, doc/11 §2 P3-1)
         global(globalCfg(ClassificationProfile.MIDDLE, null, "{\"apiSegmnet\":0.5}", null));
-        assertThatThrownBy(() -> resolver.resolve(HOST)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> resolver.resolve(HOST)).isInstanceOf(IllegalStateException.class);
     }
 
     @Test
     void rejectsGlobalThresholdOutOfRange() {
-        // P3-2: 범위 밖 threshold → throw
+        // 저장된 범위 밖 threshold → ISE 래핑
         global(globalCfg(ClassificationProfile.MIDDLE, 2.0, null, null));
-        assertThatThrownBy(() -> resolver.resolve(HOST)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> resolver.resolve(HOST)).isInstanceOf(IllegalStateException.class);
     }
 
     @Test
     void rejectsDomainThresholdOutOfRange() {
         domain(domainCfg(null, -1.0, null, null));
-        assertThatThrownBy(() -> resolver.resolve(HOST)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> resolver.resolve(HOST)).isInstanceOf(IllegalStateException.class);
+    }
+
+    // --- 캐시 (doc/11 §3) ---
+
+    @Test
+    void resolveCachesPerHostUntilInvalidated() {
+        resolver.resolve(HOST);
+        resolver.resolve(HOST); // 캐시 히트 → 재빌드(repo 조회) 없음
+        verify(globalRepo, times(1)).findById(1L);
+        verify(domainRepo, times(1)).findById(HOST);
+
+        resolver.invalidate(HOST); // 도메인 무효화 → 재빌드
+        resolver.resolve(HOST);
+        verify(globalRepo, times(2)).findById(1L);
+        verify(domainRepo, times(2)).findById(HOST);
+
+        resolver.invalidateAll(); // 전역 무효화 → 재빌드
+        resolver.resolve(HOST);
+        verify(globalRepo, times(3)).findById(1L);
+    }
+
+    @Test
+    void buildFailureIsNotCached() {
+        // computeIfAbsent mappingFunction throw → 미저장(poisoning 없음). 설정 교정 후 정상.
+        global(globalCfg(ClassificationProfile.MIDDLE, 2.0, null, null)); // 범위 밖 → throw(ISE 래핑)
+        assertThatThrownBy(() -> resolver.resolve(HOST)).isInstanceOf(IllegalStateException.class);
+
+        global(globalCfg(ClassificationProfile.MIDDLE, 0.80, null, null)); // 교정
+        assertThat(resolver.resolve(HOST).scorer().threshold()).isEqualTo(0.80); // 재시도 성공(캐시 오염 없음)
     }
 
     // --- helpers ---

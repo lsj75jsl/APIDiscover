@@ -5,6 +5,23 @@
 
 ---
 
+## 2026-06-23 세션 8 — 분류 설정 중앙 REST API + effective 캐시 활성화 (doc/11 §6, DECISIONS D18)
+
+### 한 일
+- **신규**: `api/dto/ClassificationDtos`(5 record — ClassificationUpsert/GlobalClassificationView/DomainClassificationView/OverrideView/EffectiveView, MatcherConfig·ApiScorer.Weights 재사용),
+  `api/ClassificationController`(`@RequestMapping("/api/v1")`, 4 엔드포인트 + 컨트롤러-로컬 `@ExceptionHandler(IAE)→400`/`@ExceptionHandler(ISE)→500` + DTO↔엔티티 JSON 왕복 + `DomainConfigRepository.existsById` 404 가드 + PUT 후 invalidate).
+- **수정**: `EffectiveClassificationResolver` — `ConcurrentHashMap` 캐시 + `resolve()=computeIfAbsent(host, build)`(본문 `build()` 추출),
+  `invalidate(host)=remove`/`invalidateAll()=clear` 실구현. `build()` 가 저장 설정 손상 IAE 를 `IllegalStateException`(cause 보존)으로 래핑(요청 검증 IAE→400 과 분리, 저장 손상→500).
+- **계약**: PUT=전체 교체(null=clear), 단일행 upsert. 전역 부재 GET→200 default, 도메인 override 부재→200 effective, 도메인 미등록→404. 스캔경로(DiscoveryJobService) 무변경(resolve 캐시 자동 경유).
+- **리뷰 2라운드**: ① 구현 9건 → ② P3 보강(저장 손상 500 매핑—Spring `@ExceptionHandler` cause-체인 매칭이 IAE핸들러로 400 오매핑하던 것을 직접 ISE 핸들러로 차단, PUT clear 회귀, 전역 GET round-trip). 전건 해소.
+- 테스트: `ClassificationControllerTest`(@SpringBootTest+MockMvc, 운영 Loki 는 `@MockBean LokiClient` 로 차단) 15건 + resolver 캐시 단위 2건.
+
+### 결과
+- BUILD SUCCESSFUL, **tests=164 skipped=1(라이브) failures=0**. 하위호환 유지(기존 테스트 전건 보존).
+
+### 다음
+- 후속(TODO): 서비스간 인증(permitAll)·non_api dropped 메트릭·repeatMinCount override·HA cross-instance 캐시 무효화(pub-sub/TTL).
+
 ## 2026-06-23 세션 7 — 분류 설정 DB 저장 + effective 병합 (doc/10 §7, DECISIONS D17)
 
 ### 한 일
