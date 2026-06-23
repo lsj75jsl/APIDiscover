@@ -68,20 +68,22 @@ EndpointMatcher matcher = matcherCache.get(host, specVersion, () -> new Endpoint
 
 ## 5. dev 구현 체크리스트 (7건)
 
+> ✅ **구현 완료 (PR 머지)** — 아래는 historical 체크리스트(2026-06-24 실제 머지 코드 대조 후 완료 표기). 잔여는 §'범위 밖/후속'·TASKS 참조.
+
 ### 신규
-- [ ] `match/EndpointMatcherCache`(@Component) — `ConcurrentHashMap<String,VersionedMatcher>` + `get(host,specVersion,Supplier)`(compute, 버전체크)
+- [x] `match/EndpointMatcherCache`(@Component) — `ConcurrentHashMap<String,VersionedMatcher>` + `get(host,specVersion,Supplier)`(compute, 버전체크)
       + `invalidate(host)`/`invalidateAll()` + `record VersionedMatcher(long specVersion, EndpointMatcher matcher)`.
 
 ### 수정
-- [ ] `spec/SpecStore` — 생성자에 `EndpointMatcherCache` 주입, `upload` 의 :81 TODO 를 `matcherCache.invalidate(host)` 로 대체(save 후).
-- [ ] `batch/DiscoveryJobService` — 생성자에 캐시 주입, `analyze:140` 을 `matcherCache.get(host, specVersion, () -> new EndpointMatcher(spec))` 로 교체.
+- [x] `spec/SpecStore` — 생성자에 `EndpointMatcherCache` 주입, `upload` 의 :81 TODO 를 `matcherCache.invalidate(host)` 로 대체(save 후).
+- [x] `batch/DiscoveryJobService` — 생성자에 캐시 주입, `analyze:140` 을 `matcherCache.get(host, specVersion, () -> new EndpointMatcher(spec))` 로 교체.
 
 ### 테스트
-- [ ] `EndpointMatcherCacheTest` — hit(supplier 1회·동일 인스턴스), version miss(v1→v2 재빌드·stale 미서빙), invalidate 후 재빌드,
+- [x] `EndpointMatcherCacheTest` — hit(supplier 1회·동일 인스턴스), version miss(v1→v2 재빌드·stale 미서빙), invalidate 후 재빌드,
       poisoning-free(supplier throw→미저장→재시도), specVersion=0, (선택) 동시 get.
-- [ ] `SpecStore` — upload 시 `invalidate(host)` 호출 검증(spy/mock).
-- [ ] `DiscoveryJobService` — analyze 가 `get(host, specVersion, supplier)` 경유 + 결과(findings/ETag) 무회귀. 수동 생성자 인자 갱신.
-- [ ] (통합) spec v1 스캔 → v2 업로드 → 재스캔이 새 매처 반영(stale 없음).
+- [x] `SpecStore` — upload 시 `invalidate(host)` 호출 검증(spy/mock).
+- [x] `DiscoveryJobService` — analyze 가 `get(host, specVersion, supplier)` 경유 + 결과(findings/ETag) 무회귀. 수동 생성자 인자 갱신.
+- [x] (통합) spec v1 스캔 → v2 업로드 → 재스캔이 새 매처 반영(stale 없음).
 
 ## 6. 범위 밖 / 후속
 

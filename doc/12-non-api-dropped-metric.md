@@ -83,26 +83,28 @@ model/DroppedNonApi(int excluded, int webForm, int lowScore)
 
 ## 5. dev 구현 체크리스트 (10건) — 브랜치 `feature/non-api-dropped-metric`
 
+> ✅ **구현 완료 (PR 머지)** — 아래는 historical 체크리스트(2026-06-24 실제 머지 코드 대조 후 완료 표기). 잔여는 §'범위 밖/후속'·TASKS 참조.
+
 ### 신규
-- [ ] `model/DroppedNonApi.java` — record(excluded/webForm/lowScore) + `@JsonProperty total()` 파생.
-- [ ] `classify/ClassificationResult.java` — record(List<Finding> findings, DroppedNonApi dropped).
+- [x] `model/DroppedNonApi.java` — record(excluded/webForm/lowScore) + `@JsonProperty total()` 파생.
+- [x] `classify/ClassificationResult.java` — record(List<Finding> findings, DroppedNonApi dropped).
 
 ### 수정
-- [ ] `classify/Classifier` — `classifyWithMetrics(...5-arg...)→ClassificationResult` 신규(게이트 89행 switch:
+- [x] `classify/Classifier` — `classifyWithMetrics(...5-arg...)→ClassificationResult` 신규(게이트 89행 switch:
       ADMIT→Shadow, DROP_EXCLUDED→excluded++, DROP_WEB_FORM→webForm++, DROP_LOW_SCORE→lowScore++).
       5-arg `classify→List` 는 `.findings()` 위임.
-- [ ] `model/DiscoveryReport` — top-level 필드 `DroppedNonApi droppedNonApi` 추가.
-- [ ] `report/ReportBuilder.build(...)` — `DroppedNonApi dropped` 파라미터 추가, DiscoveryReport 에 전달.
-- [ ] `batch/DiscoveryJobService.analyze` — `classifyWithMetrics` 전환, dropped 를 ReportBuilder 에 전달,
+- [x] `model/DiscoveryReport` — top-level 필드 `DroppedNonApi droppedNonApi` 추가.
+- [x] `report/ReportBuilder.build(...)` — `DroppedNonApi dropped` 파라미터 추가, DiscoveryReport 에 전달.
+- [x] `batch/DiscoveryJobService.analyze` — `classifyWithMetrics` 전환, dropped 를 ReportBuilder 에 전달,
       `persist` 의 ETag 입력에 `report.droppedNonApi()` 추가.
 
 ### 테스트
-- [ ] `Classifier` 사유별 카운트 — DROP_EXCLUDED/DROP_WEB_FORM/DROP_LOW_SCORE 각 1 + ADMIT(Shadow) 1 + spec 매칭 1
+- [x] `Classifier` 사유별 카운트 — DROP_EXCLUDED/DROP_WEB_FORM/DROP_LOW_SCORE 각 1 + ADMIT(Shadow) 1 + spec 매칭 1
       + OPTIONS 1 → dropped=(1,1,1)/total=3, findings Shadow 1, **OPTIONS·spec dropped 제외**. 불변식 검증.
-- [ ] `ReportBuilder` — droppedNonApi 임베드, 빈 결과→`(0,0,0)`(non-null).
-- [ ] `DiscoveryJobService` — reportJson 에 droppedNonApi 포함, **ETag 가 dropped 분포 변화 반영**(findings 동일·dropped 사유만
+- [x] `ReportBuilder` — droppedNonApi 임베드, 빈 결과→`(0,0,0)`(non-null).
+- [x] `DiscoveryJobService` — reportJson 에 droppedNonApi 포함, **ETag 가 dropped 분포 변화 반영**(findings 동일·dropped 사유만
       다른 두 스캔 → 다른 version), 기존 analyze 어서션 갱신(ETag 값 변동).
-- [ ] 하위호환 — 기존 `classify(...)→List` findings 동일(ClassifierTest green), `/result`·`/scan-status` 비파괴(추가 필드만).
+- [x] 하위호환 — 기존 `classify(...)→List` findings 동일(ClassifierTest green), `/result`·`/scan-status` 비파괴(추가 필드만).
 
 ## 6. 한계 / 후속
 

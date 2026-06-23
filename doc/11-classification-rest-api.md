@@ -103,24 +103,26 @@ invalidateAll()  = cache.clear();
 
 ## 6. dev 구현 체크리스트 (9건)
 
+> ✅ **구현 완료 (PR 머지)** — 아래는 historical 체크리스트(2026-06-24 실제 머지 코드 대조 후 완료 표기). 잔여는 §'범위 밖/후속'·TASKS 참조.
+
 ### 신규
-- [ ] `api/dto/ClassificationDtos.java` — 5 record(ClassificationUpsert/GlobalClassificationView/DomainClassificationView/
+- [x] `api/dto/ClassificationDtos.java` — 5 record(ClassificationUpsert/GlobalClassificationView/DomainClassificationView/
       OverrideView/EffectiveView). `MatcherConfig`·`ApiScorer.Weights` 재사용.
-- [ ] `api/ClassificationController.java` — 4 엔드포인트 + 컨트롤러-로컬 `@ExceptionHandler(IllegalArgumentException)→400`
+- [x] `api/ClassificationController.java` — 4 엔드포인트 + 컨트롤러-로컬 `@ExceptionHandler(IllegalArgumentException)→400`
       + DTO↔엔티티 매핑(objectMapper 로 JSON 컬럼 왕복) + 도메인 존재 404 가드 + PUT 후 invalidate 호출.
       의존: globalRepo·domainRepo·DomainConfigRepository·resolver·objectMapper.
 
 ### 수정
-- [ ] `EffectiveClassificationResolver` — `ConcurrentHashMap` 캐시 + `computeIfAbsent`, `invalidate`/`invalidateAll` 실구현
+- [x] `EffectiveClassificationResolver` — `ConcurrentHashMap` 캐시 + `computeIfAbsent`, `invalidate`/`invalidateAll` 실구현
       (현 no-op 대체). resolve 본문을 private `build(host)` 로 추출.
 
 ### 테스트 (@SpringBootTest + MockMvc 권장 — 실 resolver/H2 로 병합·캐시·검증 e2e)
-- [ ] 4 엔드포인트 happy-path — GET 전역(default/PUT 후), PUT 전역 upsert, GET 도메인(override+effective), PUT 도메인 upsert.
-- [ ] effective 노출 정확성 — 전역 CUSTOM+weights, 도메인 profile/threshold/matcher override → GET 도메인 effective 의
+- [x] 4 엔드포인트 happy-path — GET 전역(default/PUT 후), PUT 전역 upsert, GET 도메인(override+effective), PUT 도메인 upsert.
+- [x] effective 노출 정확성 — 전역 CUSTOM+weights, 도메인 profile/threshold/matcher override → GET 도메인 effective 의
       weights/threshold/matcher(합집합·정규화) 검증.
-- [ ] 400 검증 — unknown weight 키, threshold 범위 밖, 비유한 weight, 잘못된 matcher regex/상한 초과 → 400.
-- [ ] 부재/404 의미 — 전역 행 부재 GET→200 default, 도메인 override 부재 GET→200 effective, 도메인 미등록 GET/PUT→404.
-- [ ] invalidate 반영 — PUT 도메인 후 동일 host GET effective 즉시 반영(무효화), PUT 전역 후 전 호스트 반영.
+- [x] 400 검증 — unknown weight 키, threshold 범위 밖, 비유한 weight, 잘못된 matcher regex/상한 초과 → 400.
+- [x] 부재/404 의미 — 전역 행 부재 GET→200 default, 도메인 override 부재 GET→200 effective, 도메인 미등록 GET/PUT→404.
+- [x] invalidate 반영 — PUT 도메인 후 동일 host GET effective 즉시 반영(무효화), PUT 전역 후 전 호스트 반영.
       (가능하면 resolver 캐시 단위 테스트로 computeIfAbsent 히트/무효화 직접 검증.)
 
 ## 7. 한계 / 후속

@@ -131,33 +131,35 @@ doc/08 §7 "include/exclude 매처는 전역+도메인 합집합, exclude 최우
 
 ## 6. dev 구현 체크리스트 (12건)
 
+> ✅ **구현 완료 (PR 머지)** — 아래는 historical 체크리스트(2026-06-24 실제 머지 코드 대조 후 완료 표기). 잔여는 §'범위 밖/후속'·TASKS 참조.
+
 ### 신규
-- [ ] `model/MatcherConfig.java` (record) — 5필드 + `NONE` + `static merge(global, domain)`(§4).
-- [ ] `match/ApiHintMatcher.java` — effective `MatcherConfig` 로 생성, 빌드 시 상한 검증 + regex 컴파일(§3).
+- [x] `model/MatcherConfig.java` (record) — 5필드 + `NONE` + `static merge(global, domain)`(§4).
+- [x] `match/ApiHintMatcher.java` — effective `MatcherConfig` 로 생성, 빌드 시 상한 검증 + regex 컴파일(§3).
       메서드 `isExplicitHintMode()`, `apiHinted(template)`, `excluded(template)`, `includeWebForms()`.
       내부 ReDoS-guarded `matches()` 헬퍼 + 타임아웃 카운터(`AtomicLong`). 세그먼트-경계 prefix 매칭. `NONE` 상수.
-- [ ] `DeadlineCharSequence`(ApiHintMatcher private static) — `charAt()` 에서 nanoTime deadline 검사 → 초과 시 내부 예외.
+- [x] `DeadlineCharSequence`(ApiHintMatcher private static) — `charAt()` 에서 nanoTime deadline 검사 → 초과 시 내부 예외.
       `match()` 가 그 예외를 잡아 no-match 처리.
 
 ### 수정
-- [ ] `ApiScorer.Weights` — `pathHint` 필드 추가, MIDDLE 0.55 / HIGH 0.50 / LOW 0.65 (path_prefix=path_regex 동일 → 단일).
-- [ ] `ApiScorer.score(d, cors, ApiHintMatcher)` — explicit-hint 분기(§2.3). 기존 `score(d, cors)` 2-arg 는 `…, NONE` 위임
+- [x] `ApiScorer.Weights` — `pathHint` 필드 추가, MIDDLE 0.55 / HIGH 0.50 / LOW 0.65 (path_prefix=path_regex 동일 → 단일).
+- [x] `ApiScorer.score(d, cors, ApiHintMatcher)` — explicit-hint 분기(§2.3). 기존 `score(d, cors)` 2-arg 는 `…, NONE` 위임
       (pathless = 현행 동일, 기존 테스트 보존).
-- [ ] `ApiScorer.evaluate(d, cors, ApiHintMatcher) -> Gate` — §2.2 order 1~4. `isApiCandidate` 들은 evaluate==ADMIT 위임.
+- [x] `ApiScorer.evaluate(d, cors, ApiHintMatcher) -> Gate` — §2.2 order 1~4. `isApiCandidate` 들은 evaluate==ADMIT 위임.
       `Gate {ADMIT, DROP_EXCLUDED, DROP_WEB_FORM, DROP_LOW_SCORE}` 추가.
-- [ ] `Classifier.classify(discovered, spec, specMatcher, ApiHintMatcher)` — 게이트를 evaluate 로 교체, ADMIT 만 Shadow.
+- [x] `Classifier.classify(discovered, spec, specMatcher, ApiHintMatcher)` — 게이트를 evaluate 로 교체, ADMIT 만 Shadow.
       3-arg 레거시 오버로드는 `NONE` 위임(기존 테스트·호출부 보존).
-- [ ] `DiscoveryJobService` — effective `MatcherConfig` → `ApiHintMatcher` 생성·주입 지점. **설정 저장 전까지 `NONE`** 사용
+- [x] `DiscoveryJobService` — effective `MatcherConfig` → `ApiHintMatcher` 생성·주입 지점. **설정 저장 전까지 `NONE`** 사용
       (현행 불변) + TODO 주석.
 
 ### 테스트
-- [ ] `ApiHintMatcherTest`(신규) — 세그먼트 경계 prefix(`/api`✓ `/api/x`✓ `/apixyz`✗), regex full-match, exclude prefix/regex,
+- [x] `ApiHintMatcherTest`(신규) — 세그먼트 경계 prefix(`/api`✓ `/api/x`✓ `/apixyz`✗), regex full-match, exclude prefix/regex,
       `isExplicitHintMode`(exclude만 설정 시 false), 상한 위반 throw, 잘못된 regex throw,
       **ReDoS**(`(a+)+$` + 긴 입력 → `assertTimeout` 무행, no-match + 카운터), 입력 길이 상한, `NONE` 동작.
-- [ ] `MatcherConfigMergeTest`(신규) — list 합집합·dedup, includeWebForms 상속(도메인 null→전역, set→override).
-- [ ] `ApiScorerTest` 추가 — explicit-hint 모드 path-shape 비활성(이중계상 없음), **힌트 force-admit**(www `/api/x`, score<0.70 → ADMIT),
+- [x] `MatcherConfigMergeTest`(신규) — list 합집합·dedup, includeWebForms 상속(도메인 null→전역, set→override).
+- [x] `ApiScorerTest` 추가 — explicit-hint 모드 path-shape 비활성(이중계상 없음), **힌트 force-admit**(www `/api/x`, score<0.70 → ADMIT),
       **exclude force-drop**(api.* 고득점인데 DROP_EXCLUDED), exclude ∩ hint → DROP_EXCLUDED. 기존 2-arg 테스트 green 확인.
-- [ ] `ClassifierTest` 추가/점검 — exclude 미문서 경로 미보고, 힌트 미문서 경로 Shadow,
+- [x] `ClassifierTest` 추가/점검 — exclude 미문서 경로 미보고, 힌트 미문서 경로 Shadow,
       **spec 매칭 경로는 exclude/web-form/hint 우회**(Active),
       web-form(false+WEB_PAGE+POST, host/cors/hint 없음→DROP / 있으면 ADMIT / GET 은 drop 안 됨 / true 면 score 게이트),
       레거시 3-arg 오버로드 동작 불변.
