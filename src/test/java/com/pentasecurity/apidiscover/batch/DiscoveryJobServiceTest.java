@@ -12,6 +12,8 @@ import com.pentasecurity.apidiscover.classify.ApiScorer;
 import com.pentasecurity.apidiscover.classify.Classifier;
 import com.pentasecurity.apidiscover.classify.EffectiveClassificationResolver;
 import com.pentasecurity.apidiscover.config.ApiDiscoverProperties;
+import com.pentasecurity.apidiscover.config.NormalizationProperties;
+import com.pentasecurity.apidiscover.config.SensitiveKeyProperties;
 import com.pentasecurity.apidiscover.domain.ClassificationConfig;
 import com.pentasecurity.apidiscover.domain.ClassificationConfigRepository;
 import com.pentasecurity.apidiscover.domain.DomainClassificationConfigRepository;
@@ -26,9 +28,12 @@ import com.pentasecurity.apidiscover.ingest.LokiClient;
 import com.pentasecurity.apidiscover.ingest.LokiQueryBuilder;
 import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
 import com.pentasecurity.apidiscover.model.ParsedRequest;
+import com.pentasecurity.apidiscover.normalize.CardinalityNormalizer;
 import com.pentasecurity.apidiscover.normalize.EndpointKindClassifier;
 import com.pentasecurity.apidiscover.normalize.InventoryBuilder;
+import com.pentasecurity.apidiscover.normalize.ParamCandidateExtractor;
 import com.pentasecurity.apidiscover.normalize.PathNormalizer;
+import com.pentasecurity.apidiscover.normalize.SensitiveKeyMatcher;
 import com.pentasecurity.apidiscover.parse.LogLineParser;
 import com.pentasecurity.apidiscover.report.ReportBuilder;
 import com.pentasecurity.apidiscover.spec.SpecStore;
@@ -41,6 +46,7 @@ import org.junit.jupiter.api.Test;
 class DiscoveryJobServiceTest {
 
     private static final String HOST = "api.example.com";
+    private static final NormalizationProperties NORM = NormalizationProperties.defaults();
 
     private final SpecStore specStore = mock(SpecStore.class);
     private final ScanResultRepository scanRepo = mock(ScanResultRepository.class);
@@ -54,8 +60,10 @@ class DiscoveryJobServiceTest {
             new EffectiveClassificationResolver(globalClsRepo, domainClsRepo, objectMapper);
 
     private final DiscoveryJobService service = new DiscoveryJobService(
-            new LogLineParser(),
-            new InventoryBuilder(new PathNormalizer(), new EndpointKindClassifier()),
+            new LogLineParser(NORM),
+            new InventoryBuilder(new PathNormalizer(), new EndpointKindClassifier(),
+                    new CardinalityNormalizer(NORM),
+                    new ParamCandidateExtractor(new SensitiveKeyMatcher(SensitiveKeyProperties.defaults()), NORM)),
             specStore,
             new Classifier(new ApiScorer()),
             resolver,
@@ -186,6 +194,51 @@ class DiscoveryJobServiceTest {
         assertThat(b.shadow).isZero();
         assertThat(a.discovered).isEqualTo(b.discovered); // summary 동일
         assertThat(a.version).isNotEqualTo(b.version);     // dropped 분포 변화가 ETag 에 반영 (doc/12 §4)
+    }
+
+    @Test
+    void shadowParamCandidatesAppearInReportJson() {
+        when(specStore.activeMeta(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.findById(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.save(any(ScanResult.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // POST /api/orders/{id}?expand=full → ADMIT(Shadow). params(query expand + path {id})가 reportJson 까지 노출
+        ScanResult result = service.analyze(HOST, List.of(
+                line("POST", "/api/orders/1?expand=full", 200),
+                line("POST", "/api/orders/2?expand=full", 200),
+                line("POST", "/api/orders/3?expand=full", 200)), window);
+
+        assertThat(result.shadow).isEqualTo(1);
+        assertThat(result.reportJson)
+                .contains("\"params\"")
+                .contains("\"expand\"")           // query param 후보
+                .contains("\"token\":\"{id}\"");  // path param 후보 (PathParam 직렬화)
+    }
+
+    @Test
+    void templateCapSurfacesInReportJsonForEtag() {
+        when(specStore.activeMeta(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.findById(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.save(any(ScanResult.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // 상한 2 인 InventoryBuilder 로 별도 서비스 구성 → 3 distinct template → 1 drop
+        var capProps = new NormalizationProperties(2, 50, 0.3, 20, 0.7, new int[]{8, 32, 128});
+        var cappedInventory = new InventoryBuilder(new PathNormalizer(), new EndpointKindClassifier(),
+                new CardinalityNormalizer(capProps),
+                new ParamCandidateExtractor(new SensitiveKeyMatcher(SensitiveKeyProperties.defaults()), capProps));
+        var cappedService = new DiscoveryJobService(new LogLineParser(NORM), cappedInventory, specStore,
+                new Classifier(new ApiScorer()), resolver, new ReportBuilder(), scanRepo,
+                mock(DomainConfigRepository.class), mock(WatermarkRepository.class), mock(LokiClient.class),
+                mock(LokiQueryBuilder.class), objectMapper, props());
+
+        ScanResult result = cappedService.analyze(HOST, List.of(
+                line("GET", "/a/x", 200), line("GET", "/a/x", 200), line("GET", "/a/x", 200),
+                line("GET", "/b/x", 200), line("GET", "/b/x", 200),
+                line("GET", "/c/x", 200)), window);
+
+        // droppedByLimit 가 reportJson(=ETag 입력)에 임베드 → 상한 이벤트가 결과 콘텐츠에 반영 (doc/13 §4.2)
+        assertThat(result.reportJson).contains("\"droppedByLimit\"").contains("\"templates\":1");
+        assertThat(result.version).isNotBlank();
     }
 
     @Test

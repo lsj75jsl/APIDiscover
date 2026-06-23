@@ -5,6 +5,27 @@
 
 ---
 
+## 2026-06-23 세션 10 — 정규화 고카디널리티 방지 (T1 승격+상한 / T2 param 후보 / T3 sensitive) (doc/13 §5, DECISIONS D20)
+
+### 한 일
+- **T1**: `CardinalityNormalizer`(@Component) — 통계 {var} 승격(클러스터·distinct≥20·ratio≥0.3·수렴≥0.7 비지배+형제 재병합) +
+  host template 상한(5000, hits 낮은순 drop)→`DroppedByLimit`. `Acc` 를 package-private 톱레벨로 추출해 공유. `InventoryBuilder` 패스 3·4 통합.
+- **T2**: `ParsedRequest.queryKeys→queryParams`(값 폐기, `ValueLenBucket` 길이버킷만 — privacy-preserving 내부필드), `LogLineParser` 버킷화.
+  `ParamCandidates(query/path)`·`QueryParamObs`·`DiscoveredEndpoint.params`·`ParamCandidateExtractor`(per-endpoint param 상한 50→DroppedByLimit.params).
+- **T3**: `SensitiveKeyProperties`(yml 기본값 내장)+`SensitiveKeyMatcher`(대소문자무시) — 정책: 이름 보존+sensitive flag+값 길이 버킷 억제(REDACTED, 보안신호).
+- **배선**: `Finding.Shadow.params`(Classifier 가 d.params() 전달), `DiscoveryReport` top-level `droppedByLimit`+ETag 입력 포함,
+  `ReportBuilder.build` 파라미터, `InventoryBuilder.buildWithLimits(InventoryResult)`+`build` 위임(하위호환), `NormalizationProperties`(@ConfigurationProperties+yml).
+  파이프라인: 파스→1차템플릿→T1승격→T1상한→T2후보→T3마스킹→방출.
+- **무회귀**: 승격 보수적(≥20)·상한 높음(5000/50)→기존 입력 미발동(템플릿 동일·(0,0)), queryParams 내부한정. ScanResult 스키마 무변경.
+- **리뷰 2라운드**: ① 구현 22건 → ② P3 보강(Shadow params reportJson e2e, 재병합 metrics 합산 단언, 승격 경계 distinct=20/19). 전건 해소.
+- 마무리: GitHub PR 워크플로(브랜치 push → `gh pr create` → 팀장 지시 `gh pr merge --merge --delete-branch`).
+
+### 결과
+- BUILD SUCCESSFUL, **tests=184 skipped=1(라이브) failures=0**. 기존 테스트 전건 보존(하위호환). 내부 리뷰 P1=0/P2=0.
+
+### 다음
+- 후속(TODO): sensitive/상한 도메인 override·중앙 REST/대시보드, Active/Zombie param 노출, distinct/분위수 HLL/t-digest 근사.
+
 ## 2026-06-23 세션 9 — non_api dropped observation 메트릭 (doc/12 §5, DECISIONS D19)
 
 ### 한 일

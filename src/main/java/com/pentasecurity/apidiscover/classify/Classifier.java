@@ -105,7 +105,7 @@ public class Classifier {
             ApiScorer.Gate gate = scorer.evaluate(d, cors, hints);
             switch (gate) {
                 case ADMIT -> findings.add(new Finding.Shadow(d.host(), d.method(), d.pathTemplate(),
-                        shadowConfidence(d), "트래픽 존재, 문서 내 매칭 템플릿 없음"));
+                        shadowConfidence(d), "트래픽 존재, 문서 내 매칭 템플릿 없음", d.params()));
                 case DROP_EXCLUDED -> excluded++;   // not_api: operator 제외
                 case DROP_WEB_FORM -> webForm++;    // not_api: web form 제출(write-to-WEB_PAGE)
                 case DROP_LOW_SCORE -> lowScore++;  // not_api: 점수 미달

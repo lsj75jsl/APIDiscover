@@ -6,8 +6,8 @@ import java.util.List;
 
 public record ParsedRequest(
         String method,
-        String rawPath,            // query string 제거된 경로
-        List<String> queryKeys,    // 쿼리 파라미터 '키'만 (값 제외)
+        String rawPath,                      // query string 제거된 경로
+        List<QueryParamObs> queryParams,     // 쿼리 파라미터 '키 + 값 길이 버킷'만 (값 폐기, doc/13 §2.1)
         int status,
         String host,
         String clientIp,

@@ -3,9 +3,12 @@ package com.pentasecurity.apidiscover.normalize;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.pentasecurity.apidiscover.config.NormalizationProperties;
+import com.pentasecurity.apidiscover.config.SensitiveKeyProperties;
 import com.pentasecurity.apidiscover.match.EndpointMatcher;
 import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
 import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
+import com.pentasecurity.apidiscover.model.DroppedByLimit;
 import com.pentasecurity.apidiscover.model.ParsedRequest;
 import com.pentasecurity.apidiscover.model.TemplateSource;
 import java.time.Instant;
@@ -16,8 +19,11 @@ class InventoryBuilderTest {
 
     private static final String HOST = "api.example.com";
 
-    private final InventoryBuilder builder =
-            new InventoryBuilder(new PathNormalizer(), new EndpointKindClassifier());
+    private static final NormalizationProperties NORM = NormalizationProperties.defaults();
+    private final InventoryBuilder builder = new InventoryBuilder(
+            new PathNormalizer(), new EndpointKindClassifier(),
+            new CardinalityNormalizer(NORM),
+            new ParamCandidateExtractor(new SensitiveKeyMatcher(SensitiveKeyProperties.defaults()), NORM));
 
     private static ParsedRequest req(String method, String path, int status, String clientIp, long respMs) {
         return req(method, path, status, clientIp, respMs, null);
@@ -32,6 +38,23 @@ class InventoryBuilderTest {
     private static ParsedRequest reqUa(String path, String userAgent) {
         return new ParsedRequest("GET", path, List.of(), 200, HOST, "a",
                 userAgent, Instant.EPOCH, 10, 100, true, null, null, null);
+    }
+
+    @Test
+    void buildWithLimitsIsNoRegressionForNormalInput() {
+        // 소규모 입력: 승격 미발동·상한 미발동 → 템플릿 동일 + DroppedByLimit=(0,0), params non-null (무회귀)
+        List<ParsedRequest> reqs = List.of(
+                req("GET", "/users/1", 200, "a", 10),
+                req("GET", "/users/2", 200, "b", 20));
+
+        InventoryBuilder.InventoryResult result = builder.buildWithLimits(reqs, null);
+
+        assertThat(result.droppedByLimit()).isEqualTo(new DroppedByLimit(0, 0));
+        assertThat(result.endpoints()).singleElement().satisfies(e -> {
+            assertThat(e.pathTemplate()).isEqualTo("/users/{id}");
+            assertThat(e.params()).isNotNull();
+            assertThat(e.params().path()).extracting("token").containsExactly("{id}"); // path 후보
+        });
     }
 
     @Test

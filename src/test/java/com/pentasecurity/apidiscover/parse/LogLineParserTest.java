@@ -3,7 +3,10 @@ package com.pentasecurity.apidiscover.parse;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.pentasecurity.apidiscover.config.NormalizationProperties;
 import com.pentasecurity.apidiscover.model.ParsedRequest;
+import com.pentasecurity.apidiscover.model.QueryParamObs;
+import com.pentasecurity.apidiscover.model.ValueLenBucket;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -11,7 +14,7 @@ import org.junit.jupiter.api.Test;
 
 class LogLineParserTest {
 
-    private final LogLineParser parser = new LogLineParser();
+    private final LogLineParser parser = new LogLineParser(NormalizationProperties.defaults());
 
     private static final String SAMPLE = String.join("^|^", List.of(
             "203.0.113.5",                              // 1 client_real_ip
@@ -41,7 +44,8 @@ class LogLineParserTest {
 
         assertThat(r.method()).isEqualTo("GET");
         assertThat(r.rawPath()).isEqualTo("/users/12345");
-        assertThat(r.queryKeys()).containsExactly("expand");
+        // queryParams: 이름 + 값 길이 버킷("orders"=6자→S). 값 자체는 미저장 (doc/13 §2.1)
+        assertThat(r.queryParams()).containsExactly(new QueryParamObs("expand", ValueLenBucket.S));
         assertThat(r.status()).isEqualTo(200);
         assertThat(r.host()).isEqualTo("api.example.com");
         assertThat(r.clientIp()).isEqualTo("203.0.113.5");
@@ -76,6 +80,26 @@ class LogLineParserTest {
         assertThat(r.type()).isEqualTo("document");
         assertThat(r.referer()).isEqualTo("https://www.computer.co.kr/mypage/orderlist");
         assertThat(r.requestId()).isEqualTo("a6b21dd580721fc452087d8c2ad7135a");
+    }
+
+    @Test
+    void queryParamValuesAreBucketedNotStored() {
+        // q=foo(3→S), token=<33자 secret>(L), big=<129자>(XL), flag(값없음→NONE)
+        String secret33 = "s".repeat(33);
+        String big129 = "b".repeat(129);
+        String uri = "/search?q=foo&token=" + secret33 + "&big=" + big129 + "&flag";
+        String line = SAMPLE.replace("/users/12345?expand=orders", uri);
+
+        ParsedRequest r = parser.parse(line).orElseThrow();
+
+        assertThat(r.rawPath()).isEqualTo("/search");
+        assertThat(r.queryParams()).containsExactly(
+                new QueryParamObs("q", ValueLenBucket.S),
+                new QueryParamObs("token", ValueLenBucket.L),
+                new QueryParamObs("big", ValueLenBucket.XL),
+                new QueryParamObs("flag", ValueLenBucket.NONE));
+        // 값 미저장: 어떤 관측에도 원본 값 문자열이 보존되지 않음(record 구조상 name+bucket 뿐)
+        assertThat(r.queryParams().toString()).doesNotContain(secret33).doesNotContain(big129).doesNotContain("foo");
     }
 
     @Test

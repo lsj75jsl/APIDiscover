@@ -12,8 +12,9 @@ public sealed interface Finding
 
     String pathTemplate();
 
-    /** 트래픽엔 있으나 문서에 없음 (D \ S). */
-    record Shadow(String host, String method, String pathTemplate, double confidence, String reason)
+    /** 트래픽엔 있으나 문서에 없음 (D \ S). params=미문서 endpoint 파라미터 후보(고가치 보안신호, doc/13 §4.2). */
+    record Shadow(String host, String method, String pathTemplate, double confidence, String reason,
+                  ParamCandidates params)
             implements Finding {
         @Override public Classification classification() { return Classification.SHADOW; }
     }

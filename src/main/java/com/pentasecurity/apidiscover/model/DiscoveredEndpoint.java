@@ -14,7 +14,8 @@ public record DiscoveredEndpoint(
         double kindConfidence,
         boolean hadQuery,        // 관측 중 query string 존재 (ApiScorer 신호)
         boolean nonBrowserUa,    // SDK/CLI user-agent 다수 (ApiScorer 신호)
-        Metrics metrics
+        Metrics metrics,
+        ParamCandidates params   // query/path 파라미터 후보 (doc/13 §2, 가산)
 ) {
     /** 시그니처별 누적 트래픽 메트릭. */
     public record Metrics(

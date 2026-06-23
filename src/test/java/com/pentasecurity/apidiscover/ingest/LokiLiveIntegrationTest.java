@@ -8,17 +8,23 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pentasecurity.apidiscover.classify.ApiScorer;
 import com.pentasecurity.apidiscover.classify.Classifier;
 import com.pentasecurity.apidiscover.config.ApiDiscoverProperties;
+import com.pentasecurity.apidiscover.config.NormalizationProperties;
+import com.pentasecurity.apidiscover.config.SensitiveKeyProperties;
 import com.pentasecurity.apidiscover.match.EndpointMatcher;
 import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
 import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
 import com.pentasecurity.apidiscover.model.DiscoveryReport;
+import com.pentasecurity.apidiscover.model.DroppedByLimit;
 import com.pentasecurity.apidiscover.model.DroppedNonApi;
 import com.pentasecurity.apidiscover.model.EndpointKind;
 import com.pentasecurity.apidiscover.model.Finding;
 import com.pentasecurity.apidiscover.model.ParsedRequest;
+import com.pentasecurity.apidiscover.normalize.CardinalityNormalizer;
 import com.pentasecurity.apidiscover.normalize.EndpointKindClassifier;
 import com.pentasecurity.apidiscover.normalize.InventoryBuilder;
+import com.pentasecurity.apidiscover.normalize.ParamCandidateExtractor;
 import com.pentasecurity.apidiscover.normalize.PathNormalizer;
+import com.pentasecurity.apidiscover.normalize.SensitiveKeyMatcher;
 import com.pentasecurity.apidiscover.parse.LogLineParser;
 import com.pentasecurity.apidiscover.report.ReportBuilder;
 import java.io.IOException;
@@ -64,7 +70,8 @@ class LokiLiveIntegrationTest {
         assertThat(lines).as("Loki 에서 로그를 가져와야 함").isNotEmpty();
 
         // 2) 파싱
-        LogLineParser parser = new LogLineParser();
+        NormalizationProperties norm = NormalizationProperties.defaults();
+        LogLineParser parser = new LogLineParser(norm);
         List<ParsedRequest> requests = new ArrayList<>();
         for (String line : lines) {
             parser.parse(line).ifPresent(requests::add);
@@ -72,11 +79,14 @@ class LokiLiveIntegrationTest {
 
         // 3) 인벤토리(스펙 없음 → 매처 빈) → 4) 분류 → 5) 리포트
         EndpointMatcher matcher = new EndpointMatcher(List.<CanonicalEndpoint>of());
-        InventoryBuilder inventory = new InventoryBuilder(new PathNormalizer(), new EndpointKindClassifier());
+        InventoryBuilder inventory = new InventoryBuilder(new PathNormalizer(), new EndpointKindClassifier(),
+                new CardinalityNormalizer(norm),
+                new ParamCandidateExtractor(new SensitiveKeyMatcher(SensitiveKeyProperties.defaults()), norm));
         List<DiscoveredEndpoint> discovered = inventory.build(requests, matcher);
         List<Finding> findings = new Classifier(new ApiScorer()).classify(discovered, List.of(), matcher);
         DiscoveryReport report = new ReportBuilder().build(
-                DOMAIN, 0L, window, discovered.size(), findings, new DroppedNonApi(0, 0, 0));
+                DOMAIN, 0L, window, discovered.size(), findings,
+                new DroppedNonApi(0, 0, 0), new DroppedByLimit(0, 0));
 
         // 검증
         assertThat(requests).as("파싱된 요청이 있어야 함").isNotEmpty();
