@@ -160,9 +160,9 @@ class DiscoveryJobServiceTest {
         when(scanRepo.findById(HOST)).thenReturn(Optional.empty());
         when(scanRepo.save(any(ScanResult.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        // /page x3: api.example.com host_api(0.40)+repeat(0.12)=0.52 < 0.70 → DROP_LOW_SCORE
+        // /page x2($type=api→API_CANDIDATE): host_api(0.40)+responseTypeApi(0.25)=0.65 < 0.70, repeat 미달 → DROP_LOW_SCORE
         ScanResult result = service.analyze(HOST, List.of(
-                line("GET", "/page", 200), line("GET", "/page", 200), line("GET", "/page", 200)), window);
+                line("GET", "/page", 200), line("GET", "/page", 200)), window);
 
         assertThat(result.shadow).isZero();
         assertThat(result.reportJson)
@@ -177,8 +177,9 @@ class DiscoveryJobServiceTest {
         when(scanRepo.findById(HOST)).thenReturn(Optional.empty());
         when(scanRepo.save(any(ScanResult.class))).thenAnswer(inv -> inv.getArgument(0));
 
+        // /page x2($type=api→API_CANDIDATE): host_api 0.40+responseTypeApi 0.25=0.65 < 0.70, repeat 미달 → 저득점
         List<String> lines = List.of(
-                line("GET", "/page", 200), line("GET", "/page", 200), line("GET", "/page", 200));
+                line("GET", "/page", 200), line("GET", "/page", 200));
 
         // 스캔 A: 설정 없음 → /page DROP_LOW_SCORE, dropped=(0,0,1)
         ScanResult a = service.analyze(HOST, lines, window);

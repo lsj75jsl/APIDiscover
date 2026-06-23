@@ -129,6 +129,19 @@ class ClassificationControllerTest {
                 .andExpect(jsonPath("$.effective.matcher.apiPathPrefixes[0]").value("/svc"));
     }
 
+    @Test
+    void putCustomResponseTypeApiWeightReflectedInEffective() throws Exception {
+        // doc/17: responseTypeApi override 가 컨트롤러/리졸버 변경 없이 WEIGHT_KEYS 검증 통과·echo·effective 반영
+        mvc.perform(put("/api/v1/classification").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"profile\":\"CUSTOM\",\"customWeights\":{\"responseTypeApi\":0.42}}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.customWeights.responseTypeApi").value(0.42)); // echo
+        registerDomain("shop.example.com");
+        mvc.perform(get("/api/v1/domains/shop.example.com/classification"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.effective.weights.responseTypeApi").value(0.42)); // 전역 CUSTOM 상속
+    }
+
     // --- 400 검증 ---
 
     @Test

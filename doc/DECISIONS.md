@@ -196,6 +196,18 @@ doc/10 저장/병합 위에 REST 4종을 신규 `ClassificationController`(`@Req
 - **설정(린)**: 추정 0.6·severity 가중치/임계는 코드 상수(1차), 튜닝 시 `@ConfigurationProperties` 이동(seam). 중앙 API 후속.
 - **범위 밖**: 절대 cross-scan recency(히스토리), 추정 임계 중앙 설정.
 
+### D24. response_type_api 양성 가중치 (doc/17)
+doc/08 §9 보류($type taxonomy 불확실) 항목을 **양성-only 비대칭 + 보수적 집합**으로 활성화.
+- **신호 재사용**: `EndpointKindClassifier` 가 이미 dominant $type ∈ {xhr,fetch,json,api,ajax} → `EndpointKind.API_CANDIDATE` 로 분류.
+  → **신규 필드/Acc 변경 없이** `endpointKind==API_CANDIDATE` 를 신호로 사용. 집계도 기존 dominant(plurality) 로 해결.
+- **집합**: xhr/json 으로 좁히지 않고 기존 API_TYPES(5값) 재사용 — 모두 정당한 API 신호(document 트랩과 달리 역위험 낮음), API_CANDIDATE 와 일관.
+  집합은 EndpointKindClassifier(=taxonomy 샘플링 항목) 소관, ApiScorer 는 API_CANDIDATE 만 소비 → taxonomy 정제 시 자동 수혜.
+- **비대칭(양성-only)**: API_CANDIDATE→+responseTypeApi. WEB_PAGE(document)/UNKNOWN/부재→무가산·**무감점**(§8/§9). STATIC 과는 kind 단일값이라 **상호배타**(충돌 없음).
+- **Weights 확장(14번째)**: Weights record/MIDDLE·HIGH·LOW presets(**0.25/0.18/0.32**, §9 캐비엇·customWeights 튜닝)/WEIGHT_KEYS/applyOverrides/score 5곳.
+  funnel 구조라 **resolver/DTO/controller 무변경**(presetWeights·applyOverrides·WEIGHT_KEYS 경유, record 재사용). REST customWeights 가 키 자동 수용.
+- **무회귀**: 비-API endpoint 무변경(신호 미발화), API_CANDIDATE 만 api_confidence 상승(의도). clamp 테스트 영향 없음, exact-score API_CANDIDATE 테스트만 갱신.
+- **범위 밖**: $type taxonomy 샘플링(별도 항목), responseTypeApi 실데이터 보정.
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.
