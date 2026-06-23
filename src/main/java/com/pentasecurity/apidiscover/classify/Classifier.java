@@ -5,6 +5,7 @@ import com.pentasecurity.apidiscover.match.ApiHintMatcher;
 import com.pentasecurity.apidiscover.match.EndpointMatcher;
 import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
 import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
+import com.pentasecurity.apidiscover.model.DroppedNonApi;
 import com.pentasecurity.apidiscover.model.EndpointKind;
 import com.pentasecurity.apidiscover.model.Finding;
 import com.pentasecurity.apidiscover.model.TemplateSource;
@@ -51,8 +52,7 @@ public class Classifier {
     }
 
     /**
-     * effective scorer(가중치/임계)+hints 를 전달받는 5-arg 오버로드 (doc/10 §6).
-     * 게이트는 {@link ApiScorer#evaluate}, ADMIT 만 Shadow 로 보고. DROP_* 사유는 분리(메트릭 후속).
+     * effective scorer(가중치/임계)+hints 를 전달받는 5-arg 오버로드 (doc/10 §6). findings 만 필요할 때.
      * 기존 3/4-arg 는 field scorer 로 이 메서드에 위임 → 하위호환.
      */
     public List<Finding> classify(List<DiscoveredEndpoint> discovered,
@@ -60,7 +60,22 @@ public class Classifier {
                                   EndpointMatcher matcher,
                                   ApiScorer scorer,
                                   ApiHintMatcher hints) {
+        return classifyWithMetrics(discovered, spec, matcher, scorer, hints).findings();
+    }
+
+    /**
+     * findings + non_api dropped 메트릭을 함께 산출(doc/12 §1). 게이트 ADMIT→Shadow, DROP_*→사유별 카운트.
+     * dropped 대상: non-OPTIONS·spec 미매칭·게이트 DROP_*(OPTIONS·spec 매칭·ADMIT 은 제외).
+     */
+    public ClassificationResult classifyWithMetrics(List<DiscoveredEndpoint> discovered,
+                                                    List<CanonicalEndpoint> spec,
+                                                    EndpointMatcher matcher,
+                                                    ApiScorer scorer,
+                                                    ApiHintMatcher hints) {
         List<Finding> findings = new ArrayList<>();
+        int excluded = 0;
+        int webForm = 0;
+        int lowScore = 0;
         Set<String> observedSpecKeys = new HashSet<>();
 
         // CORS preflight 신호: host+template 이 OPTIONS 로 관측된 집합 (doc/08 §4)
@@ -86,11 +101,17 @@ public class Classifier {
             }
             // 문서에 없음 → ApiScorer 게이트 (doc/08, doc/09 §2.2). 전달된 scorer 사용(doc/10 §6)
             boolean cors = corsKeys.contains(hostTemplateKey(d.host(), d.pathTemplate()));
-            if (scorer.evaluate(d, cors, hints) == ApiScorer.Gate.ADMIT) {
-                findings.add(new Finding.Shadow(d.host(), d.method(), d.pathTemplate(),
+            // 게이트 결과별 분기: ADMIT→Shadow 보고, DROP_*→사유별 카운트(미보고). (doc/12 §1)
+            ApiScorer.Gate gate = scorer.evaluate(d, cors, hints);
+            switch (gate) {
+                case ADMIT -> findings.add(new Finding.Shadow(d.host(), d.method(), d.pathTemplate(),
                         shadowConfidence(d), "트래픽 존재, 문서 내 매칭 템플릿 없음"));
+                case DROP_EXCLUDED -> excluded++;   // not_api: operator 제외
+                case DROP_WEB_FORM -> webForm++;    // not_api: web form 제출(write-to-WEB_PAGE)
+                case DROP_LOW_SCORE -> lowScore++;  // not_api: 점수 미달
+                // 향후 Gate 값 추가 시 silent 미카운트 방지 (fail-fast). 현재 4값 완전 처리라 동작 무변경.
+                default -> throw new IllegalStateException("unhandled gate: " + gate);
             }
-            // DROP_EXCLUDED/DROP_WEB_FORM/DROP_LOW_SCORE 는 보고하지 않음 (not_api, 사유는 메트릭 후속)
         }
 
         // --- 2차: 문서 측(S) ---
@@ -108,7 +129,7 @@ public class Classifier {
                 findings.add(new Finding.Unused(s.host(), s.method(), s.pathTemplate(), s.sourceRef()));
             }
         }
-        return findings;
+        return new ClassificationResult(findings, new DroppedNonApi(excluded, webForm, lowScore));
     }
 
     /** Shadow 신뢰도 (doc/04 §4.1). 기본 1.0 에서 감산, [0,1] clamp. */

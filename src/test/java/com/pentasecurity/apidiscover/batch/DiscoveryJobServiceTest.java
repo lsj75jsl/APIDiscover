@@ -145,6 +145,50 @@ class DiscoveryJobServiceTest {
     }
 
     @Test
+    void reportJsonEmbedsDroppedNonApi() {
+        when(specStore.activeMeta(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.findById(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.save(any(ScanResult.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // /page x3: api.example.com host_api(0.40)+repeat(0.12)=0.52 < 0.70 → DROP_LOW_SCORE
+        ScanResult result = service.analyze(HOST, List.of(
+                line("GET", "/page", 200), line("GET", "/page", 200), line("GET", "/page", 200)), window);
+
+        assertThat(result.shadow).isZero();
+        assertThat(result.reportJson)
+                .contains("\"droppedNonApi\"")
+                .contains("\"lowScore\":1")
+                .contains("\"total\":1"); // 파생 total JSON 출현
+    }
+
+    @Test
+    void etagReflectsDroppedDistributionChange() {
+        when(specStore.activeMeta(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.findById(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.save(any(ScanResult.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        List<String> lines = List.of(
+                line("GET", "/page", 200), line("GET", "/page", 200), line("GET", "/page", 200));
+
+        // 스캔 A: 설정 없음 → /page DROP_LOW_SCORE, dropped=(0,0,1)
+        ScanResult a = service.analyze(HOST, lines, window);
+
+        // 스캔 B: /page exclude 설정 → DROP_EXCLUDED, dropped=(1,0,0). findings 동일(둘 다 Shadow 0)·dropped 분포만 변경
+        ClassificationConfig g = new ClassificationConfig();
+        g.id = 1L;
+        g.profile = ClassificationProfile.MIDDLE;
+        g.matcherJson = "{\"excludePathPrefixes\":[\"/page\"]}";
+        when(globalClsRepo.findById(1L)).thenReturn(Optional.of(g));
+        resolver.invalidateAll();
+        ScanResult b = service.analyze(HOST, lines, window);
+
+        assertThat(a.shadow).isZero();
+        assertThat(b.shadow).isZero();
+        assertThat(a.discovered).isEqualTo(b.discovered); // summary 동일
+        assertThat(a.version).isNotEqualTo(b.version);     // dropped 분포 변화가 ETag 에 반영 (doc/12 §4)
+    }
+
+    @Test
     void dedupRemovesDuplicateRequestIds() {
         List<ParsedRequest> in = List.of(
                 pr("rid-1"), pr("rid-1"),   // 중복 → 1건

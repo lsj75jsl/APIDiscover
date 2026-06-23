@@ -18,7 +18,7 @@
 - [x] `min_api_confidence` 게이트 → 미달 unmatched 는 보고 안 함, OPTIONS 는 CORS 신호로만(미보고)
 - [x] 기존 `EndpointKindClassifier`(static/web_page)를 점수 penalty 입력으로 흡수
 - [x] 프로파일 HIGH/MIDDLE/LOW preset (threshold+weights) — **custom(override)는 설정 연동 시**
-- [ ] non_api dropped observation 메트릭 (현재 단순 제외)
+- [x] non_api dropped observation 메트릭 — doc/12 구현 (Done 참조)
 
 ### 보류 (08 §9 — 현 시점 미채택)
 - [ ] (보류) endpoint decision cache — 배치 재집계 구조라 이득 작음, 필요 시 재검토
@@ -115,4 +115,10 @@
 - [x] 중앙 API: `GET/PUT /api/v1/classification`(전역) + `GET/PUT /api/v1/domains/{host}/classification`(도메인 override+effective). `ClassificationController` + `ClassificationDtos`(5 record, MatcherConfig/Weights 재사용)
 - [x] 쓰기 검증→400(저장 전 validateThreshold/validateWeightOverrides/ApiHintMatcher, 컨트롤러-로컬 `@ExceptionHandler`) + 저장 손상→500(resolver IAE→ISE 래핑 + `@ExceptionHandler(ISE)`) + 부재(전역→default/도메인→effective)/미등록 404
 - [x] effective 캐시 활성화: `EffectiveClassificationResolver` `ConcurrentHashMap`+`computeIfAbsent`, PUT 시 `invalidate(host)`/`invalidateAll()`, poisoning 없음. 스캔경로 무변경(resolve 캐시 자동 경유)
-> 후속(TODO 유지): 서비스간 인증(permitAll)·non_api dropped 메트릭·repeatMinCount override·HA cross-instance 무효화
+> 후속(TODO 유지): 서비스간 인증(permitAll)·repeatMinCount override·HA cross-instance 무효화
+
+### non_api dropped observation 메트릭 (2026-06-23, doc/12 / DECISIONS D19) — tests=167 green
+- [x] `Classifier.classifyWithMetrics→ClassificationResult`: 게이트 DROP_* 사유별 집계(excluded/webForm/lowScore), default→fail-fast. 기존 `classify→List` 오버로드 위임 보존(하위호환)
+- [x] `model/DroppedNonApi`(excluded/webForm/lowScore + `@JsonProperty total` 파생) + `DiscoveryReport` top-level `droppedNonApi`(가산적·항상 non-null) + `ReportBuilder` 전달
+- [x] `DiscoveryJobService` classifyWithMetrics 전환 + ETag 입력에 droppedNonApi 포함(분포 변화 반영, 304 버그 방지). 카운트=non-OPTIONS·spec 미매칭·DROP_*. ScanResult 스키마 무변경
+> 후속(TODO 유지): Actuator/Micrometer 노출·알람(동일 카운트 재사용)·scan-status total 비정규화(선택)

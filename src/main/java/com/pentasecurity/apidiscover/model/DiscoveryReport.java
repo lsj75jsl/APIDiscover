@@ -11,7 +11,8 @@ public record DiscoveryReport(
         LogWindow logWindow,
         long specVersion,
         Summary summary,
-        List<Finding> findings
+        List<Finding> findings,
+        DroppedNonApi droppedNonApi   // non_api 게이트 탈락 사유별 집계 (doc/12), 항상 non-null
 ) {
     public record Summary(
             int discovered,
