@@ -3,6 +3,7 @@ package com.pentasecurity.apidiscover.classify;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.pentasecurity.apidiscover.match.ApiHintMatcher;
 import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
@@ -198,5 +199,69 @@ class ApiScorerTest {
         var post = de("www.example.com", "POST", "/account/update", EndpointKind.WEB_PAGE, 100, false, false);
         // write 0.34 + repeat 0.12 = 0.46 < 0.70 → DROP_LOW_SCORE (DROP_WEB_FORM 아님)
         assertThat(middle.evaluate(post, false, matcher)).isEqualTo(ApiScorer.Gate.DROP_LOW_SCORE);
+    }
+
+    // --- Weights ctor / presetWeights / applyOverrides (doc/10 §4) ---
+
+    @Test
+    void presetWeightsMatchProfiles() {
+        assertThat(ApiScorer.presetWeights(ApiScorer.Profile.HIGH).threshold()).isEqualTo(0.85);
+        assertThat(ApiScorer.presetWeights(ApiScorer.Profile.MIDDLE).threshold()).isEqualTo(0.70);
+        assertThat(ApiScorer.presetWeights(ApiScorer.Profile.LOW).threshold()).isEqualTo(0.55);
+        assertThat(ApiScorer.presetWeights(ApiScorer.Profile.HIGH).hostApiSubdomain()).isEqualTo(0.35);
+    }
+
+    @Test
+    void weightsConstructorAndAccessor() {
+        var w = ApiScorer.presetWeights(ApiScorer.Profile.LOW);
+        var scorer = new ApiScorer(w);
+        assertThat(scorer.weights()).isEqualTo(w);
+        assertThat(scorer.threshold()).isEqualTo(0.55);
+    }
+
+    @Test
+    void applyOverridesReplacesOnlyGivenKeys() {
+        var base = ApiScorer.presetWeights(ApiScorer.Profile.MIDDLE);
+        var out = ApiScorer.applyOverrides(base, Map.of("apiSegment", 0.9, "pathHint", 0.33), null);
+        assertThat(out.apiSegment()).isEqualTo(0.9);     // override
+        assertThat(out.pathHint()).isEqualTo(0.33);      // override
+        assertThat(out.corsPreflight()).isEqualTo(0.30); // 미지정 → MIDDLE
+        assertThat(out.threshold()).isEqualTo(0.70);     // thresholdOverride null → base
+        assertThat(out.repeatMinCount()).isEqualTo(3);   // base 유지(override 범위 밖)
+    }
+
+    @Test
+    void applyOverridesThresholdOnlyKeepsWeights() {
+        var base = ApiScorer.presetWeights(ApiScorer.Profile.MIDDLE);
+        var out = ApiScorer.applyOverrides(base, Map.of(), 0.42);
+        assertThat(out.threshold()).isEqualTo(0.42);
+        assertThat(out.apiSegment()).isEqualTo(0.55); // weights 불변
+    }
+
+    @Test
+    void applyOverridesRejectsUnknownKey() {
+        var base = ApiScorer.presetWeights(ApiScorer.Profile.MIDDLE);
+        // 오타 키 → 조용한 무시 금지, fail-fast (P2-1)
+        assertThatThrownBy(() -> ApiScorer.applyOverrides(base, Map.of("apiSegmnet", 0.5), null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("apiSegmnet");
+    }
+
+    @Test
+    void applyOverridesRejectsNonFiniteWeight() {
+        var base = ApiScorer.presetWeights(ApiScorer.Profile.MIDDLE);
+        assertThatThrownBy(() -> ApiScorer.applyOverrides(base, Map.of("apiSegment", Double.NaN), null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> ApiScorer.applyOverrides(base, Map.of("query", Double.POSITIVE_INFINITY), null))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void applyOverridesRejectsThresholdOutOfRange() {
+        var base = ApiScorer.presetWeights(ApiScorer.Profile.MIDDLE);
+        assertThatThrownBy(() -> ApiScorer.applyOverrides(base, Map.of(), -1.0))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> ApiScorer.applyOverrides(base, Map.of(), 2.0))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 }

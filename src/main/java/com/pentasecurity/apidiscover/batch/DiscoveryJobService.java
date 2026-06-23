@@ -4,6 +4,8 @@ package com.pentasecurity.apidiscover.batch;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pentasecurity.apidiscover.classify.Classifier;
+import com.pentasecurity.apidiscover.classify.EffectiveClassification;
+import com.pentasecurity.apidiscover.classify.EffectiveClassificationResolver;
 import com.pentasecurity.apidiscover.config.ApiDiscoverProperties;
 import com.pentasecurity.apidiscover.domain.DomainConfig;
 import com.pentasecurity.apidiscover.domain.DomainConfigRepository;
@@ -15,7 +17,6 @@ import com.pentasecurity.apidiscover.domain.WatermarkRepository;
 import com.pentasecurity.apidiscover.ingest.LogWindow;
 import com.pentasecurity.apidiscover.ingest.LokiClient;
 import com.pentasecurity.apidiscover.ingest.LokiQueryBuilder;
-import com.pentasecurity.apidiscover.match.ApiHintMatcher;
 import com.pentasecurity.apidiscover.match.EndpointMatcher;
 import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
 import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
@@ -48,6 +49,7 @@ public class DiscoveryJobService {
     private final InventoryBuilder inventoryBuilder;
     private final SpecStore specStore;
     private final Classifier classifier;
+    private final EffectiveClassificationResolver classificationResolver;
     private final ReportBuilder reportBuilder;
     private final ScanResultRepository scanRepo;
     private final DomainConfigRepository domainRepo;
@@ -61,6 +63,7 @@ public class DiscoveryJobService {
                                InventoryBuilder inventoryBuilder,
                                SpecStore specStore,
                                Classifier classifier,
+                               EffectiveClassificationResolver classificationResolver,
                                ReportBuilder reportBuilder,
                                ScanResultRepository scanRepo,
                                DomainConfigRepository domainRepo,
@@ -73,6 +76,7 @@ public class DiscoveryJobService {
         this.inventoryBuilder = inventoryBuilder;
         this.specStore = specStore;
         this.classifier = classifier;
+        this.classificationResolver = classificationResolver;
         this.reportBuilder = reportBuilder;
         this.scanRepo = scanRepo;
         this.domainRepo = domainRepo;
@@ -136,10 +140,9 @@ public class DiscoveryJobService {
 
         // (B) 인벤토리 → (E) 분류 → (F) 리포트
         List<DiscoveredEndpoint> discovered = inventoryBuilder.build(requests, matcher);
-        // TODO(doc/09 §6): effective MatcherConfig(전역∪도메인) 로드 → ApiHintMatcher 생성·주입.
-        //                  설정 저장(DB)·중앙 API 배선 전까지는 NONE 사용(현행 동작 불변).
-        ApiHintMatcher hints = ApiHintMatcher.NONE;
-        List<Finding> findings = classifier.classify(discovered, spec, matcher, hints);
+        // effective 분류 설정(전역+도메인 병합) 해석 → scorer/hints 주입 (doc/10 §6). 설정 부재 시 무회귀.
+        EffectiveClassification eff = classificationResolver.resolve(host);
+        List<Finding> findings = classifier.classify(discovered, spec, matcher, eff.scorer(), eff.hints());
         // OPTIONS 는 CORS 신호로만 쓰고 보고에서 제외되므로 인벤토리 카운트에서도 뺀다 (과대집계 방지)
         long reportedCount = discovered.stream()
                 .filter(d -> !"OPTIONS".equalsIgnoreCase(d.method()))

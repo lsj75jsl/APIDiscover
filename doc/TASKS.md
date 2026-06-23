@@ -18,7 +18,6 @@
 - [x] `min_api_confidence` 게이트 → 미달 unmatched 는 보고 안 함, OPTIONS 는 CORS 신호로만(미보고)
 - [x] 기존 `EndpointKindClassifier`(static/web_page)를 점수 penalty 입력으로 흡수
 - [x] 프로파일 HIGH/MIDDLE/LOW preset (threshold+weights) — **custom(override)는 설정 연동 시**
-- [ ] 설정 저장: 전역 classification(DB 단일 레코드) + 도메인 override(custom weights/threshold), 병합 규칙
 - [ ] 중앙 API: `GET/PUT /classification`(전역), `GET/PUT /domains/{host}/classification`(도메인, effective 노출)
 - [ ] non_api dropped observation 메트릭 (현재 단순 제외)
 
@@ -66,6 +65,7 @@
 
 ### 품질/테스트
 - [ ] 엔티티 캡슐화 (현재 스캐폴딩상 public 필드)
+- [ ] @Lob String JSON 컬럼 PostgreSQL TEXT 매핑 실검증(canonical/report/classification 공통)
 - [ ] 통합 테스트 (Testcontainers: 실제 PostgreSQL/JPA, REST API e2e, 조건부 GET 304)
 - [ ] 매칭 엣지 케이스(04 §7) 회귀 테스트
 - [ ] 3종 포맷 파싱 → Canonical 동일성 테스트 (Postman/CSV 구현 후)
@@ -104,4 +104,10 @@
 - [x] explicit hint 모드(`api_path_prefixes`/`api_path_regexes`) — `ApiScorer` explicit-hint 분기(pathHint weight, 내장 path-shape 비활성)
 - [x] 매처 설정: `MatcherConfig`(prefixes/regexes/exclude + `include_web_forms` + NONE + merge 전역∪도메인) + `ApiHintMatcher`(세그먼트경계 prefix·full-match regex·컴파일 캐시·개수/길이 상한·비공백/'/'시작 검증·ReDoS deadline 50ms)
 - [x] 게이트 `ApiScorer.evaluate→Gate`(exclude→hint admit→web-form→score), Classifier ADMIT만 Shadow, 하위호환(2-arg score/3-arg classify→NONE 위임)
-> 후속(TODO 유지): 설정 저장(DB)·중앙 API(`GET/PUT /classification`)·non_api dropped 메트릭
+> 후속(TODO 유지): 중앙 API(`GET/PUT /classification`)·non_api dropped 메트릭
+
+### 분류 설정 DB 저장 + effective 병합 (2026-06-23, doc/10 / DECISIONS D17) — tests=147 green
+- [x] 설정 저장: 전역 `ClassificationConfig`(단일 PK=1L) + 도메인 `DomainClassificationConfig`(host PK) 엔티티/리포지토리. `@Lob String` JSON(매처/custom weights)+`Double`(threshold), JSONB 미사용(H2/PG 이식)
+- [x] `ClassificationProfile`(HIGH/MIDDLE/LOW/CUSTOM) + `ApiScorer`(Weights ctor/weights/presetWeights/applyOverrides·값검증) + `EffectiveClassificationResolver`(host→weights+matcher+scorer+hints 병합)
+- [x] 병합(threshold 도메인>전역>preset, CUSTOM weights merge, matcher 전역∪도메인) + 무회귀(부재/seed=MIDDLE+NONE, 억제 opt-in) + fail-fast(손상 JSON·unknown 키·범위/비유한 reject) + Classifier 5-arg + DiscoveryJobService 배선
+> 후속(TODO 유지): 중앙 API(`GET/PUT /classification` 전역·도메인 effective)·캐시 invalidate 배선·non_api dropped 메트릭
