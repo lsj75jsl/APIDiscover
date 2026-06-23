@@ -5,6 +5,21 @@
 
 ---
 
+## 2026-06-24 세션 16 — 작업 항목 subitem 추적 관리규칙 코드화 (CLAUDE.md, DECISIONS D26)
+
+### 한 일
+- **코드 변경 0** (문서 전용, 브랜치 `docs/subitem-tracking-policy`).
+- **CLAUDE.md** 신규 섹션 '작업 항목 관리 — 설계 도출 항목의 subitem 추적' 추가: architect 가 설계를 완료하면 도출된 **dev 구현 체크리스트 + 후속/한계** 를 `doc/TASKS.md` 의 **해당 부모 항목 아래 subitem(들여쓴 하위 체크박스)** 으로 추가, subitem 완료 시 `[x]`, **모든 subitem 완료 시 부모를 `[x]` 로 바꿔 Done 이동**. TASKS = 단일 권위, 설계문서 = 근거·상세. P3 보강으로 진행중/완료 2상태 예시 블록 포함.
+- **DECISIONS D26**: 위 규칙을 영구 결정으로 기록(D25 '설계문서↔TASKS 매핑·P1~P4 우선순위' 연계 — 새 subitem 은 부모의 P 버킷을 따름). 근거 = 항목 단위 완료 확인으로 추적성·설계↔실행 싱크 유지.
+- **TASKS 헤더**: subitem 추적·부모 Done 이동 규칙 한 줄 노트(D26 참조) 추가.
+- **리뷰**: P1=0/P2=0, P3 보강(예시 블록) 반영. 마무리 GitHub PR 워크플로(팀장 지시 머지).
+
+### 결과
+- 문서만 변경(CLAUDE.md·DECISIONS·TASKS·PROJECT_LOG), 빌드/테스트 영향 없음(tests=237 유지). 다음 세션부터 설계 도출 dev 항목은 TASKS subitem 으로 추적.
+
+### 다음
+- 신규 작업 설계 시 architect 가 도출 항목을 부모 subitem 으로 등록 → dev 가 항목 단위 완료 표기. P1 자체 분석기능 착수는 별개 진행.
+
 ## 2026-06-23 세션 15 — 문서 정합화: TASKS↔설계문서 싱크·우선순위 재정렬 + DB 스키마 문서 (DECISIONS D25, doc/18)
 
 ### 한 일
