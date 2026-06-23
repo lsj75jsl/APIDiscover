@@ -41,12 +41,24 @@ public class Classifier {
     }
 
     /**
-     * explicit-hint 매처를 받는 4-arg 오버로드 (doc/09 §2). 게이트는 {@link ApiScorer#evaluate}.
-     * ADMIT 만 Shadow 로 보고하고 DROP_* 사유는 분리(메트릭 배선은 후속).
+     * explicit-hint 매처를 받는 4-arg 오버로드 (doc/09 §2). field scorer 로 5-arg 에 위임(하위호환).
      */
     public List<Finding> classify(List<DiscoveredEndpoint> discovered,
                                   List<CanonicalEndpoint> spec,
                                   EndpointMatcher matcher,
+                                  ApiHintMatcher hints) {
+        return classify(discovered, spec, matcher, apiScorer, hints);
+    }
+
+    /**
+     * effective scorer(가중치/임계)+hints 를 전달받는 5-arg 오버로드 (doc/10 §6).
+     * 게이트는 {@link ApiScorer#evaluate}, ADMIT 만 Shadow 로 보고. DROP_* 사유는 분리(메트릭 후속).
+     * 기존 3/4-arg 는 field scorer 로 이 메서드에 위임 → 하위호환.
+     */
+    public List<Finding> classify(List<DiscoveredEndpoint> discovered,
+                                  List<CanonicalEndpoint> spec,
+                                  EndpointMatcher matcher,
+                                  ApiScorer scorer,
                                   ApiHintMatcher hints) {
         List<Finding> findings = new ArrayList<>();
         Set<String> observedSpecKeys = new HashSet<>();
@@ -72,9 +84,9 @@ public class Classifier {
                 observedSpecKeys.add(key(matched.get())); // Active/Zombie 는 2차 (스펙 권위, 게이트 우회)
                 continue;
             }
-            // 문서에 없음 → ApiScorer 게이트 (doc/08, doc/09 §2.2)
+            // 문서에 없음 → ApiScorer 게이트 (doc/08, doc/09 §2.2). 전달된 scorer 사용(doc/10 §6)
             boolean cors = corsKeys.contains(hostTemplateKey(d.host(), d.pathTemplate()));
-            if (apiScorer.evaluate(d, cors, hints) == ApiScorer.Gate.ADMIT) {
+            if (scorer.evaluate(d, cors, hints) == ApiScorer.Gate.ADMIT) {
                 findings.add(new Finding.Shadow(d.host(), d.method(), d.pathTemplate(),
                         shadowConfidence(d), "트래픽 존재, 문서 내 매칭 템플릿 없음"));
             }

@@ -5,6 +5,7 @@ import com.pentasecurity.apidiscover.match.ApiHintMatcher;
 import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
 import com.pentasecurity.apidiscover.model.EndpointKind;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
@@ -43,6 +44,12 @@ public class ApiScorer {
     private static final Set<String> WRITE = Set.of("POST", "PUT", "PATCH", "DELETE");
     private static final Set<String> ID_TOKENS = Set.of("{id}", "{uuid}", "{token}", "{date}", "{var}");
 
+    /** override 가능한 13 Weights 필드명(단일 명명원, doc/10 §2). threshold/repeatMinCount 는 제외. */
+    public static final Set<String> WEIGHT_KEYS = Set.of(
+            "hostApiSubdomain", "corsPreflight", "apiSegment", "graphqlSegment", "versionSegment",
+            "pathIdSegment", "machineEndpoint", "writeMethod", "query", "nonBrowserUa",
+            "staticAssetPenalty", "repeatBonus", "pathHint");
+
     private final Weights w;
 
     public ApiScorer() {
@@ -50,15 +57,91 @@ public class ApiScorer {
     }
 
     public ApiScorer(Profile profile) {
-        this.w = switch (profile) {
+        this.w = presetWeights(profile);
+    }
+
+    /** 임의 가중치 주입(CUSTOM/override 용, doc/10 §4). resolver 가 effective Weights 로 빌드. */
+    public ApiScorer(Weights weights) {
+        this.w = weights;
+    }
+
+    public double threshold() {
+        return w.threshold();
+    }
+
+    /** 이 scorer 의 effective 가중치 (effective 노출·테스트용, doc/10 §4). */
+    public Weights weights() {
+        return w;
+    }
+
+    /** preset 프로파일의 가중치(doc/10 §3). CUSTOM 베이스로는 MIDDLE 을 쓴다(resolver 가 매핑). */
+    public static Weights presetWeights(Profile profile) {
+        return switch (profile) {
             case HIGH -> HIGH;
             case MIDDLE -> MIDDLE;
             case LOW -> LOW;
         };
     }
 
-    public double threshold() {
-        return w.threshold();
+    /**
+     * base 가중치에 override 를 적용해 새 Weights 를 만든다(doc/10 §4).
+     * 13 double 은 override map(key=Weights 필드명)에 있으면 교체, 없으면 base. threshold 는 thresholdOverride(nullable)
+     * 가 있으면 그 값, 없으면 base. repeatMinCount 는 base 유지(v1 override 범위 밖, doc/10 §2).
+     */
+    public static Weights applyOverrides(Weights base, Map<String, Double> overrides, Double thresholdOverride) {
+        validateWeightOverrides(overrides); // unknown 키·비유한 값 reject (doc/10 §4)
+        validateThreshold(thresholdOverride);
+        return new Weights(
+                ov(overrides, "hostApiSubdomain", base.hostApiSubdomain()),
+                ov(overrides, "corsPreflight", base.corsPreflight()),
+                ov(overrides, "apiSegment", base.apiSegment()),
+                ov(overrides, "graphqlSegment", base.graphqlSegment()),
+                ov(overrides, "versionSegment", base.versionSegment()),
+                ov(overrides, "pathIdSegment", base.pathIdSegment()),
+                ov(overrides, "machineEndpoint", base.machineEndpoint()),
+                ov(overrides, "writeMethod", base.writeMethod()),
+                ov(overrides, "query", base.query()),
+                ov(overrides, "nonBrowserUa", base.nonBrowserUa()),
+                ov(overrides, "staticAssetPenalty", base.staticAssetPenalty()),
+                ov(overrides, "repeatBonus", base.repeatBonus()),
+                base.repeatMinCount(),
+                ov(overrides, "pathHint", base.pathHint()),
+                thresholdOverride != null ? thresholdOverride : base.threshold());
+    }
+
+    private static double ov(Map<String, Double> overrides, String key, double dflt) {
+        Double v = (overrides == null) ? null : overrides.get(key);
+        return v != null ? v : dflt;
+    }
+
+    /**
+     * weight override map 검증(doc/10 §4): 키는 {@link #WEIGHT_KEYS} 의 13개 필드명만 허용(오타/미지원 키 reject),
+     * 값은 유한(NaN/Infinity/null 금지). 위반 → IllegalArgumentException (조용한 무시 금지).
+     */
+    public static void validateWeightOverrides(Map<String, Double> overrides) {
+        if (overrides == null) {
+            return;
+        }
+        for (Map.Entry<String, Double> e : overrides.entrySet()) {
+            if (!WEIGHT_KEYS.contains(e.getKey())) {
+                throw new IllegalArgumentException(
+                        "unknown weight override key: " + e.getKey() + " (allowed: " + WEIGHT_KEYS + ")");
+            }
+            Double v = e.getValue();
+            if (v == null || !Double.isFinite(v)) {
+                throw new IllegalArgumentException("non-finite weight override: " + e.getKey() + "=" + v);
+            }
+        }
+    }
+
+    /** threshold override 범위 검증(doc/10 §4): [0,1] + 유한. null 은 허용(미지정). 위반 → IllegalArgumentException. */
+    public static void validateThreshold(Double threshold) {
+        if (threshold == null) {
+            return;
+        }
+        if (!Double.isFinite(threshold) || threshold < 0.0 || threshold > 1.0) {
+            throw new IllegalArgumentException("threshold override out of [0,1]: " + threshold);
+        }
     }
 
     /** 레거시 2-arg: 힌트 없음(NONE) → pathless strict, 현행 동작과 동일. */

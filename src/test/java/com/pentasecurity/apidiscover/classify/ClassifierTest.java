@@ -175,6 +175,24 @@ class ClassifierTest {
         assertThat(explicit).usingRecursiveComparison().isEqualTo(legacy);
     }
 
+    // --- 5-arg 오버로드 (effective scorer 전달, doc/10 §6) ---
+
+    @Test
+    void fiveArgUsesPassedScorer() {
+        // /api/things on shop host: api_seg(0.55)+repeat(0.12)=0.67 → MIDDLE(0.70) 탈락, LOW(0.55) 통과
+        var d = de("GET", "/api/things", TemplateSource.INFERRED, EndpointKind.UNKNOWN, 100, "2xx", 5);
+
+        // 기본 field scorer(MIDDLE) 경유(4-arg) → 미보고
+        var midFindings = classifier.classify(List.of(d), spec, matcher, ApiHintMatcher.NONE);
+        assertThat(byClass(midFindings, Classification.SHADOW)).isEmpty();
+
+        // LOW scorer 전달(5-arg) → admit → Shadow
+        var lowFindings = classifier.classify(
+                List.of(d), spec, matcher, new ApiScorer(ApiScorer.Profile.LOW), ApiHintMatcher.NONE);
+        assertThat(byClass(lowFindings, Classification.SHADOW))
+                .extracting(Finding::pathTemplate).containsExactly("/api/things");
+    }
+
     // --- helpers ---
 
     private static List<Finding> byClass(List<Finding> findings, Classification c) {

@@ -1,0 +1,162 @@
+// host→effective 분류 설정 해석 — 전역+도메인 로드 → 병합 → scorer/hints 빌드 (doc/10 §3~§5)
+package com.pentasecurity.apidiscover.classify;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pentasecurity.apidiscover.domain.ClassificationConfig;
+import com.pentasecurity.apidiscover.domain.ClassificationConfigRepository;
+import com.pentasecurity.apidiscover.domain.DomainClassificationConfig;
+import com.pentasecurity.apidiscover.domain.DomainClassificationConfigRepository;
+import com.pentasecurity.apidiscover.match.ApiHintMatcher;
+import com.pentasecurity.apidiscover.model.ClassificationProfile;
+import com.pentasecurity.apidiscover.model.MatcherConfig;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import org.springframework.stereotype.Service;
+
+/**
+ * 전역 단일 레코드(PK=1L)와 도메인 override(host)를 로드해 effective 분류 설정으로 병합한다(doc/10 §3).
+ *
+ * <p><b>무회귀(§5)</b>: 레코드 부재/기본 전역 = 현행(ApiScorer MIDDLE + ApiHintMatcher.NONE, 무억제)과 100% 동치.
+ * 전역 includeWebForms=null 을 TRUE 로 정규화한 뒤 {@link MatcherConfig#merge} 호출 → 억제는 operator opt-in.
+ *
+ * <p><b>fail-fast(§4)</b>: matcherJson/customWeightsJson 파싱 실패·ApiHintMatcher 상한 위반 → throw(조용히 default 금지).
+ *
+ * <p>v1 은 무캐시(스캔당 재빌드). 캐시는 REST 단계 — {@link #invalidate}/{@link #invalidateAll} 는 시그니처만 둔다.
+ */
+@Service
+public class EffectiveClassificationResolver {
+
+    private static final long GLOBAL_ID = 1L;
+    private static final TypeReference<Map<String, Double>> WEIGHT_MAP = new TypeReference<>() {};
+
+    private final ClassificationConfigRepository globalRepo;
+    private final DomainClassificationConfigRepository domainRepo;
+    private final ObjectMapper objectMapper;
+
+    public EffectiveClassificationResolver(ClassificationConfigRepository globalRepo,
+                                           DomainClassificationConfigRepository domainRepo,
+                                           ObjectMapper objectMapper) {
+        this.globalRepo = globalRepo;
+        this.domainRepo = domainRepo;
+        this.objectMapper = objectMapper;
+    }
+
+    /** host 의 effective 분류 설정 해석 (doc/10 §3 병합 → §5 default/정규화 → scorer/hints 빌드). */
+    public EffectiveClassification resolve(String host) {
+        ClassificationConfig global = globalRepo.findById(GLOBAL_ID).orElse(null);
+        DomainClassificationConfig domain = domainRepo.findById(host).orElse(null);
+
+        // always-validate (doc/10 §4): profile 무관하게 항상 파싱·검증 → 손상 JSON·unknown 키·비유한·범위밖 fail-fast.
+        // 값 적용은 아래에서 CUSTOM 일 때만(검증과 적용 분리, §3).
+        Map<String, Double> globalWeights = parseWeights(global != null ? global.customWeightsJson : null);
+        Map<String, Double> domainWeights = parseWeights(domain != null ? domain.customWeightsJson : null);
+        ApiScorer.validateWeightOverrides(globalWeights);
+        ApiScorer.validateWeightOverrides(domainWeights);
+        ApiScorer.validateThreshold(global != null ? global.thresholdOverride : null);
+        ApiScorer.validateThreshold(domain != null ? domain.thresholdOverride : null);
+
+        ClassificationProfile profile = firstNonNull(
+                domain != null ? domain.profile : null,
+                global != null ? global.profile : null,
+                ClassificationProfile.MIDDLE);
+
+        // threshold: 도메인 > 전역 > preset (어떤 프로파일에서도 override 가능, §3)
+        Double thresholdOverride = firstNonNull(
+                domain != null ? domain.thresholdOverride : null,
+                global != null ? global.thresholdOverride : null);
+
+        // weights: preset(profile), CUSTOM 일 때만 MIDDLE 베이스 + global∪domain override(키별 domain 승, §3)
+        ApiScorer.Weights base = ApiScorer.presetWeights(toApiProfile(profile));
+        Map<String, Double> weightOverrides = (profile == ClassificationProfile.CUSTOM)
+                ? mergeWeightMaps(globalWeights, domainWeights)
+                : Map.of(); // preset 은 weights override 무시(doc/08 §5)
+        ApiScorer.Weights weights = ApiScorer.applyOverrides(base, weightOverrides, thresholdOverride);
+
+        // matcher: 전역∪도메인 (전역 includeWebForms=null→TRUE 정규화 후 merge, §5)
+        MatcherConfig matcher = MatcherConfig.merge(globalMatcher(global), domainMatcher(domain));
+
+        ApiScorer scorer = new ApiScorer(weights);
+        ApiHintMatcher hints = new ApiHintMatcher(matcher); // 상한/내용 위반 시 fail-fast
+        return new EffectiveClassification(profile, weights, matcher, scorer, hints);
+    }
+
+    /** 캐시 무효화 hook — v1 무캐시(스캔당 재빌드)라 no-op. REST 단계에서 캐시 도입 시 구현(doc/10 §4). */
+    public void invalidate(String host) {
+        // no-op (무캐시)
+    }
+
+    /** 전역 PUT 시 전 호스트 effective 무효화 hook — v1 무캐시라 no-op (doc/10 §4). */
+    public void invalidateAll() {
+        // no-op (무캐시)
+    }
+
+    // --- 병합 helper ---
+
+    /** HIGH/LOW preset 매핑. MIDDLE/CUSTOM 은 MIDDLE 베이스(CUSTOM 은 override 가 얹힘). */
+    private static ApiScorer.Profile toApiProfile(ClassificationProfile p) {
+        return switch (p) {
+            case HIGH -> ApiScorer.Profile.HIGH;
+            case LOW -> ApiScorer.Profile.LOW;
+            case MIDDLE, CUSTOM -> ApiScorer.Profile.MIDDLE;
+        };
+    }
+
+    /** 전역∪도메인 weight override 병합(키별 domain 승). 이미 파싱·검증된 map 을 받는다. */
+    private static Map<String, Double> mergeWeightMaps(Map<String, Double> global, Map<String, Double> domain) {
+        Map<String, Double> merged = new LinkedHashMap<>(global);
+        merged.putAll(domain); // 키 충돌 시 domain 승
+        return merged;
+    }
+
+    /** 전역 매처: 없으면 NONE(빈+TRUE). 있으면 파싱 후 includeWebForms=null→TRUE 정규화(억제 opt-in, §5). */
+    private MatcherConfig globalMatcher(ClassificationConfig global) {
+        MatcherConfig m = (global != null && global.matcherJson != null)
+                ? parseMatcher(global.matcherJson, "global")
+                : MatcherConfig.NONE;
+        if (m.includeWebForms() == null) {
+            m = new MatcherConfig(m.apiPathPrefixes(), m.apiPathRegexes(),
+                    m.excludePathPrefixes(), m.excludePathRegexes(), Boolean.TRUE);
+        }
+        return m;
+    }
+
+    /** 도메인 매처: 없으면 빈+null(상속). includeWebForms 정규화 안 함(null=전역 상속). */
+    private MatcherConfig domainMatcher(DomainClassificationConfig domain) {
+        return (domain != null && domain.matcherJson != null)
+                ? parseMatcher(domain.matcherJson, "domain:" + domain.host)
+                : new MatcherConfig(List.of(), List.of(), List.of(), List.of(), null);
+    }
+
+    private MatcherConfig parseMatcher(String json, String scope) {
+        try {
+            return objectMapper.readValue(json, MatcherConfig.class);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("invalid matcherJson (" + scope + "): " + json, e);
+        }
+    }
+
+    private Map<String, Double> parseWeights(String json) {
+        if (json == null) {
+            return Map.of();
+        }
+        try {
+            Map<String, Double> m = objectMapper.readValue(json, WEIGHT_MAP);
+            return m != null ? m : Map.of();
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("invalid customWeightsJson: " + json, e);
+        }
+    }
+
+    @SafeVarargs
+    private static <T> T firstNonNull(T... values) {
+        for (T v : values) {
+            if (v != null) {
+                return v;
+            }
+        }
+        return null;
+    }
+}

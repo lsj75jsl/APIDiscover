@@ -10,8 +10,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.pentasecurity.apidiscover.classify.ApiScorer;
 import com.pentasecurity.apidiscover.classify.Classifier;
+import com.pentasecurity.apidiscover.classify.EffectiveClassificationResolver;
 import com.pentasecurity.apidiscover.config.ApiDiscoverProperties;
+import com.pentasecurity.apidiscover.domain.ClassificationConfig;
+import com.pentasecurity.apidiscover.domain.ClassificationConfigRepository;
+import com.pentasecurity.apidiscover.domain.DomainClassificationConfigRepository;
 import com.pentasecurity.apidiscover.domain.DomainConfigRepository;
+import com.pentasecurity.apidiscover.model.ClassificationProfile;
 import com.pentasecurity.apidiscover.domain.ScanResult;
 import com.pentasecurity.apidiscover.domain.ScanResultRepository;
 import com.pentasecurity.apidiscover.domain.SpecRecord;
@@ -41,11 +46,19 @@ class DiscoveryJobServiceTest {
     private final ScanResultRepository scanRepo = mock(ScanResultRepository.class);
     private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
 
+    // 기본 빈 mock → resolver 가 무회귀 default 반환. e2e 테스트는 globalClsRepo 를 직접 stub.
+    private final ClassificationConfigRepository globalClsRepo = mock(ClassificationConfigRepository.class);
+    private final DomainClassificationConfigRepository domainClsRepo =
+            mock(DomainClassificationConfigRepository.class);
+    private final EffectiveClassificationResolver resolver =
+            new EffectiveClassificationResolver(globalClsRepo, domainClsRepo, objectMapper);
+
     private final DiscoveryJobService service = new DiscoveryJobService(
             new LogLineParser(),
             new InventoryBuilder(new PathNormalizer(), new EndpointKindClassifier()),
             specStore,
             new Classifier(new ApiScorer()),
+            resolver,
             new ReportBuilder(),
             scanRepo,
             mock(DomainConfigRepository.class),
@@ -74,6 +87,27 @@ class DiscoveryJobServiceTest {
         assertThat(result.active).isZero();
         assertThat(result.version).isNotBlank();
         assertThat(result.reportJson).contains("\"shadow\"");
+    }
+
+    @Test
+    void analyzeReflectsExcludeConfigFromResolver() {
+        when(specStore.activeMeta(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.findById(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.save(any(ScanResult.class))).thenAnswer(inv -> inv.getArgument(0));
+        // 전역 설정: /users exclude → /users/{id} 가 DROP_EXCLUDED → Shadow 0 (설정이 결과에 반영, e2e)
+        ClassificationConfig global = new ClassificationConfig();
+        global.id = 1L;
+        global.profile = ClassificationProfile.MIDDLE;
+        global.matcherJson = "{\"excludePathPrefixes\":[\"/users\"]}";
+        when(globalClsRepo.findById(1L)).thenReturn(Optional.of(global));
+
+        ScanResult result = service.analyze(HOST, List.of(
+                line("GET", "/users/1?x=1", 200),
+                line("GET", "/users/2?x=2", 200),
+                line("GET", "/users/3?x=3", 200)), window);
+
+        assertThat(result.discovered).isEqualTo(1); // 인벤토리엔 존재
+        assertThat(result.shadow).isZero();          // exclude 설정 반영 → 미보고(무회귀 대비 차이)
     }
 
     @Test
