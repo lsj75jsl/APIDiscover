@@ -3,6 +3,7 @@ package com.pentasecurity.apidiscover.report;
 
 import com.pentasecurity.apidiscover.ingest.LogWindow;
 import com.pentasecurity.apidiscover.model.DiscoveryReport;
+import com.pentasecurity.apidiscover.model.DroppedByLimit;
 import com.pentasecurity.apidiscover.model.DroppedNonApi;
 import com.pentasecurity.apidiscover.model.Finding;
 import java.time.Instant;
@@ -14,7 +15,8 @@ public class ReportBuilder {
 
     /** findings 를 분류별로 집계해 리포트를 만든다. version(ETag)은 저장 시 EtagUtil 로 산정. */
     public DiscoveryReport build(String host, long specVersion, LogWindow window,
-                                 int discoveredCount, List<Finding> findings, DroppedNonApi dropped) {
+                                 int discoveredCount, List<Finding> findings, DroppedNonApi dropped,
+                                 DroppedByLimit droppedByLimit) {
         int active = 0;
         int shadow = 0;
         int zombie = 0;
@@ -30,8 +32,9 @@ public class ReportBuilder {
         }
 
         var summary = new DiscoveryReport.Summary(discoveredCount, active, shadow, zombie, unused);
-        // droppedNonApi 는 항상 non-null(빈 결과=(0,0,0)) → shape 일관 (doc/12 §3)
-        DroppedNonApi droppedNonApi = dropped != null ? dropped : new DroppedNonApi(0, 0, 0);
-        return new DiscoveryReport(host, Instant.now(), window, specVersion, summary, findings, droppedNonApi);
+        // droppedNonApi/droppedByLimit 는 항상 non-null(빈 결과) → shape 일관 (doc/12 §3, doc/13 §1.2)
+        DroppedNonApi nonApi = dropped != null ? dropped : new DroppedNonApi(0, 0, 0);
+        DroppedByLimit byLimit = droppedByLimit != null ? droppedByLimit : DroppedByLimit.NONE;
+        return new DiscoveryReport(host, Instant.now(), window, specVersion, summary, findings, nonApi, byLimit);
     }
 }

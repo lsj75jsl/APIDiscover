@@ -9,6 +9,7 @@ import com.pentasecurity.apidiscover.match.ApiHintMatcher;
 import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
 import com.pentasecurity.apidiscover.model.EndpointKind;
 import com.pentasecurity.apidiscover.model.MatcherConfig;
+import com.pentasecurity.apidiscover.model.ParamCandidates;
 import com.pentasecurity.apidiscover.model.TemplateSource;
 import java.time.Instant;
 import java.util.List;
@@ -24,7 +25,7 @@ class ApiScorerTest {
         var m = new DiscoveredEndpoint.Metrics(
                 hits, Instant.EPOCH, Instant.EPOCH, Map.of("2xx", hits), 5, 10, 50);
         return new DiscoveredEndpoint(method + " " + host + " " + tmpl, method, host, tmpl,
-                TemplateSource.INFERRED, kind, 0.0, query, sdk, m);
+                TemplateSource.INFERRED, kind, 0.0, query, sdk, m, ParamCandidates.EMPTY);
     }
 
     @Test
@@ -77,17 +78,17 @@ class ApiScorerTest {
         // host=null — LogLineParser 가 host 미존재 시 null 을 넘길 수 있음(F_HOST/F_REAL_HOST 모두 '-')
         var m = new DiscoveredEndpoint.Metrics(10, Instant.EPOCH, Instant.EPOCH, Map.of("2xx", 10L), 1, 1, 1);
         var nullHost = new DiscoveredEndpoint("GET null /users/{id}", "GET", null, "/users/{id}",
-                TemplateSource.INFERRED, EndpointKind.UNKNOWN, 0.0, false, false, m);
+                TemplateSource.INFERRED, EndpointKind.UNKNOWN, 0.0, false, false, m, ParamCandidates.EMPTY);
         assertThatCode(() -> middle.score(nullHost, false)).doesNotThrowAnyException();
 
         // template=null — segments() 가 빈 배열로 안전 처리
         var nullTemplate = new DiscoveredEndpoint("GET api.example.com null", "GET", "api.example.com", null,
-                TemplateSource.INFERRED, EndpointKind.UNKNOWN, 0.0, false, false, m);
+                TemplateSource.INFERRED, EndpointKind.UNKNOWN, 0.0, false, false, m, ParamCandidates.EMPTY);
         assertThatCode(() -> middle.score(nullTemplate, false)).doesNotThrowAnyException();
 
         // metrics=null — repeat 신호 분기에서 null 가드
         var nullMetrics = new DiscoveredEndpoint("GET api.example.com /x", "GET", "api.example.com", "/x",
-                TemplateSource.INFERRED, EndpointKind.UNKNOWN, 0.0, false, false, null);
+                TemplateSource.INFERRED, EndpointKind.UNKNOWN, 0.0, false, false, null, ParamCandidates.EMPTY);
         assertThatCode(() -> middle.score(nullMetrics, false)).doesNotThrowAnyException();
     }
 

@@ -1,12 +1,16 @@
 // nginx access log(^|^ 구분 20필드)을 ParsedRequest 로 파싱 (doc/02 §1)
 package com.pentasecurity.apidiscover.parse;
 
+import com.pentasecurity.apidiscover.config.NormalizationProperties;
 import com.pentasecurity.apidiscover.model.ParsedRequest;
+import com.pentasecurity.apidiscover.model.QueryParamObs;
+import com.pentasecurity.apidiscover.model.ValueLenBucket;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -14,6 +18,12 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class LogLineParser {
+
+    private final int[] valueLenBucketBounds;
+
+    public LogLineParser(NormalizationProperties props) {
+        this.valueLenBucketBounds = props.valueLenBucketBounds();
+    }
 
     /** 로그 필드 구분자. */
     static final String DELIM = "^|^";
@@ -59,7 +69,7 @@ public class LogLineParser {
 
             String requestUri = f[F_REQUEST_URI];
             String rawPath = stripQuery(requestUri);
-            List<String> queryKeys = queryKeys(requestUri);
+            List<QueryParamObs> queryParams = queryParams(requestUri);
 
             int status = Integer.parseInt(f[F_STATUS].trim());
             long bodyBytes = parseLongOrZero(f[F_BODY_BYTES]);
@@ -76,7 +86,7 @@ public class LogLineParser {
             String requestId = (f.length > F_REQUEST_ID) ? nullIfDash(f[F_REQUEST_ID]) : null;
 
             return Optional.of(new ParsedRequest(
-                    method, rawPath, queryKeys, status, host, clientIp, userAgent,
+                    method, rawPath, queryParams, status, host, clientIp, userAgent,
                     ts, respTimeMs, bodyBytes, https, referer, type, requestId));
         } catch (RuntimeException e) {
             // 숫자/시간 파싱 실패 등 — 손상된 라인은 폐기 (doc/02 §2)
@@ -101,28 +111,35 @@ public class LogLineParser {
         return q < 0 ? uri : uri.substring(0, q);
     }
 
-    private static List<String> queryKeys(String uri) {
-        List<String> keys = new ArrayList<>();
+    /**
+     * query string → 파라미터별 (이름 + 값 길이 버킷). <b>값 자체는 폐기</b>하고 길이만 버킷화한다(doc/13 §2.1).
+     * 같은 이름 중복 시 첫 관측 버킷 유지(distinct 키 단위, hadQuery 신호 보존).
+     */
+    private List<QueryParamObs> queryParams(String uri) {
         if (uri == null) {
-            return keys;
+            return List.of();
         }
         int q = uri.indexOf('?');
         if (q < 0 || q == uri.length() - 1) {
-            return keys;
+            return List.of();
         }
-        Set<String> seen = new LinkedHashSet<>();
+        Map<String, ValueLenBucket> byName = new LinkedHashMap<>();
         for (String pair : uri.substring(q + 1).split("&")) {
             if (pair.isEmpty()) {
                 continue;
             }
             int eq = pair.indexOf('=');
             String key = eq < 0 ? pair : pair.substring(0, eq);
-            if (!key.isEmpty()) {
-                seen.add(key);
+            if (key.isEmpty()) {
+                continue;
             }
+            // 값 길이만 측정 후 즉시 폐기 (값 미저장)
+            int valueLen = (eq < 0) ? 0 : (pair.length() - eq - 1);
+            byName.putIfAbsent(key, ValueLenBucket.of(valueLen, valueLenBucketBounds));
         }
-        keys.addAll(seen);
-        return keys;
+        List<QueryParamObs> out = new ArrayList<>(byName.size());
+        byName.forEach((name, bucket) -> out.add(new QueryParamObs(name, bucket)));
+        return out;
     }
 
     private static String nullIfDash(String v) {

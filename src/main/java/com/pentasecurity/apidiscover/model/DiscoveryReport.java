@@ -12,7 +12,8 @@ public record DiscoveryReport(
         long specVersion,
         Summary summary,
         List<Finding> findings,
-        DroppedNonApi droppedNonApi   // non_api 게이트 탈락 사유별 집계 (doc/12), 항상 non-null
+        DroppedNonApi droppedNonApi,  // non_api 게이트 탈락 사유별 집계 (doc/12), 항상 non-null
+        DroppedByLimit droppedByLimit // 카디널리티 상한 초과 drop 집계 (doc/13), 항상 non-null
 ) {
     public record Summary(
             int discovered,

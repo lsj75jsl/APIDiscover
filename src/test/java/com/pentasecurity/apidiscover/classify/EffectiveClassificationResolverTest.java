@@ -18,6 +18,7 @@ import com.pentasecurity.apidiscover.model.ClassificationProfile;
 import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
 import com.pentasecurity.apidiscover.model.EndpointKind;
 import com.pentasecurity.apidiscover.model.MatcherConfig;
+import com.pentasecurity.apidiscover.model.ParamCandidates;
 import com.pentasecurity.apidiscover.model.TemplateSource;
 import java.time.Instant;
 import java.util.List;
@@ -279,6 +280,6 @@ class EffectiveClassificationResolverTest {
     private static DiscoveredEndpoint webFormPost() {
         var m = new DiscoveredEndpoint.Metrics(100, Instant.EPOCH, Instant.EPOCH, Map.of("2xx", 100L), 5, 10, 50);
         return new DiscoveredEndpoint("POST " + HOST + " /account/update", "POST", HOST, "/account/update",
-                TemplateSource.INFERRED, EndpointKind.WEB_PAGE, 0.0, false, false, m);
+                TemplateSource.INFERRED, EndpointKind.WEB_PAGE, 0.0, false, false, m, ParamCandidates.EMPTY);
     }
 }

@@ -34,6 +34,13 @@ apidiscover:
     off-peak-window: "01:00-06:00" # (선택) 백필/대용량 저부하 시간대
   central:
     base-url: "https://central.internal"
+  normalization:                 # 고카디널리티 방지 (doc/13)
+    max-templates-per-host: 5000       # host 당 distinct template 상한
+    max-query-params-per-endpoint: 50  # endpoint 당 distinct query param 상한
+    stat-var-ratio: 0.3                # distinct/requests 승격 임계
+    stat-var-min-distinct: 20          # 소표본 오승격 방지
+    stat-var-min-convergence: 0.7      # false merge 방지(수렴)
+    value-len-bucket-bounds: [8, 32, 128]  # value 길이 버킷 상한(포함)
 
 management:
   endpoints:

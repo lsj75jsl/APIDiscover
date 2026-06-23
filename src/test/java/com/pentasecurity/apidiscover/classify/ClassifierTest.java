@@ -12,6 +12,7 @@ import com.pentasecurity.apidiscover.model.DroppedNonApi;
 import com.pentasecurity.apidiscover.model.EndpointKind;
 import com.pentasecurity.apidiscover.model.Finding;
 import com.pentasecurity.apidiscover.model.MatcherConfig;
+import com.pentasecurity.apidiscover.model.ParamCandidates;
 import com.pentasecurity.apidiscover.model.TemplateSource;
 import java.time.Instant;
 import java.util.List;
@@ -246,6 +247,6 @@ class ClassifierTest {
                 distinctClients, 10, 50);
         return new DiscoveredEndpoint(
                 method + " " + HOST + " " + template, method, HOST, template, source, kind, 0.9,
-                false, false, metrics);
+                false, false, metrics, ParamCandidates.EMPTY);
     }
 }

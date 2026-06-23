@@ -25,11 +25,6 @@
 - [ ] (보류) 참고 설계의 정확한 가중치 값 — 우리 데이터 보정 후 확정
 - [ ] (확장) `$type` taxonomy 에서 API성 값(xhr/json) 확인 시 `response_type_api` 양성 가중치 추가
 
-### 정규화 고카디널리티 방지 (02/08 통합)
-- [ ] 통계적 `{var}` 승격 + 도메인 endpoint template 상한 + endpoint별 param/field 상한, 초과 시 `dropped_limit`
-- [ ] 파라미터 후보(body 없음 → query/path만): query param name/presence/length bucket, path param 후보
-- [ ] sensitive key matcher (query key 저장 시 마스킹/제외)
-
 ### 스펙 파서 / Spec Store (03 문서)
 - [ ] `PostmanSpecParser` 실구현 (item 트리 DFS, url.path join, `:var`/`{{var}}`→`{var}`, `[DEPRECATED]` 규약)
 - [ ] `CsvSpecParser` 실구현 (헤더 검증, deprecated 파싱, `:var`→`{var}`)
@@ -37,7 +32,6 @@
 - [ ] 멀티 스펙 업로드(여러 문서 병합) — 1차 범위 밖, 후속
 
 ### 정규화/인벤토리 (02 문서)
-- [ ] 통계적 정규화 보정 3단계 (구조 클러스터링 + 카디널리티 → slug 변수 추론)
 - [ ] 실재성 404-only 필터 (인벤토리 단계에서 명시 적용)
 - [ ] endpoint_kind referer 보조 신호 (현재 `$type`+확장자만 사용)
 - [ ] `$type` 전체 taxonomy 광범위 샘플링으로 확정 (다양한 status/method)
@@ -122,3 +116,11 @@
 - [x] `model/DroppedNonApi`(excluded/webForm/lowScore + `@JsonProperty total` 파생) + `DiscoveryReport` top-level `droppedNonApi`(가산적·항상 non-null) + `ReportBuilder` 전달
 - [x] `DiscoveryJobService` classifyWithMetrics 전환 + ETag 입력에 droppedNonApi 포함(분포 변화 반영, 304 버그 방지). 카운트=non-OPTIONS·spec 미매칭·DROP_*. ScanResult 스키마 무변경
 > 후속(TODO 유지): Actuator/Micrometer 노출·알람(동일 카운트 재사용)·scan-status total 비정규화(선택)
+
+### 정규화 고카디널리티 방지 — T1 통계승격+상한 / T2 param 후보 / T3 sensitive (2026-06-23, doc/13 / DECISIONS D20) — tests=184 green
+- [x] T1 통계 `{var}` 승격(`CardinalityNormalizer`: distinct≥20·ratio≥0.3·수렴≥0.7+형제 재병합) + 상한(host template 5000 / endpoint query param 50, 초과 drop) → `DroppedByLimit`
+- [x] T1 = doc/02 §3.3 "통계적 정규화 보정 3단계"와 동일 알고리즘 → 그 항목도 함께 커버(클러스터링+카디널리티→slug 변수 추론)
+- [x] T2 param 후보: `queryKeys→queryParams`(값 폐기·`ValueLenBucket` 길이버킷만) + `ParamCandidates(query/path)` → `Finding.Shadow.params` 노출, `ParamCandidateExtractor`(per-endpoint 상한)
+- [x] T3 sensitive: `SensitiveKeyMatcher`(@ConfigurationProperties yml, 대소문자무시) — 키이름+flag 보존·값/버킷 억제(REDACTED, 보안신호)
+- [x] 배선: `DiscoveryReport` top-level `droppedByLimit`+ETag 포함, `InventoryBuilder.buildWithLimits`(build→위임 하위호환), `Normalization/SensitiveKeyProperties`
+> 후속(TODO 유지): sensitive/상한 도메인 override·중앙 REST/대시보드, Active/Zombie param 노출, HLL/t-digest 근사
