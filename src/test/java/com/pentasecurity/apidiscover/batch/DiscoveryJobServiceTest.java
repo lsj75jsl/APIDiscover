@@ -200,6 +200,24 @@ class DiscoveryJobServiceTest {
     }
 
     @Test
+    void reportJsonAndEtagReflectNonExistentDrop() {
+        when(specStore.activeMeta(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.findById(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.save(any(ScanResult.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // 스캔 A: /probe/1·/probe/2 전부 404(INFERRED /probe/{id}) → 비실재 hard-drop. droppedNonExistent=1, reportJson 노출
+        ScanResult a = service.analyze(HOST, List.of(
+                line("GET", "/probe/1", 404), line("GET", "/probe/2", 404)), window);
+        assertThat(a.reportJson).contains("\"droppedNonExistent\"").contains("\"notFound\":1");
+
+        // 스캔 B: /probe/2 가 200(실재) → 100%-404 아님 → drop 0. notFound=0 + ETag 다름(실재성 분포 변화 반영, doc/19 §4)
+        ScanResult b = service.analyze(HOST, List.of(
+                line("GET", "/probe/1", 404), line("GET", "/probe/2", 200)), window);
+        assertThat(b.reportJson).contains("\"notFound\":0");
+        assertThat(a.version).isNotEqualTo(b.version);
+    }
+
+    @Test
     void shadowParamCandidatesAppearInReportJson() {
         when(specStore.activeMeta(HOST)).thenReturn(Optional.empty());
         when(scanRepo.findById(HOST)).thenReturn(Optional.empty());

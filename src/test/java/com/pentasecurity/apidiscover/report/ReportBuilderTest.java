@@ -7,6 +7,7 @@ import com.pentasecurity.apidiscover.ingest.LogWindow;
 import com.pentasecurity.apidiscover.model.DiscoveryReport;
 import com.pentasecurity.apidiscover.model.DroppedByLimit;
 import com.pentasecurity.apidiscover.model.DroppedNonApi;
+import com.pentasecurity.apidiscover.model.DroppedNonExistent;
 import com.pentasecurity.apidiscover.model.Finding;
 import com.pentasecurity.apidiscover.model.ParamCandidates;
 import com.pentasecurity.apidiscover.model.Severity;
@@ -30,7 +31,7 @@ class ReportBuilderTest {
 
         LogWindow window = new LogWindow(Instant.EPOCH, Instant.EPOCH.plusSeconds(3600));
         DiscoveryReport report = builder.build("api.example.com", 7L, window, 4, findings,
-                new DroppedNonApi(2, 1, 3), new DroppedByLimit(4, 5));
+                new DroppedNonApi(2, 1, 3), new DroppedByLimit(4, 5), new DroppedNonExistent(8));
 
         assertThat(report.host()).isEqualTo("api.example.com");
         assertThat(report.specVersion()).isEqualTo(7L);
@@ -50,18 +51,20 @@ class ReportBuilderTest {
         assertThat(report.droppedNonApi().total()).isEqualTo(6);
         assertThat(report.droppedByLimit()).isEqualTo(new DroppedByLimit(4, 5));
         assertThat(report.droppedByLimit().total()).isEqualTo(9);
+        assertThat(report.droppedNonExistent()).isEqualTo(new DroppedNonExistent(8)); // doc/19
     }
 
     @Test
     void handlesEmptyFindings() {
         DiscoveryReport report = builder.build("h", 1L,
-                new LogWindow(Instant.EPOCH, Instant.EPOCH), 0, List.of(), null, null);
+                new LogWindow(Instant.EPOCH, Instant.EPOCH), 0, List.of(), null, null, null);
 
         assertThat(report.findings()).isEmpty();
         assertThat(report.summary().shadow()).isZero();
         assertThat(report.summary().zombie()).isZero();
-        // null 전달 → 빈 결과 으로 정규화(항상 non-null, doc/12 §3, doc/13 §1.2)
+        // null 전달 → 빈 결과 으로 정규화(항상 non-null, doc/12 §3, doc/13 §1.2, doc/19 §4)
         assertThat(report.droppedNonApi()).isEqualTo(new DroppedNonApi(0, 0, 0));
         assertThat(report.droppedByLimit()).isEqualTo(new DroppedByLimit(0, 0));
+        assertThat(report.droppedNonExistent()).isEqualTo(DroppedNonExistent.NONE);
     }
 }

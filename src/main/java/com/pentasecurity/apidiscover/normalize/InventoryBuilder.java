@@ -5,6 +5,7 @@ import com.pentasecurity.apidiscover.match.EndpointMatcher;
 import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
 import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
 import com.pentasecurity.apidiscover.model.DroppedByLimit;
+import com.pentasecurity.apidiscover.model.DroppedNonExistent;
 import com.pentasecurity.apidiscover.model.ParsedRequest;
 import com.pentasecurity.apidiscover.model.TemplateSource;
 import java.util.ArrayList;
@@ -32,8 +33,9 @@ public class InventoryBuilder {
         this.paramExtractor = paramExtractor;
     }
 
-    /** 인벤토리 + 상한 drop 집계. */
-    public record InventoryResult(List<DiscoveredEndpoint> endpoints, DroppedByLimit droppedByLimit) {}
+    /** 인벤토리 + 상한 drop + 비실재(404-only) drop 집계. */
+    public record InventoryResult(List<DiscoveredEndpoint> endpoints, DroppedByLimit droppedByLimit,
+                                  DroppedNonExistent droppedNonExistent) {}
 
     /**
      * 레거시: 인벤토리만 반환(하위호환). {@link #buildWithLimits} 위임.
@@ -56,9 +58,20 @@ public class InventoryBuilder {
             acc.add(r);
         }
 
+        // 2.5: 실재성 404-only hard-drop (INFERRED only, 승격/상한 전, SPEC 보호) — doc/19 §2
+        // 스캐너 탐침 noise 를 가장 먼저 제거해 상한 예산을 정상 template 에 보존. SPEC(스펙 매칭)은 권위라 제외 안 함.
+        List<Acc> existing = new ArrayList<>(bySignature.size());
+        int droppedNonExistent = 0;
+        for (Acc acc : bySignature.values()) {
+            if (acc.source() == TemplateSource.INFERRED && acc.isNonExistent()) {
+                droppedNonExistent++;
+            } else {
+                existing.add(acc);
+            }
+        }
+
         // 3·4: T1 통계 {var} 승격 → host template 상한
-        CardinalityNormalizer.Result norm =
-                cardinalityNormalizer.normalize(new ArrayList<>(bySignature.values()));
+        CardinalityNormalizer.Result norm = cardinalityNormalizer.normalize(existing);
 
         // 5·6·7: param 후보(+per-endpoint 상한·sensitive) → DiscoveredEndpoint 방출
         List<DiscoveredEndpoint> result = new ArrayList<>(norm.accs().size());
@@ -71,7 +84,7 @@ public class InventoryBuilder {
             result.add(acc.toEndpoint(kind.kind(), kind.confidence(), pr.candidates()));
         }
         DroppedByLimit dropped = new DroppedByLimit(norm.droppedTemplates(), droppedParams);
-        return new InventoryResult(result, dropped);
+        return new InventoryResult(result, dropped, new DroppedNonExistent(droppedNonExistent));
     }
 
     /** 스펙 우선 매칭 → 없으면 휴리스틱. */

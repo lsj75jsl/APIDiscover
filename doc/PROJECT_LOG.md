@@ -5,6 +5,23 @@
 
 ---
 
+## 2026-06-24 세션 17 — 실재성 404-only 필터 (인벤토리 단계, doc/19 §6, DECISIONS D27)
+
+### 한 일
+- **신규**: `model/DroppedNonExistent(int notFound)`(+`NONE`, DiscoveryReport top-level·ETag 포함). 게이트 탈락(DroppedNonApi)·상한(DroppedByLimit)과 성격 다른 실재성 형제 record.
+- **수정**: `Acc` 에 `status404` 전용 카운터(`add` 에서 `status==404` 만 증가, `mergeFrom` 합산) + `isNonExistent()`(hits>0 && status404==hits) + `source()`. **통합 4xx 버킷이 아닌 404 전용**이라 401/403-only(인증벽 뒤 실재) 보존.
+  `InventoryBuilder.buildWithLimits` 에 Acc 집계 후·승격/상한 전 `source==INFERRED && isNonExistent()` 제외+카운트(SPEC 보호, 스캐너 noise 를 상한 예산 전에 제거) + `InventoryResult` 에 droppedNonExistent. `DiscoveryReport`/`ReportBuilder.build` 인자 추가, `DiscoveryJobService` 전달 + ETag 입력 포함.
+- **역할 분리**: hard-drop(100%-404, INFERRED, 인벤토리) ⊂ soft(4xx≥90%, Classifier -0.7) — hard-drop 이 먼저 제거 → soft 와 중복 없음. 회색지대(mostly-4xx ≠100%)는 보존→저신뢰 Shadow 보고.
+- **무회귀**: 401·403-only 보존·2xx/3xx/5xx 혼재 보존·mostly-4xx 보존(soft -0.7 유지)·SPEC 보존. 기존 InventoryBuilderTest(404 혼재) 무영향, ClassifierTest(DiscoveredEndpoint 직접 생성→인벤토리 미경유) 무영향.
+- **리뷰 2라운드**: ① 구현 5건 → ② P3 doc/19 문구 보강. P1=0/P2=0. D26 규칙대로 TASKS subitem 5건 [x]→부모 Done 이동.
+- 마무리: GitHub PR 워크플로(push → `gh pr create` → 팀장 지시 `gh pr merge --merge --delete-branch`).
+
+### 결과
+- BUILD SUCCESSFUL, **tests=243 skipped=1(라이브) failures=0**. InventoryBuilderTest +5·DiscoveryJobServiceTest +1.
+
+### 다음
+- 후속(P1): "문서화됐는데 404-only=미배포" 경고(SPEC 매칭분, 별도 신호)·401/403 status 세분(현재 404 만 별도 버킷).
+
 ## 2026-06-24 세션 16 — 작업 항목 subitem 추적 관리규칙 코드화 (CLAUDE.md, DECISIONS D26)
 
 ### 한 일

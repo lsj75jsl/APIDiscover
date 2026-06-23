@@ -38,7 +38,6 @@
 ### P1. 자체 분석 기능 (먼저)
 
 #### 정규화/인벤토리 (02/13 문서)
-- [ ] 실재성 404-only 필터 (인벤토리 단계에서 명시 적용)
 - [ ] endpoint_kind referer 보조 신호 (현재 `$type`+확장자만 사용)
 - [ ] `$type` 전체 taxonomy 광범위 샘플링으로 확정 (다양한 status/method) — `→ 의존:` doc/17 `responseTypeApi`·EndpointKindClassifier API_TYPES 정제 근거
 - [ ] distinct/분위수 대용량 근사 (HLL/t-digest, 규모 대응) — 현재 정확 Set/nearest-rank
@@ -82,6 +81,14 @@
 ---
 
 ## Done
+
+### 실재성 404-only 필터 (인벤토리 단계) (2026-06-24, doc/19 / DECISIONS D27) — tests=243 green
+- [x] `Acc` — `status404` 카운터(add/mergeFrom) + `isNonExistent()`(hits>0 && status404==hits) — 404 100% 만, 401/403 보존
+- [x] `InventoryBuilder.buildWithLimits` — Acc 집계 후·승격/상한 전 `source==INFERRED && isNonExistent()` 제외+카운트(SPEC 보호) + `InventoryResult` 에 droppedNonExistent 추가
+- [x] `model/DroppedNonExistent(int notFound)` + `DiscoveryReport` top-level(항상 non-null) + `ReportBuilder.build` 인자
+- [x] `DiscoveryJobService.analyze` — droppedNonExistent → ReportBuilder 전달 + ETag 입력 추가
+- [x] 테스트 — 404-only INFERRED drop·카운트 / 401·403-only 보존 / 2xx·3xx·5xx 혼재 보존 / mostly-4xx(≠100%) 보존→Classifier soft -0.7 / spec 매칭(SPEC) 보존 / reportJson·ETag 반영
+> hard-drop(100%-404, INFERRED) ⊂ soft(4xx≥90%, Classifier -0.7) — 역할 분리. 통합 4xx 아닌 404 전용으로 401/403 보존. SPEC 매칭 보존.
 
 ### 문서 정합화 + 우선순위 재정렬 (2026-06-23, DECISIONS D25)
 - [x] doc/09~17 의 dev 항목·후속 전수 추출 → TASKS 교차대조(누락 0). 미반영 후속 4건 추가(cross-scan recency·Active/Zombie param 노출·scan-status total·파라미터 중앙 API 확장 묶음) + HA cross-instance·warnings 채널 seam 메모
