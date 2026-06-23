@@ -23,7 +23,7 @@
 ### 보류 (08 §9 — 현 시점 미채택)
 - [ ] (보류) endpoint decision cache — 배치 재집계 구조라 이득 작음, 필요 시 재검토
 - [ ] (보류) 참고 설계의 정확한 가중치 값 — 우리 데이터 보정 후 확정
-- [ ] (확장) `$type` taxonomy 에서 API성 값(xhr/json) 확인 시 `response_type_api` 양성 가중치 추가
+- [x] **(보류→채택)** `$type` API성 값 → `response_type_api` 양성 가중치 — 신규 필드 없이 기존 API_CANDIDATE 재사용·양성-only 비대칭으로 §9 보류 사유 해소 (Done 이동, doc/17/D24)
 
 ### 스펙 파서 / Spec Store (03 문서)
 - [ ] 멀티 스펙 업로드(여러 문서 병합) — 1차 범위 밖, 후속
@@ -60,6 +60,12 @@
 ---
 
 ## Done
+
+### response_type_api 양성 가중치 — $type API성 신호 채택 (2026-06-23, doc/17 / DECISIONS D24) — tests=237 green
+- [x] `ApiScorer.Weights` 14번째 가중치 `responseTypeApi`(MIDDLE 0.25/HIGH 0.18/LOW 0.32, §9 보정전 1차값) + `WEIGHT_KEYS` 14 + `applyOverrides` 반영
+- [x] `score()` 공통 섹션 `endpointKind==API_CANDIDATE → += responseTypeApi`(양성-only 비대칭, document/UNKNOWN/STATIC/부재 무가산·무감점)
+- [x] 기존 `EndpointKind.API_CANDIDATE`($type∈{xhr,fetch,json,api,ajax} dominant) 재사용 — 신규 필드/Acc 불요. customWeights 자동 수용(resolver/DTO/controller 무변경)
+> 08 §9 보류 사유($type taxonomy 불확실·document 트랩) 를 양성-only + 보수적 집합으로 해소(보류→채택). 무회귀: 비-API endpoint 무변경, API_CANDIDATE만 상승(보류 해제 목적).
 
 ### 설계 (2026-06-22)
 - [x] 설계 문서 00~07 (개요/아키텍처/파싱·정규화/스펙·Canonical/매칭·분류/Loki수집/구현스택/MSA연동)

@@ -134,6 +134,77 @@ class ApiScorerTest {
                 .isEqualTo(0.20);
     }
 
+    // --- response_type_api 신호 (doc/17 §2) — API_CANDIDATE 양성-only ---
+
+    @Test
+    void apiCandidateAddsResponseTypeApiWeight() {
+        // 동일 endpoint 에서 kind 만 다름 → 차이 = responseTypeApi(MIDDLE 0.25)
+        var base = de("www.example.com", "GET", "/x", EndpointKind.UNKNOWN, 2, false, false);
+        assertThat(middle.score(base, false)).isEqualTo(0.0);  // $type 부재(UNKNOWN) → 무가산 베이스라인
+        var api = de("www.example.com", "GET", "/x", EndpointKind.API_CANDIDATE, 2, false, false);
+        assertThat(middle.score(api, false)).isEqualTo(0.25);  // API_CANDIDATE → +0.25
+    }
+
+    @Test
+    void webPageAndAbsentTypeGetNoResponseTypeApiBoost() {
+        // 비대칭: document(WEB_PAGE)·$type 부재(UNKNOWN) 무가산·무감점 (doc/17 §2)
+        var web = de("www.example.com", "GET", "/x", EndpointKind.WEB_PAGE, 2, false, false);
+        assertThat(middle.score(web, false)).isEqualTo(0.0);
+        var unknown = de("www.example.com", "GET", "/x", EndpointKind.UNKNOWN, 2, false, false);
+        assertThat(middle.score(unknown, false)).isEqualTo(0.0);
+    }
+
+    @Test
+    void staticAppliesPenaltyOnlyNotResponseTypeApi() {
+        // STATIC ⊕ API_CANDIDATE 상호배타 → STATIC 은 penalty 만, responseTypeApi 미발화
+        var d = de("api.example.com", "GET", "/lib/app.js", EndpointKind.STATIC, 100, false, false);
+        // host_api 0.40 + cors 0.30 + repeat 0.12 + static -0.60 = 0.22 (responseTypeApi 0.25 미가산)
+        assertThat(middle.score(d, true)).isEqualTo(0.22);
+    }
+
+    @Test
+    void customResponseTypeApiWeightIsAcceptedAndApplied() {
+        var w = ApiScorer.applyOverrides(
+                ApiScorer.presetWeights(ApiScorer.Profile.MIDDLE), Map.of("responseTypeApi", 0.5), null);
+        assertThat(w.responseTypeApi()).isEqualTo(0.5);
+        var scorer = new ApiScorer(w);
+        var api = de("www.example.com", "GET", "/x", EndpointKind.API_CANDIDATE, 2, false, false);
+        assertThat(scorer.score(api, false)).isEqualTo(0.5); // override 반영(베이스 0 + 0.5)
+    }
+
+    @Test
+    void explicitHintAndApiCandidateCofireAsIndependentEvidence() {
+        // P3-1: explicit-hint 모드에서 api 힌트(pathHint) + API_CANDIDATE(responseTypeApi)는 독립 증거로 함께 가산
+        var matched = hints(List.of("/svc"), List.of(), false);
+        var unmatched = hints(List.of("/zzz"), List.of(), false);
+        var apiKind = de("www.example.com", "GET", "/svc/data", EndpointKind.API_CANDIDATE, 2, false, false);
+        var nonApiKind = de("www.example.com", "GET", "/svc/data", EndpointKind.UNKNOWN, 2, false, false);
+
+        double pathHintAlone = middle.score(nonApiKind, false, matched);    // 힌트 매치 + 비-API kind
+        double responseTypeAlone = middle.score(apiKind, false, unmatched); // 힌트 비매치(pathHint 미발화) + API_CANDIDATE
+        double both = middle.score(apiKind, false, matched);                // 두 신호 동시
+
+        assertThat(pathHintAlone).isEqualTo(0.55);    // pathHint(MIDDLE)
+        assertThat(responseTypeAlone).isEqualTo(0.25); // responseTypeApi(MIDDLE)
+        assertThat(both).isEqualTo(0.80);             // 합산(이중계상 아님, 독립 가산)
+        assertThat(both).isEqualTo(pathHintAlone + responseTypeAlone);
+        assertThat(both).isGreaterThan(pathHintAlone).isGreaterThan(responseTypeAlone); // 각 단독보다 큼
+    }
+
+    @Test
+    void responseTypeApiUsesPresetWeightForHighAndLow() {
+        // P3-2: HIGH(0.18)·LOW(0.32) preset 에서 API_CANDIDATE 가산 = 정확히 preset 값(UNKNOWN 베이스라인 대비)
+        var high = new ApiScorer(ApiScorer.Profile.HIGH);
+        var low = new ApiScorer(ApiScorer.Profile.LOW);
+        // hits=1: HIGH(repeatMin 5)·LOW(repeatMin 2) 모두 repeat 미발화 → 베이스라인 0.0
+        var base = de("www.example.com", "GET", "/x", EndpointKind.UNKNOWN, 1, false, false);
+        var api = de("www.example.com", "GET", "/x", EndpointKind.API_CANDIDATE, 1, false, false);
+        assertThat(high.score(base, false)).isEqualTo(0.0);
+        assertThat(high.score(api, false)).isEqualTo(0.18); // HIGH responseTypeApi
+        assertThat(low.score(base, false)).isEqualTo(0.0);
+        assertThat(low.score(api, false)).isEqualTo(0.32);  // LOW responseTypeApi
+    }
+
     // --- explicit-hint 매처 (doc/09) ---
 
     private static ApiHintMatcher hints(List<String> apiPrefixes, List<String> excludePrefixes,

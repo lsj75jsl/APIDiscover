@@ -23,19 +23,20 @@ public class ApiScorer {
     /** 게이트 판정 결과 (doc/09 §2.2). DROP 사유 분리 → non_api dropped 메트릭 버킷팅(후속). */
     public enum Gate { ADMIT, DROP_EXCLUDED, DROP_WEB_FORM, DROP_LOW_SCORE }
 
-    /** 신호별 가중치 + 임계값 (doc/08 §4 보정값, doc/09 §6 pathHint 추가). */
+    /** 신호별 가중치 + 임계값 (doc/08 §4 보정값, doc/09 §6 pathHint 추가, doc/17 §3 responseTypeApi 추가). */
     public record Weights(
             double hostApiSubdomain, double corsPreflight, double apiSegment, double graphqlSegment,
             double versionSegment, double pathIdSegment, double machineEndpoint, double writeMethod,
             double query, double nonBrowserUa, double staticAssetPenalty, double repeatBonus,
-            int repeatMinCount, double pathHint, double threshold) {}
+            int repeatMinCount, double pathHint, double responseTypeApi, double threshold) {}
 
+    // responseTypeApi(pathHint 뒤·threshold 앞): API성 $type 신호 1차값, 실데이터 보정 전 임의값(doc/17 §4·§9).
     private static final Weights MIDDLE = new Weights(
-            0.40, 0.30, 0.55, 0.55, 0.26, 0.15, 0.20, 0.34, 0.12, 0.24, -0.60, 0.12, 3, 0.55, 0.70);
+            0.40, 0.30, 0.55, 0.55, 0.26, 0.15, 0.20, 0.34, 0.12, 0.24, -0.60, 0.12, 3, 0.55, 0.25, 0.70);
     private static final Weights HIGH = new Weights(
-            0.35, 0.25, 0.50, 0.50, 0.20, 0.10, 0.12, 0.30, 0.06, 0.18, -0.70, 0.08, 5, 0.50, 0.85);
+            0.35, 0.25, 0.50, 0.50, 0.20, 0.10, 0.12, 0.30, 0.06, 0.18, -0.70, 0.08, 5, 0.50, 0.18, 0.85);
     private static final Weights LOW = new Weights(
-            0.45, 0.35, 0.65, 0.65, 0.34, 0.22, 0.28, 0.42, 0.18, 0.30, -0.50, 0.18, 2, 0.65, 0.55);
+            0.45, 0.35, 0.65, 0.65, 0.34, 0.22, 0.28, 0.42, 0.18, 0.30, -0.50, 0.18, 2, 0.65, 0.32, 0.55);
 
     private static final Pattern API_HOST = Pattern.compile("^(api|apis|[a-z0-9-]*-api|api-[a-z0-9-]*)\\.");
     private static final Pattern VERSION_SEG = Pattern.compile("^v\\d+$");
@@ -44,11 +45,11 @@ public class ApiScorer {
     private static final Set<String> WRITE = Set.of("POST", "PUT", "PATCH", "DELETE");
     private static final Set<String> ID_TOKENS = Set.of("{id}", "{uuid}", "{token}", "{date}", "{var}");
 
-    /** override 가능한 13 Weights 필드명(단일 명명원, doc/10 §2). threshold/repeatMinCount 는 제외. */
+    /** override 가능한 14 Weights 필드명(단일 명명원, doc/10 §2). threshold/repeatMinCount 는 제외. */
     public static final Set<String> WEIGHT_KEYS = Set.of(
             "hostApiSubdomain", "corsPreflight", "apiSegment", "graphqlSegment", "versionSegment",
             "pathIdSegment", "machineEndpoint", "writeMethod", "query", "nonBrowserUa",
-            "staticAssetPenalty", "repeatBonus", "pathHint");
+            "staticAssetPenalty", "repeatBonus", "pathHint", "responseTypeApi");
 
     private final Weights w;
 
@@ -106,6 +107,7 @@ public class ApiScorer {
                 ov(overrides, "repeatBonus", base.repeatBonus()),
                 base.repeatMinCount(),
                 ov(overrides, "pathHint", base.pathHint()),
+                ov(overrides, "responseTypeApi", base.responseTypeApi()),
                 thresholdOverride != null ? thresholdOverride : base.threshold());
     }
 
@@ -115,7 +117,7 @@ public class ApiScorer {
     }
 
     /**
-     * weight override map 검증(doc/10 §4): 키는 {@link #WEIGHT_KEYS} 의 13개 필드명만 허용(오타/미지원 키 reject),
+     * weight override map 검증(doc/10 §4): 키는 {@link #WEIGHT_KEYS} 의 14개 필드명만 허용(오타/미지원 키 reject),
      * 값은 유한(NaN/Infinity/null 금지). 위반 → IllegalArgumentException (조용한 무시 금지).
      */
     public static void validateWeightOverrides(Map<String, Double> overrides) {
@@ -237,6 +239,11 @@ public class ApiScorer {
         }
         if (d.endpointKind() == EndpointKind.STATIC) {
             s += w.staticAssetPenalty();
+        }
+        // 응답타입 API 신호(doc/17 §2): dominant $type ∈ {xhr,fetch,json,api,ajax} → API_CANDIDATE 만 양성 가산.
+        // WEB_PAGE/UNKNOWN/$type 부재 무가산·무감점, STATIC 과 상호배타(kind 단일값 → 동시 발화 불가).
+        if (d.endpointKind() == EndpointKind.API_CANDIDATE) {
+            s += w.responseTypeApi();
         }
         return Math.max(0.0, Math.min(1.0, Math.round(s * 1000.0) / 1000.0));
     }

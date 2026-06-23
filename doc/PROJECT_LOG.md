@@ -5,6 +5,23 @@
 
 ---
 
+## 2026-06-23 세션 14 — response_type_api 양성 가중치 ($type API성 신호 채택, doc/17 §5, DECISIONS D24)
+
+### 한 일
+- **결정적 발견**: API성 `$type` 신호는 이미 `EndpointKind.API_CANDIDATE`($type∈{xhr,fetch,json,api,ajax} dominant)로 존재 → **신규 필드/플래그/Acc 불요**, `endpointKind==API_CANDIDATE` 재사용.
+- **수정(ApiScorer 1파일, 5건)**: `Weights` 14번째 `responseTypeApi`(pathHint 뒤·threshold 앞), presets MIDDLE 0.25/HIGH 0.18/LOW 0.32(§9 보정전 1차값 캐비엇), `WEIGHT_KEYS` 14, `applyOverrides` ov 반영, `score()` 공통 섹션 `API_CANDIDATE → += responseTypeApi`(양성-only).
+- **비대칭/충돌**: document(WEB_PAGE)/UNKNOWN/$type 부재 무가산·무감점, STATIC 은 penalty 만(API_CANDIDATE 와 상호배타·동시 발화 불가). path 신호와의 동시 발화는 의도된 독립 증거 가산.
+- **무변경 확인**: funnel 구조 — resolver(applyOverrides 경유)·`ClassificationDtos`(Weights record 재사용→JSON 자동)·controller(WEIGHT_KEYS 검증→customWeights 자동 수용) 무변경.
+- **무회귀**: 비-API endpoint 점수 무변경, API_CANDIDATE만 상승(보류 해제 목적). `scoreClampsToUpperBound`(유일 API_CANDIDATE exact-score)는 1.0 clamp 유지로 무영향. `DiscoveryJobServiceTest` 2건은 `line()` 헬퍼 `$type=api`→API_CANDIDATE라 `/page` x3→x2(repeat 끔)로 0.65<0.70 DROP_LOW_SCORE 의도 보존.
+- **리뷰 2라운드**: ① 구현 8건(테스트 5: 가산·비대칭·STATIC penalty만·customWeights / Controller effective 반영) → ② P3 보강(테스트 2, 코드 무변경: explicit-hint+API_CANDIDATE 독립 가산 0.55+0.25=0.80, HIGH 0.18·LOW 0.32 preset exact-score). P1=0/P2=0.
+- 마무리: doc/08 §9 보류 항목 활성화(보류→채택). GitHub PR 워크플로(push → `gh pr create` → 팀장 지시 `gh pr merge --merge --delete-branch`).
+
+### 결과
+- BUILD SUCCESSFUL, **tests=237 skipped=1(라이브) failures=0**. ApiScorerTest +6(신호 4 + P3 2)·ClassificationControllerTest +1.
+
+### 다음
+- 후속(TODO): `$type` 전체 taxonomy 샘플링 확정(API_TYPES 정제 시 자동 수혜)·responseTypeApi 가중치 실데이터 보정.
+
 ## 2026-06-23 세션 13 — 버전 기반 Zombie 추정 + Zombie severity (doc/16 §5, DECISIONS D23)
 
 ### 한 일
