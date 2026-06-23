@@ -19,9 +19,12 @@ public sealed interface Finding
         @Override public Classification classification() { return Classification.SHADOW; }
     }
 
-    /** 문서에 deprecated 인데 트래픽 지속 (S_deprecated ∩ D). */
+    /**
+     * 문서에 deprecated 인데 트래픽 지속(S_deprecated ∩ D) 또는 버전 추정 Zombie(doc/16).
+     * confidence=진짜 Zombie 인가(명시 1.0/추정 0.6), severity=조치 시급성(트래픽 메트릭) — 직교. estimated=버전 추정 여부.
+     */
     record Zombie(String host, String method, String pathTemplate, double confidence,
-                  String specRef, String reason) implements Finding {
+                  Severity severity, boolean estimated, String specRef, String reason) implements Finding {
         @Override public Classification classification() { return Classification.ZOMBIE; }
     }
 
