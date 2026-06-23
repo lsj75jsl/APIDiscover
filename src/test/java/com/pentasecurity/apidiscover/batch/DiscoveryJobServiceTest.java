@@ -25,6 +25,7 @@ import com.pentasecurity.apidiscover.domain.SpecRecord;
 import com.pentasecurity.apidiscover.domain.WatermarkRepository;
 import com.pentasecurity.apidiscover.ingest.LogWindow;
 import com.pentasecurity.apidiscover.ingest.LokiClient;
+import com.pentasecurity.apidiscover.match.EndpointMatcherCache;
 import com.pentasecurity.apidiscover.ingest.LokiQueryBuilder;
 import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
 import com.pentasecurity.apidiscover.model.ParsedRequest;
@@ -65,6 +66,7 @@ class DiscoveryJobServiceTest {
                     new CardinalityNormalizer(NORM),
                     new ParamCandidateExtractor(new SensitiveKeyMatcher(SensitiveKeyProperties.defaults()), NORM)),
             specStore,
+            new EndpointMatcherCache(),
             new Classifier(new ApiScorer()),
             resolver,
             new ReportBuilder(),
@@ -227,7 +229,7 @@ class DiscoveryJobServiceTest {
                 new CardinalityNormalizer(capProps),
                 new ParamCandidateExtractor(new SensitiveKeyMatcher(SensitiveKeyProperties.defaults()), capProps));
         var cappedService = new DiscoveryJobService(new LogLineParser(NORM), cappedInventory, specStore,
-                new Classifier(new ApiScorer()), resolver, new ReportBuilder(), scanRepo,
+                new EndpointMatcherCache(), new Classifier(new ApiScorer()), resolver, new ReportBuilder(), scanRepo,
                 mock(DomainConfigRepository.class), mock(WatermarkRepository.class), mock(LokiClient.class),
                 mock(LokiQueryBuilder.class), objectMapper, props());
 
@@ -239,6 +241,37 @@ class DiscoveryJobServiceTest {
         // droppedByLimit 가 reportJson(=ETag 입력)에 임베드 → 상한 이벤트가 결과 콘텐츠에 반영 (doc/13 §4.2)
         assertThat(result.reportJson).contains("\"droppedByLimit\"").contains("\"templates\":1");
         assertThat(result.version).isNotBlank();
+    }
+
+    @Test
+    void rescanAfterSpecVersionBumpUsesFreshMatcherNotStale() {
+        when(scanRepo.findById(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.save(any(ScanResult.class))).thenAnswer(inv -> inv.getArgument(0));
+        List<String> traffic = List.of(
+                line("GET", "/users/1?x=1", 200),
+                line("GET", "/users/2?x=2", 200),
+                line("GET", "/users/3?x=3", 200));
+
+        // v1: spec 에 /users/{id} → 트래픽 매칭 → Active
+        SpecRecord v1 = new SpecRecord();
+        v1.specVersion = 1L;
+        when(specStore.activeMeta(HOST)).thenReturn(Optional.of(v1));
+        when(specStore.loadActiveCanonical(HOST)).thenReturn(List.of(
+                new CanonicalEndpoint("GET", "/users/{id}", null, false, null, "ref")));
+        ScanResult r1 = service.analyze(HOST, traffic, window);
+        assertThat(r1.active).isEqualTo(1);
+        assertThat(r1.shadow).isZero();
+
+        // v2(버전 변경): spec 이 /orders/{id} 로 교체 → 동일 host·매처 캐시는 (host,specVersion) 키라 재빌드
+        SpecRecord v2 = new SpecRecord();
+        v2.specVersion = 2L;
+        when(specStore.activeMeta(HOST)).thenReturn(Optional.of(v2));
+        when(specStore.loadActiveCanonical(HOST)).thenReturn(List.of(
+                new CanonicalEndpoint("GET", "/orders/{id}", null, false, null, "ref")));
+        ScanResult r2 = service.analyze(HOST, traffic, window);
+        // 새 매처(v2) 반영: /users 는 더 이상 매칭 안 됨 → Shadow. stale v1 매처였다면 Active 였을 것
+        assertThat(r2.active).isZero();
+        assertThat(r2.shadow).isEqualTo(1);
     }
 
     @Test

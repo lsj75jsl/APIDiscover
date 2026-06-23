@@ -5,6 +5,26 @@
 
 ---
 
+## 2026-06-23 세션 12 — 매처 캐시 무효화 (doc/15 §5, DECISIONS D22)
+
+### 한 일
+- **신규**: `match/EndpointMatcherCache`(@Component) — `ConcurrentHashMap<String,VersionedMatcher(specVersion,matcher)>`,
+  `get(host,specVersion,Supplier)`=`compute`(버전 일치 재사용/불일치 supplier 재빌드+슬롯 교체), `invalidate(host)`/`invalidateAll()`.
+  (host,specVersion) 키·host당 1슬롯 → 새 버전이 덮어써 무누수, version 키로 stale 서빙 구조적 불가, poisoning-free(build throw→미저장).
+  `compute` per-host 락으로 동일 host 동시 빌드 직렬화(중복 빌드 방지, 의도 주석).
+- **수정**: `SpecStore` 생성자 캐시 주입 + upload save 후 `invalidate(host)`(기존 :81 TODO 대체).
+  `DiscoveryJobService` 생성자 캐시 주입(specStore 뒤) + analyze 의 `new EndpointMatcher(spec)`→`matcherCache.get(host,specVersion,()->new EndpointMatcher(spec))`. specVersion=0(스펙 없음) 균일 캐시.
+- **순환 회피**: 캐시 무의존 — 스펙 로드 안 하고 build supplier 를 호출측 제공(writer 무효화/소비자 빌드 원칙, doc/11 동일). EndpointMatcher 불변→공유·동시 read 안전.
+- **무회귀**: 동일 spec→동일 matcher→findings/리포트/ETag 불변(재생성만 제거). 기존 SpecStore/DiscoveryJobService 테스트가 real 캐시 경유 green, 수동 생성자 인자만 추가(가산).
+- **리뷰 2라운드**: ① 구현 7건 → ② P3 정보성 주석(compute per-host 직렬화 의도, 코드/테스트 무변경). P1=0/P2=0.
+- 마무리: GitHub PR 워크플로(push → `gh pr create` → 팀장 지시 `gh pr merge --merge --delete-branch`).
+
+### 결과
+- BUILD SUCCESSFUL, **tests=212 skipped=1(라이브) failures=0**. EndpointMatcherCacheTest 5(+SpecStore invalidate 검증·DiscoveryJobService v1→v2 stale없음 통합).
+
+### 다음
+- 후속(TODO): 멀티 인스턴스 cross-instance 캐시 무효화(HA, ShedLock 도입 시 — doc/11 §3 한계와 동일)·멀티 스펙 병합·spec_source.warnings 채널.
+
 ## 2026-06-23 세션 11 — 스펙 파서 Postman/CSV 실구현 + 공유 정규화 (doc/14 §6, DECISIONS D21)
 
 ### 한 일
