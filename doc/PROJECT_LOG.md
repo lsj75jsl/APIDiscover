@@ -5,6 +5,22 @@
 
 ---
 
+## 2026-06-23 세션 15 — 문서 정합화: TASKS↔설계문서 싱크·우선순위 재정렬 + DB 스키마 문서 (DECISIONS D25, doc/18)
+
+### 한 일
+- **코드 변경 0** (문서 전용, 브랜치 `docs/tasks-sync-and-db-schema`).
+- **TASKS 정합화**: doc/00~17 의 dev 항목·'범위 밖/후속'을 전수 추출해 TASKS 와 교차대조(누락 0). 미반영 후속 추가 — cross-scan recency(doc/16)·Active/Zombie param 노출(doc/13)·scan-status total_dropped(doc/12 선택)·분석 파라미터 중앙 API 확장 묶음(repeatMinCount/sensitive·상한/severity 임계). 완료된 "API 점수화 모델"(전부 [x]) Done 이동, 보류 섹션의 response_type_api 중복 제거.
+- **우선순위 재배열(사용자 결정, D25)**: 기본/자체 기능 먼저·외부(중앙) 연동 나중. TODO 를 **P1 자체 분석기능 → P2 품질/테스트 → P3 운영 → P4 외부연동 → 보류** 로 재배열(섹션 순서로 우선순위 표현 + `→ 의존:` 선행조건 메모). P4=서비스간 인증·완료 웹훅·분석 파라미터 중앙 API.
+- **TASKS 상단 '설계문서↔TASKS 매핑' 표** 추가(doc 09~17 ↔ 완료/후속 단일 기준).
+- **doc/18(DB 스키마)** writer 작성분(d778cc6, 엔티티 6종→7테이블·ddl-auto·H2/PG 컨벤션)에 P3 보강: `@Lob String` 의 PostgreSQL 기본 매핑이 `text` 가 아니라 **`oid`(large object) 함정** — `@Column(columnDefinition="text")`/`@JdbcTypeCode(LONGVARCHAR)` 명시 필요. TASKS "PG TEXT 매핑 실검증"(P2) 항목과 연결.
+- **리뷰**: P1=0/P2=0, P3 보강 반영. 마무리 GitHub PR 워크플로(d778cc6 + 신규 커밋 포함 PR → 팀장 지시 머지).
+
+### 결과
+- 문서만 변경(doc/18·TASKS·DECISIONS·PROJECT_LOG), 빌드/테스트 영향 없음(tests=237 유지). 다음 세션은 TASKS 매핑표+P1~P4 버킷을 단일 기준으로 사용.
+
+### 다음
+- P1 자체 분석기능부터 착수(예: $type taxonomy 샘플링·cross-scan recency·Active/Zombie param 노출). 외부연동(P4)은 P1 안정 후.
+
 ## 2026-06-23 세션 14 — response_type_api 양성 가중치 ($type API성 신호 채택, doc/17 §5, DECISIONS D24)
 
 ### 한 일
