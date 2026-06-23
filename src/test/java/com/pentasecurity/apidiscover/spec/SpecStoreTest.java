@@ -5,11 +5,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pentasecurity.apidiscover.domain.SpecRecord;
 import com.pentasecurity.apidiscover.domain.SpecRecordRepository;
+import com.pentasecurity.apidiscover.match.EndpointMatcherCache;
 import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -43,10 +45,12 @@ class SpecStoreTest {
             """).getBytes(StandardCharsets.UTF_8);
 
     private final SpecRecordRepository repo = mock(SpecRecordRepository.class);
+    private final EndpointMatcherCache matcherCache = mock(EndpointMatcherCache.class);
     private final SpecStore store = new SpecStore(
             repo,
             new SpecFormatDetector(),
             new ObjectMapper(),
+            matcherCache,
             List.of(new OpenApiSpecParser(), new PostmanSpecParser(new ObjectMapper()), new CsvSpecParser()));
 
     @Test
@@ -62,6 +66,17 @@ class SpecStoreTest {
         assertThat(saved.format).isEqualTo(SpecFormat.OPENAPI);
         assertThat(saved.endpointCount).isEqualTo(2);
         assertThat(saved.canonicalJson).contains("/v2/users/{id}");
+    }
+
+    @Test
+    void uploadInvalidatesMatcherCacheForHost() {
+        when(repo.findFirstByHostOrderBySpecVersionDesc(HOST)).thenReturn(Optional.empty());
+        when(repo.findByHostAndActiveIsTrue(HOST)).thenReturn(List.of());
+        when(repo.save(any(SpecRecord.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        store.upload(HOST, OPENAPI);
+
+        verify(matcherCache).invalidate(HOST); // save 후 구버전 슬롯 무효화 (doc/15 §2)
     }
 
     @Test

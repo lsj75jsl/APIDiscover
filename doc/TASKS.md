@@ -26,7 +26,6 @@
 - [ ] (확장) `$type` taxonomy 에서 API성 값(xhr/json) 확인 시 `response_type_api` 양성 가중치 추가
 
 ### 스펙 파서 / Spec Store (03 문서)
-- [ ] 매처 캐시 무효화 — SpecStore 업로드 시 `(host, specVersion)` EndpointMatcher 캐시 evict
 - [ ] 멀티 스펙 업로드(여러 문서 병합) — 1차 범위 밖, 후속
 
 ### 정규화/인벤토리 (02 문서)
@@ -127,4 +126,10 @@
 - [x] `CsvSpecParser` 실구현 — univocity 헤더검증(method/path 필수→fatal), deprecated 토큰(true/false/1/0/y/n/yes/no), BOM/따옴표, 불량행 skip+warn, `:var`→`{var}`
 - [x] 공유 `SpecNormalize`(template/host)·`SpecCanonicalizer`(dedupe+deprecated OR+안정정렬, SpecStore.upload 전 포맷 균일) + SpecFormatDetector `schema.postman.com`. 신규 의존성 0, 시그니처 무변경
 - [x] 3종 포맷 Canonical 동일성 테스트(`ThreeFormatEquivalenceTest`) — (method,host,template,deprecated,version) 동일(sourceRef 제외). 품질 항목 충족
-> 후속(TODO 유지): 매처 캐시 무효화·멀티 스펙 병합·구조화 spec_source.warnings 채널
+> 후속(TODO 유지): 멀티 스펙 병합·구조화 spec_source.warnings 채널
+
+### 매처 캐시 무효화 (2026-06-23, doc/15 / DECISIONS D22) — tests=212 green
+- [x] `match/EndpointMatcherCache`(@Component) — `ConcurrentHashMap<host,VersionedMatcher(specVersion,matcher)>`, (host,specVersion) 키·host당 1슬롯 → stale 구조적 불가·무누수·poisoning-free(`compute` per-host 직렬화)
+- [x] `SpecStore.upload` save 후 `invalidate(host)`, `DiscoveryJobService.analyze` `new EndpointMatcher`→`matcherCache.get(host,specVersion,supplier)`(specVersion=0 균일)
+- [x] 순환 회피(캐시 무의존·build supplier 호출측 공급), 불변 매처 공유 안전. 무회귀(동일 spec→동일 matcher→findings/ETag 불변)
+> 후속(TODO 유지): 멀티 인스턴스 cross-instance 무효화(HA, ShedLock 도입 시)

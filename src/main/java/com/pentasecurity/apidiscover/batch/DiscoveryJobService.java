@@ -19,6 +19,7 @@ import com.pentasecurity.apidiscover.ingest.LogWindow;
 import com.pentasecurity.apidiscover.ingest.LokiClient;
 import com.pentasecurity.apidiscover.ingest.LokiQueryBuilder;
 import com.pentasecurity.apidiscover.match.EndpointMatcher;
+import com.pentasecurity.apidiscover.match.EndpointMatcherCache;
 import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
 import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
 import com.pentasecurity.apidiscover.model.DiscoveryReport;
@@ -49,6 +50,7 @@ public class DiscoveryJobService {
     private final LogLineParser parser;
     private final InventoryBuilder inventoryBuilder;
     private final SpecStore specStore;
+    private final EndpointMatcherCache matcherCache;
     private final Classifier classifier;
     private final EffectiveClassificationResolver classificationResolver;
     private final ReportBuilder reportBuilder;
@@ -63,6 +65,7 @@ public class DiscoveryJobService {
     public DiscoveryJobService(LogLineParser parser,
                                InventoryBuilder inventoryBuilder,
                                SpecStore specStore,
+                               EndpointMatcherCache matcherCache,
                                Classifier classifier,
                                EffectiveClassificationResolver classificationResolver,
                                ReportBuilder reportBuilder,
@@ -76,6 +79,7 @@ public class DiscoveryJobService {
         this.parser = parser;
         this.inventoryBuilder = inventoryBuilder;
         this.specStore = specStore;
+        this.matcherCache = matcherCache;
         this.classifier = classifier;
         this.classificationResolver = classificationResolver;
         this.reportBuilder = reportBuilder;
@@ -137,7 +141,8 @@ public class DiscoveryJobService {
         List<CanonicalEndpoint> spec = active.isPresent()
                 ? specStore.loadActiveCanonical(host) : List.of();
         long specVersion = active.map(r -> r.specVersion).orElse(0L);
-        EndpointMatcher matcher = new EndpointMatcher(spec);
+        // (host, specVersion) 캐시 — 동일 버전 재스캔 시 matcher 재생성 제거. 없으면 supplier 로 빌드 (doc/15 §3)
+        EndpointMatcher matcher = matcherCache.get(host, specVersion, () -> new EndpointMatcher(spec));
 
         // (B) 인벤토리(+T1 승격/상한·T2 param·T3 sensitive) → (E) 분류 → (F) 리포트
         InventoryBuilder.InventoryResult inventory = inventoryBuilder.buildWithLimits(requests, matcher);

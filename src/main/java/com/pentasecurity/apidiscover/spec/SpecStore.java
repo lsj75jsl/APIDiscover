@@ -6,6 +6,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pentasecurity.apidiscover.domain.SpecRecord;
 import com.pentasecurity.apidiscover.domain.SpecRecordRepository;
+import com.pentasecurity.apidiscover.match.EndpointMatcherCache;
 import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
 import java.time.Instant;
 import java.util.EnumMap;
@@ -24,15 +25,18 @@ public class SpecStore {
     private final SpecRecordRepository repo;
     private final SpecFormatDetector detector;
     private final ObjectMapper objectMapper;
+    private final EndpointMatcherCache matcherCache;
     private final Map<SpecFormat, SpecParser> parsersByFormat;
 
     public SpecStore(SpecRecordRepository repo,
                      SpecFormatDetector detector,
                      ObjectMapper objectMapper,
+                     EndpointMatcherCache matcherCache,
                      List<SpecParser> parsers) {
         this.repo = repo;
         this.detector = detector;
         this.objectMapper = objectMapper;
+        this.matcherCache = matcherCache;
         Map<SpecFormat, SpecParser> map = new EnumMap<>(SpecFormat.class);
         for (SpecParser parser : parsers) {
             map.put(parser.format(), parser);
@@ -78,8 +82,10 @@ public class SpecStore {
         record.uploadedAt = Instant.now();
         record.active = true;
 
-        // TODO(doc/03 §7.3): EndpointMatcher 캐시 (host, specVersion) evict — 매처 구현 후 연결
-        return repo.save(record);
+        SpecRecord saved = repo.save(record);
+        // 새 버전 업로드 → 구버전 matcher 슬롯 해제(doc/15 §2). 새 버전은 version-miss 로 자동 재빌드.
+        matcherCache.invalidate(host);
+        return saved;
     }
 
     /** 스캔 시 활성 버전의 Canonical 집합 로드(원본 재파싱 없음, doc/03 §7.5). */
