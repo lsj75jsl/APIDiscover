@@ -32,8 +32,10 @@ public class SpecFormatDetector {
                     return SpecFormat.OPENAPI;
                 }
                 JsonNode info = root.get("info");
-                boolean postmanSchema = info != null && info.hasNonNull("schema")
-                        && info.get("schema").asText().contains("getpostman.com");
+                String schema = (info != null && info.hasNonNull("schema"))
+                        ? info.get("schema").asText() : "";
+                boolean postmanSchema = schema.contains("getpostman.com")
+                        || schema.contains("schema.postman.com"); // 신버전 컬렉션 (doc/14 §3)
                 if (postmanSchema || (root.has("item") && info != null)) {
                     return SpecFormat.POSTMAN;
                 }
