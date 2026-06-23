@@ -14,6 +14,7 @@ import com.pentasecurity.apidiscover.model.MatcherConfig;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.stereotype.Service;
 
 /**
@@ -24,7 +25,9 @@ import org.springframework.stereotype.Service;
  *
  * <p><b>fail-fast(§4)</b>: matcherJson/customWeightsJson 파싱 실패·ApiHintMatcher 상한 위반 → throw(조용히 default 금지).
  *
- * <p>v1 은 무캐시(스캔당 재빌드). 캐시는 REST 단계 — {@link #invalidate}/{@link #invalidateAll} 는 시그니처만 둔다.
+ * <p><b>캐시(doc/11 §3)</b>: host별 {@link ConcurrentHashMap} + {@code computeIfAbsent}. effective 불변 → 동시 read·공유 안전.
+ * 무효화 주체는 REST PUT({@link #invalidate}/{@link #invalidateAll}). build throw 시 항목 미저장(poisoning 없음).
+ * HA 한계: in-memory per-instance → 다중 인스턴스 stale 가능(단일 인스턴스 전제, cross-instance 무효화는 후속).
  */
 @Service
 public class EffectiveClassificationResolver {
@@ -36,6 +39,9 @@ public class EffectiveClassificationResolver {
     private final DomainClassificationConfigRepository domainRepo;
     private final ObjectMapper objectMapper;
 
+    /** host → effective 캐시 (doc/11 §3). PUT 무효화 외에는 스캔당 재빌드 없음. */
+    private final Map<String, EffectiveClassification> cache = new ConcurrentHashMap<>();
+
     public EffectiveClassificationResolver(ClassificationConfigRepository globalRepo,
                                            DomainClassificationConfigRepository domainRepo,
                                            ObjectMapper objectMapper) {
@@ -44,53 +50,68 @@ public class EffectiveClassificationResolver {
         this.objectMapper = objectMapper;
     }
 
-    /** host 의 effective 분류 설정 해석 (doc/10 §3 병합 → §5 default/정규화 → scorer/hints 빌드). */
+    /** host 의 effective 분류 설정 해석. 캐시 히트 시 재빌드 없음(doc/11 §3). */
     public EffectiveClassification resolve(String host) {
+        // build throw 시 미저장 → 다음 호출 재시도(캐시 poisoning 없음, fail-fast 보존)
+        return cache.computeIfAbsent(host, this::build);
+    }
+
+    /**
+     * 전역+도메인 로드 → §3 병합 → §5 default/정규화 → scorer/hints 빌드 (캐시 미스 시 1회).
+     *
+     * <p>여기서 다루는 입력은 <b>이미 저장된 설정</b>이다(PUT 이 요청 시점에 검증). 그럼에도 out-of-band DB 쓰기·마이그레이션
+     * 등으로 저장값이 손상될 수 있으므로, 검증기/매처 빌드의 {@link IllegalArgumentException} 은 <b>요청 검증이 아니라
+     * 데이터 손상</b>이다 → {@link IllegalStateException} 으로 래핑(컨트롤러 IAE→400 핸들러가 못 잡고 500, doc/11 §2).
+     * 손상 JSON 파싱 실패는 parse 헬퍼가 이미 ISE 로 던진다.
+     */
+    private EffectiveClassification build(String host) {
         ClassificationConfig global = globalRepo.findById(GLOBAL_ID).orElse(null);
         DomainClassificationConfig domain = domainRepo.findById(host).orElse(null);
+        try {
+            // always-validate (doc/10 §4): profile 무관하게 항상 파싱·검증. 값 적용은 CUSTOM 일 때만(검증과 적용 분리, §3).
+            Map<String, Double> globalWeights = parseWeights(global != null ? global.customWeightsJson : null);
+            Map<String, Double> domainWeights = parseWeights(domain != null ? domain.customWeightsJson : null);
+            ApiScorer.validateWeightOverrides(globalWeights);
+            ApiScorer.validateWeightOverrides(domainWeights);
+            ApiScorer.validateThreshold(global != null ? global.thresholdOverride : null);
+            ApiScorer.validateThreshold(domain != null ? domain.thresholdOverride : null);
 
-        // always-validate (doc/10 §4): profile 무관하게 항상 파싱·검증 → 손상 JSON·unknown 키·비유한·범위밖 fail-fast.
-        // 값 적용은 아래에서 CUSTOM 일 때만(검증과 적용 분리, §3).
-        Map<String, Double> globalWeights = parseWeights(global != null ? global.customWeightsJson : null);
-        Map<String, Double> domainWeights = parseWeights(domain != null ? domain.customWeightsJson : null);
-        ApiScorer.validateWeightOverrides(globalWeights);
-        ApiScorer.validateWeightOverrides(domainWeights);
-        ApiScorer.validateThreshold(global != null ? global.thresholdOverride : null);
-        ApiScorer.validateThreshold(domain != null ? domain.thresholdOverride : null);
+            ClassificationProfile profile = firstNonNull(
+                    domain != null ? domain.profile : null,
+                    global != null ? global.profile : null,
+                    ClassificationProfile.MIDDLE);
 
-        ClassificationProfile profile = firstNonNull(
-                domain != null ? domain.profile : null,
-                global != null ? global.profile : null,
-                ClassificationProfile.MIDDLE);
+            // threshold: 도메인 > 전역 > preset (어떤 프로파일에서도 override 가능, §3)
+            Double thresholdOverride = firstNonNull(
+                    domain != null ? domain.thresholdOverride : null,
+                    global != null ? global.thresholdOverride : null);
 
-        // threshold: 도메인 > 전역 > preset (어떤 프로파일에서도 override 가능, §3)
-        Double thresholdOverride = firstNonNull(
-                domain != null ? domain.thresholdOverride : null,
-                global != null ? global.thresholdOverride : null);
+            // weights: preset(profile), CUSTOM 일 때만 MIDDLE 베이스 + global∪domain override(키별 domain 승, §3)
+            ApiScorer.Weights base = ApiScorer.presetWeights(toApiProfile(profile));
+            Map<String, Double> weightOverrides = (profile == ClassificationProfile.CUSTOM)
+                    ? mergeWeightMaps(globalWeights, domainWeights)
+                    : Map.of(); // preset 은 weights override 무시(doc/08 §5)
+            ApiScorer.Weights weights = ApiScorer.applyOverrides(base, weightOverrides, thresholdOverride);
 
-        // weights: preset(profile), CUSTOM 일 때만 MIDDLE 베이스 + global∪domain override(키별 domain 승, §3)
-        ApiScorer.Weights base = ApiScorer.presetWeights(toApiProfile(profile));
-        Map<String, Double> weightOverrides = (profile == ClassificationProfile.CUSTOM)
-                ? mergeWeightMaps(globalWeights, domainWeights)
-                : Map.of(); // preset 은 weights override 무시(doc/08 §5)
-        ApiScorer.Weights weights = ApiScorer.applyOverrides(base, weightOverrides, thresholdOverride);
+            // matcher: 전역∪도메인 (전역 includeWebForms=null→TRUE 정규화 후 merge, §5)
+            MatcherConfig matcher = MatcherConfig.merge(globalMatcher(global), domainMatcher(domain));
 
-        // matcher: 전역∪도메인 (전역 includeWebForms=null→TRUE 정규화 후 merge, §5)
-        MatcherConfig matcher = MatcherConfig.merge(globalMatcher(global), domainMatcher(domain));
-
-        ApiScorer scorer = new ApiScorer(weights);
-        ApiHintMatcher hints = new ApiHintMatcher(matcher); // 상한/내용 위반 시 fail-fast
-        return new EffectiveClassification(profile, weights, matcher, scorer, hints);
+            ApiScorer scorer = new ApiScorer(weights);
+            ApiHintMatcher hints = new ApiHintMatcher(matcher); // 상한/내용 위반 시 fail-fast
+            return new EffectiveClassification(profile, weights, matcher, scorer, hints);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalStateException("corrupt stored classification config for host=" + host, e);
+        }
     }
 
-    /** 캐시 무효화 hook — v1 무캐시(스캔당 재빌드)라 no-op. REST 단계에서 캐시 도입 시 구현(doc/10 §4). */
+    /** 도메인 PUT 시 해당 host effective 캐시 제거 (doc/11 §3). */
     public void invalidate(String host) {
-        // no-op (무캐시)
+        cache.remove(host);
     }
 
-    /** 전역 PUT 시 전 호스트 effective 무효화 hook — v1 무캐시라 no-op (doc/10 §4). */
+    /** 전역 PUT 시 전 호스트 effective 캐시 제거 (전역 변경은 모든 host effective 에 영향, doc/11 §3). */
     public void invalidateAll() {
-        // no-op (무캐시)
+        cache.clear();
     }
 
     // --- 병합 helper ---

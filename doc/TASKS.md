@@ -18,7 +18,6 @@
 - [x] `min_api_confidence` 게이트 → 미달 unmatched 는 보고 안 함, OPTIONS 는 CORS 신호로만(미보고)
 - [x] 기존 `EndpointKindClassifier`(static/web_page)를 점수 penalty 입력으로 흡수
 - [x] 프로파일 HIGH/MIDDLE/LOW preset (threshold+weights) — **custom(override)는 설정 연동 시**
-- [ ] 중앙 API: `GET/PUT /classification`(전역), `GET/PUT /domains/{host}/classification`(도메인, effective 노출)
 - [ ] non_api dropped observation 메트릭 (현재 단순 제외)
 
 ### 보류 (08 §9 — 현 시점 미채택)
@@ -110,4 +109,10 @@
 - [x] 설정 저장: 전역 `ClassificationConfig`(단일 PK=1L) + 도메인 `DomainClassificationConfig`(host PK) 엔티티/리포지토리. `@Lob String` JSON(매처/custom weights)+`Double`(threshold), JSONB 미사용(H2/PG 이식)
 - [x] `ClassificationProfile`(HIGH/MIDDLE/LOW/CUSTOM) + `ApiScorer`(Weights ctor/weights/presetWeights/applyOverrides·값검증) + `EffectiveClassificationResolver`(host→weights+matcher+scorer+hints 병합)
 - [x] 병합(threshold 도메인>전역>preset, CUSTOM weights merge, matcher 전역∪도메인) + 무회귀(부재/seed=MIDDLE+NONE, 억제 opt-in) + fail-fast(손상 JSON·unknown 키·범위/비유한 reject) + Classifier 5-arg + DiscoveryJobService 배선
-> 후속(TODO 유지): 중앙 API(`GET/PUT /classification` 전역·도메인 effective)·캐시 invalidate 배선·non_api dropped 메트릭
+> 후속(TODO 유지): 캐시 invalidate 배선·non_api dropped 메트릭
+
+### 분류 설정 중앙 REST API + effective 캐시 (2026-06-23, doc/11 / DECISIONS D18) — tests=164 green
+- [x] 중앙 API: `GET/PUT /api/v1/classification`(전역) + `GET/PUT /api/v1/domains/{host}/classification`(도메인 override+effective). `ClassificationController` + `ClassificationDtos`(5 record, MatcherConfig/Weights 재사용)
+- [x] 쓰기 검증→400(저장 전 validateThreshold/validateWeightOverrides/ApiHintMatcher, 컨트롤러-로컬 `@ExceptionHandler`) + 저장 손상→500(resolver IAE→ISE 래핑 + `@ExceptionHandler(ISE)`) + 부재(전역→default/도메인→effective)/미등록 404
+- [x] effective 캐시 활성화: `EffectiveClassificationResolver` `ConcurrentHashMap`+`computeIfAbsent`, PUT 시 `invalidate(host)`/`invalidateAll()`, poisoning 없음. 스캔경로 무변경(resolve 캐시 자동 경유)
+> 후속(TODO 유지): 서비스간 인증(permitAll)·non_api dropped 메트릭·repeatMinCount override·HA cross-instance 무효화
