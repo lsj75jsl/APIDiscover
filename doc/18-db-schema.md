@@ -43,7 +43,7 @@
 | Java / JPA | H2 SQL | PostgreSQL SQL | nullable 기본 |
 |------------|--------|----------------|---------------|
 | `String` (length 미지정) | `VARCHAR(255)` | `varchar(255)` | nullable |
-| `@Lob String` | `CLOB` | `text` (확인 필요 — TASKS 의 PG TEXT 매핑 실검증 미완 항목) | nullable |
+| `@Lob String` | `CLOB` | **기본 `oid`(large object) — 함정**, `text` 는 명시 매핑 필요(아래 주석 참조) | nullable |
 | `@Lob byte[]` | `BLOB` | `bytea`/`oid` (확인 필요 — PG LOB 매핑 실검증 필요) | nullable |
 | `Instant` | `TIMESTAMP(6)` | `timestamp(6)` | nullable (UTC 저장) |
 | `long` (primitive) | `BIGINT` | `bigint` | **NOT NULL** |
@@ -56,6 +56,12 @@
 **nullable 규칙**: 어떤 필드에도 `@Column(nullable=false)` 가 없다. 따라서 nullable 은 전적으로 타입으로 결정된다 —
 원시 타입(`long`/`int`/`boolean`)은 NOT NULL, 래퍼/객체 타입(`String`/`Long`/`Double`/`Instant`/enum/`byte[]`)은 nullable.
 `@Id` 컬럼은 PK 이므로 묵시적 NOT NULL.
+
+**`@Lob String` 의 PostgreSQL 매핑 함정**: Hibernate 6 는 `@Lob String` 을 CLOB 으로 보고 **PostgreSQL 에서 기본 `oid`(large
+object, `pg_largeobject` 사용)** 로 매핑한다 — 흔히 기대하는 `text` 가 아니다. `oid` 는 일반 SELECT 로 본문이 안 보이고
+백업/삭제 시 LOB 정리가 별도로 필요해 운영상 불리하다. 회피하려면 컬럼에 `@Column(columnDefinition = "text")` 또는
+`@JdbcTypeCode(SqlTypes.LONGVARCHAR)` 를 명시해 `text` 로 강제한다. 현재 엔티티들은 어느 쪽도 지정하지 않았으므로 PG 에서는
+`oid` 가 되며, `text` 를 원하면 위 매핑을 추가해야 한다(실검증 §5).
 
 **필드 기본값 주의**: `enabled = true`, `state = "idle"`, `profile = MIDDLE`, `id = 1L` 등은 **Java 필드 초기화자**이지
 SQL `DEFAULT` 절이 아니다(`columnDefinition` 미지정). JPA 로 영속할 때 객체에 채워진 값이 INSERT 되며, JPA 를 우회한 직접 SQL
@@ -244,8 +250,8 @@ spec_record │   │   domain_classification_config(host, PK·1:1)
 
 엔티티 애너테이션만으로 확정할 수 없어 실 DB 생성 DDL 확인이 필요한 항목이다.
 
-- `@Lob String`(`canonicalJson`/`reportJson`/`customWeightsJson`/`matcherJson`)의 PostgreSQL 실제 타입이 `text` 인지 — TASKS 의
-  "@Lob String JSON 컬럼 PostgreSQL TEXT 매핑 실검증" 미완 항목과 동일.
+- `@Lob String`(`canonicalJson`/`reportJson`/`customWeightsJson`/`matcherJson`)의 PostgreSQL 실제 타입 — 명시 매핑이 없으면
+  기본 `oid`(§1.3 함정)이며 `text` 가 아니다. TASKS 의 "@Lob String JSON 컬럼 PostgreSQL TEXT 매핑 실검증" 미완 항목과 동일.
 - `@Lob byte[]`(`spec_record.raw_doc`)의 PostgreSQL 실제 타입(`bytea` vs 대용량 객체 `oid`).
 - `domain_hostnames` 의 PK/UNIQUE 제약 정확한 형태(Hibernate 버전 의존).
 - prod(PostgreSQL) 프로파일 yml — 현재 리포에는 H2 `application.yml` 만 존재. PG 접속값은 운영 환경에서 주입되는 전제.

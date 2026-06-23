@@ -208,6 +208,15 @@ doc/08 §9 보류($type taxonomy 불확실) 항목을 **양성-only 비대칭 + 
 - **무회귀**: 비-API endpoint 무변경(신호 미발화), API_CANDIDATE 만 api_confidence 상승(의도). clamp 테스트 영향 없음, exact-score API_CANDIDATE 테스트만 갱신.
 - **범위 밖**: $type taxonomy 샘플링(별도 항목), responseTypeApi 실데이터 보정.
 
+### D25. TASKS 정합화 + 우선순위 방침 (자체기능 우선, 외부연동 후순위)
+설계문서 09~17 이 늘면서 dev 항목이 doc 본문 '체크리스트/후속'에 흩어져 TASKS 와 싱크가 어긋남 → 일원화.
+- **정합화**: doc/00~17 의 dev 항목·'범위 밖/후속' 전수 추출 → TASKS 교차대조(누락 0). 미반영 후속 추가: cross-scan recency(doc/16)·Active/Zombie param 노출(doc/13)·
+  scan-status total_dropped(doc/12 선택)·분석 파라미터 중앙 API 확장 묶음(repeatMinCount/sensitive·상한/severity 임계, doc/10/11/13/16). HA cross-instance 무효화·spec_source.warnings 채널 seam 은 기존 항목에 메모.
+  완료된 "API 점수화 모델"(전부 [x]) Done 이동, 보류 섹션 response_type_api 중복 제거. TASKS 상단에 **'설계문서↔TASKS 매핑' 표** 추가(다음 세션 단일 기준).
+- **우선순위 방침(사용자 결정)**: **기본/자체 기능 먼저, 외부(중앙) 연동은 나중.** TODO 를 P1 자체 분석기능 → P2 품질/테스트 → P3 운영 → P4 외부연동 → 보류 로 재배열, 섹션 순서로 우선순위 표현 + `→ 의존:` 메모.
+  - P4(외부연동 후순위): 서비스간 인증·완료 웹훅·분석 파라미터 중앙 API 확장. 자체 분석기능(P1) 안정 후 진행.
+- **근거**: 분석 정확도(자체 기능)가 제품 가치의 핵심이고 외부 연동은 그 결과를 전달하는 계층 → 자체 기능 선행이 합리적. 코드 변경 없는 문서 작업(branch docs/tasks-sync-and-db-schema). doc/18(DB 스키마)은 technical_writer 담당이라 미관여.
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.
