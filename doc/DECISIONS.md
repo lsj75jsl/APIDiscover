@@ -223,6 +223,19 @@ doc/08 §9 보류($type taxonomy 불확실) 항목을 **양성-only 비대칭 + 
 - **권위**: TASKS = 단일 권위 기준, 설계문서(doc/NN) = 근거·상세. D25 의 '설계문서↔TASKS 매핑표'·우선순위(P1~P4)와 일관 — 새 subitem 은 부모의 P 버킷을 따른다.
 - **근거**: 항목 단위로 완료를 확인해 추적성을 높이고 설계와 실행의 싱크를 유지. D25(흩어진 dev 항목 일원화)의 운영 규칙화. 코드 변경 없는 문서 작업(branch docs/subitem-tracking-policy).
 
+### D27. 실재성 404-only 필터 (인벤토리 단계) (doc/19)
+doc/02 §4·doc/04 §7(:172)의 인벤토리 단계 명시 적용(현재 Classifier soft penalty 만). 비실재 탐침 경로를 인벤토리에서 hard-drop.
+- **정의(보수적)**: `hits>0 AND status404==hits`(= 전 요청이 404)만 hard-drop. `Acc` 에 **`status404` 전용 카운터** 추가 — `statusBuckets`(4xx 통합)로는
+  **401/403-only(인증벽 뒤 실재 endpoint)**까지 drop돼 보안 미탐 위험 → 정확히 404 100% 만. 2xx/3xx/5xx·비-404 4xx 하나라도 있으면 보존.
+- **위치**: `InventoryBuilder.buildWithLimits` 에서 Acc 집계 후·`CardinalityNormalizer`(승격/상한) **전**. noise 가 host 상한(5000) 예산 먹지 않게 가장 먼저 제거
+  (404-only 는 단조 → 승격 전 개별 제거 = 승격 후 제거 동치). **spec 보호**: `source==INFERRED` 만 대상, `SPEC`(spec 매칭)은 제외(권위, 미배포 경고는 별도).
+- **soft penalty(-0.7, doc/04 §4.1)와 역할 분리**: hard-drop 조건(404==hits, 100%) ⊂ soft 조건(4xx≥0.9, 90%). hard-drop 이 인벤토리에서 먼저 제거 → Classifier 미도달 → 중복 없음.
+  남는 회색지대(mostly-4xx≠100% / 401·403 포함)는 soft 가 저신뢰 Shadow 로 보고. 우선순위 hard→soft.
+- **노출(린)**: 단순 제외 아니라 **`model/DroppedNonExistent(int notFound)`** 신규 형제 필드(DroppedNonApi/DroppedByLimit 패턴) → `DiscoveryReport` top-level + ETag 입력 포함.
+  운영자 가시성(보안 도구). `InventoryResult`·`ReportBuilder.build`·`DiscoveryJobService` 배선.
+- **무회귀**: 2xx/3xx/5xx 혼재·404≠100%·401/403-only·spec 매칭 모두 보존. `ClassifierTest`(DiscoveredEndpoint 직접) 무영향(필터는 인벤토리 계층).
+- **범위 밖**: 문서화됐는데 404-only=미배포 경고, 401/403 status 세분.
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.

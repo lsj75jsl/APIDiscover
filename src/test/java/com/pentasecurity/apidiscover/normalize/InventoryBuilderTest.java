@@ -9,9 +9,11 @@ import com.pentasecurity.apidiscover.match.EndpointMatcher;
 import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
 import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
 import com.pentasecurity.apidiscover.model.DroppedByLimit;
+import com.pentasecurity.apidiscover.model.DroppedNonExistent;
 import com.pentasecurity.apidiscover.model.ParsedRequest;
 import com.pentasecurity.apidiscover.model.TemplateSource;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -175,5 +177,80 @@ class InventoryBuilderTest {
         assertThat(e.metrics().p50RespMs()).isEqualTo(20);
         // p95 = ceil(0.95*4)-1 = idx3 = 40
         assertThat(e.metrics().p95RespMs()).isEqualTo(40);
+    }
+
+    // --- 실재성 404-only 필터 (doc/19) ---
+
+    @Test
+    void dropsInferred404OnlySignatureAndCounts() {
+        // /probe/1·/probe/2 전부 404 → INFERRED /probe/{id} 100%-404 → 비실재 hard-drop, 정상 endpoint 는 보존
+        List<ParsedRequest> reqs = List.of(
+                req("GET", "/probe/1", 404, "a", 5),
+                req("GET", "/probe/2", 404, "b", 6),
+                req("GET", "/users/1", 200, "a", 10));
+        InventoryBuilder.InventoryResult result = builder.buildWithLimits(reqs, null);
+
+        assertThat(result.endpoints()).extracting(DiscoveredEndpoint::pathTemplate)
+                .containsExactly("/users/{id}"); // /probe/{id} 제외
+        assertThat(result.droppedNonExistent()).isEqualTo(new DroppedNonExistent(1));
+    }
+
+    @Test
+    void preserves401And403OnlySignatures() {
+        // 인증벽 뒤 실재 endpoint — 404 아님(status404<hits) → 보존(보안 미탐 방지). 통합 4xx 로 drop 하면 안 됨
+        List<ParsedRequest> reqs = List.of(
+                req("GET", "/secure/1", 401, "a", 5),
+                req("GET", "/secure/2", 403, "b", 6));
+        InventoryBuilder.InventoryResult result = builder.buildWithLimits(reqs, null);
+
+        assertThat(result.endpoints()).extracting(DiscoveredEndpoint::pathTemplate)
+                .containsExactly("/secure/{id}");
+        assertThat(result.droppedNonExistent()).isEqualTo(DroppedNonExistent.NONE);
+    }
+
+    @Test
+    void preservesSignatureWhen404MixedWith2xxOr5xx() {
+        // 2xx/3xx/5xx 하나라도 = 라우트 실재 신호 → 100%-404 아님 → 보존
+        List<ParsedRequest> reqs = List.of(
+                req("GET", "/m/1", 404, "a", 5),
+                req("GET", "/m/2", 200, "b", 6),
+                req("GET", "/m/3", 500, "c", 7));
+        InventoryBuilder.InventoryResult result = builder.buildWithLimits(reqs, null);
+
+        assertThat(result.endpoints()).extracting(DiscoveredEndpoint::pathTemplate)
+                .containsExactly("/m/{id}");
+        assertThat(result.droppedNonExistent()).isEqualTo(DroppedNonExistent.NONE);
+    }
+
+    @Test
+    void preservesMostly404SignatureForClassifierSoftPenalty() {
+        // 404 다수(>90%)지만 100% 아님(2xx 1건) → 인벤토리 보존 → Classifier soft -0.7 대상으로 남김(hard-drop ⊄)
+        List<ParsedRequest> reqs = new ArrayList<>();
+        for (int i = 1; i <= 9; i++) {
+            reqs.add(req("GET", "/p/" + i, 404, "a", 5));
+        }
+        reqs.add(req("GET", "/p/10", 200, "a", 5)); // 실재 신호 1건
+        InventoryBuilder.InventoryResult result = builder.buildWithLimits(reqs, null);
+
+        assertThat(result.endpoints()).extracting(DiscoveredEndpoint::pathTemplate)
+                .containsExactly("/p/{id}"); // 보존(status404 9 != hits 10)
+        assertThat(result.droppedNonExistent()).isEqualTo(DroppedNonExistent.NONE);
+    }
+
+    @Test
+    void preservesSpecMatched404OnlySignature() {
+        // 스펙 매칭(SPEC) 은 권위 → 404-only 여도 보존(미배포 경고는 범위 밖). 필터 대상은 INFERRED 만
+        EndpointMatcher matcher = new EndpointMatcher(List.of(
+                new CanonicalEndpoint("GET", "/v1/legacy/{id}", null, false, null, "ref")));
+        List<ParsedRequest> reqs = List.of(
+                req("GET", "/v1/legacy/1", 404, "a", 5),
+                req("GET", "/v1/legacy/2", 404, "b", 6));
+        InventoryBuilder.InventoryResult result = builder.buildWithLimits(reqs, matcher);
+
+        assertThat(result.endpoints()).singleElement().satisfies(e -> {
+            assertThat(e.pathTemplate()).isEqualTo("/v1/legacy/{id}");
+            assertThat(e.templateSource()).isEqualTo(TemplateSource.SPEC);
+        });
+        assertThat(result.droppedNonExistent()).isEqualTo(DroppedNonExistent.NONE);
     }
 }

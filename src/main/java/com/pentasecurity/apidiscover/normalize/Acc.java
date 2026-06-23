@@ -36,6 +36,7 @@ final class Acc {
     private Instant firstSeen;
     private Instant lastSeen;
     private final long[] statusBuckets = new long[4]; // 0:2xx 1:3xx 2:4xx 3:5xx
+    private long status404; // 404 전용(통합 4xx 와 별도 — 401/403 보호, doc/19 §1)
     private final Set<String> clients = new HashSet<>();
     private final List<Long> respTimes = new ArrayList<>();
     private final Map<String, Long> typeDist = new HashMap<>();
@@ -67,6 +68,15 @@ final class Acc {
         return hits;
     }
 
+    TemplateSource source() {
+        return source;
+    }
+
+    /** 404-only(전 요청이 404) = 비실재 시그니처 (doc/19 §1). 통합 4xx 아닌 404 전용이라 401/403-only 는 보존. */
+    boolean isNonExistent() {
+        return hits > 0 && status404 == hits;
+    }
+
     Map<String, Long> typeDist() {
         return typeDist;
     }
@@ -92,6 +102,9 @@ final class Acc {
         int bucket = r.status() / 100;
         if (bucket >= 2 && bucket <= 5) {
             statusBuckets[bucket - 2]++;
+        }
+        if (r.status() == 404) {
+            status404++;
         }
         if (r.clientIp() != null) {
             clients.add(r.clientIp());
@@ -123,6 +136,7 @@ final class Acc {
         for (int i = 0; i < statusBuckets.length; i++) {
             statusBuckets[i] += o.statusBuckets[i];
         }
+        this.status404 += o.status404;
         clients.addAll(o.clients);
         respTimes.addAll(o.respTimes);
         o.typeDist.forEach((k, v) -> typeDist.merge(k, v, Long::sum));

@@ -16,6 +16,7 @@ import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
 import com.pentasecurity.apidiscover.model.DiscoveryReport;
 import com.pentasecurity.apidiscover.model.DroppedByLimit;
 import com.pentasecurity.apidiscover.model.DroppedNonApi;
+import com.pentasecurity.apidiscover.model.DroppedNonExistent;
 import com.pentasecurity.apidiscover.model.EndpointKind;
 import com.pentasecurity.apidiscover.model.Finding;
 import com.pentasecurity.apidiscover.model.ParsedRequest;
@@ -86,7 +87,7 @@ class LokiLiveIntegrationTest {
         List<Finding> findings = new Classifier(new ApiScorer()).classify(discovered, List.of(), matcher);
         DiscoveryReport report = new ReportBuilder().build(
                 DOMAIN, 0L, window, discovered.size(), findings,
-                new DroppedNonApi(0, 0, 0), new DroppedByLimit(0, 0));
+                new DroppedNonApi(0, 0, 0), new DroppedByLimit(0, 0), DroppedNonExistent.NONE);
 
         // 검증
         assertThat(requests).as("파싱된 요청이 있어야 함").isNotEmpty();
