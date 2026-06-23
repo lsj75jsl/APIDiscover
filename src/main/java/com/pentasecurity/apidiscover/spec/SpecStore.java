@@ -52,7 +52,8 @@ public class SpecStore {
             throw new IllegalStateException("no parser registered for format " + format);
         }
 
-        List<CanonicalEndpoint> canonical = parser.parse(content); // 검증 실패 시 예외
+        // parse 직후 전 포맷 균일 정규화(dedupe+deprecated OR+안정정렬, doc/14 §0.1)
+        List<CanonicalEndpoint> canonical = SpecCanonicalizer.canonicalize(parser.parse(content));
         if (canonical.isEmpty()) {
             throw new IllegalArgumentException("no endpoints found in spec");
         }

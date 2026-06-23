@@ -45,6 +45,23 @@ class SpecFormatDetectorTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test
+    void detectsPostmanByNewSchemaHost() {
+        // 신버전 컬렉션 schema.postman.com (doc/14 §3)
+        String json = """
+                { "info": { "name": "x",
+                  "schema": "https://schema.postman.com/json/collection/v2.1.0/collection.json" },
+                  "item": [] }
+                """;
+        assertThat(detector.detect(bytes(json))).isEqualTo(SpecFormat.POSTMAN);
+    }
+
+    @Test
+    void detectsPostmanByItemFallbackWithoutSchema() {
+        String json = "{ \"info\": { \"name\": \"x\" }, \"item\": [] }";
+        assertThat(detector.detect(bytes(json))).isEqualTo(SpecFormat.POSTMAN);
+    }
+
     private static byte[] bytes(String s) {
         return s.getBytes(StandardCharsets.UTF_8);
     }

@@ -5,6 +5,27 @@
 
 ---
 
+## 2026-06-23 세션 11 — 스펙 파서 Postman/CSV 실구현 + 공유 정규화 (doc/14 §6, DECISIONS D21)
+
+### 한 일
+- **공유 신규**: `SpecNormalize`(template: `:var`/`{{var}}`→`{var}`·슬래시 규칙, host: 소문자/null) — 3종 동일성 단일 진실원.
+  `SpecCanonicalizer.canonicalize`(dedupe(method,host,template)+deprecated OR+안정정렬) — SpecStore.upload parse 직후 **전 포맷 균일** 적용(ETag 결정성).
+- **PostmanSpecParser**: ObjectMapper 주입, item 트리 DFS(폴더 name·deprecated 자식 전파), url object(path 배열/문자열)/string, host 배열 `.`join+`{{baseUrl}}` 변수 치환(실패→null),
+  path 변수→`{x}`, deprecated=`[DEPRECATED]`/`(deprecated)`/description, sourceRef `postman#이름경로`. 루트/item 부재→IAE, method/url 누락 leaf→skip+warn.
+- **CsvSpecParser**: univocity(header 추출·BOM strip·따옴표/내장콤마), 필수 헤더(method/path) 누락→fatal, deprecated 토큰(true/false/1/0/y/n/yes/no·빈값 false·미인식 warn),
+  `:var`→`{var}`, host 빈값→null, 불량행 skip+warn(row n), sourceRef `csv#row{n}`.
+- **배선**: SpecStore.upload canonicalize 적용, SpecFormatDetector `schema.postman.com` 추가. **신규 의존성 0**, `SpecParser`/`SpecRecord`/`OpenApiSpecParser` 시그니처 무변경.
+- **오류 처리**: fatal→IllegalArgumentException(→400), recoverable→skip+log.warn(유효분 반환). 구조화 spec_source.warnings 채널은 범위 밖.
+- **무회귀**: 기존 SpecStore/OpenApi 테스트 green(canonicalize 정렬은 순서무관 단언에 영향 없음, 유효 endpoint 집합 동일).
+- **리뷰 2라운드**: ① 구현 11건 → ② P3 보강(다중요소 host 배열, url 누락 leaf skip·빈 deprecated 셀, (deprecated)/[deprecated] 마커 변형). 전건 해소.
+- 마무리: GitHub PR 워크플로(push → `gh pr create` → 팀장 지시 `gh pr merge --merge --delete-branch`).
+
+### 결과
+- BUILD SUCCESSFUL, **tests=205 skipped=1(라이브) failures=0**. 3종 포맷 Canonical 동일성(`ThreeFormatEquivalenceTest`) 검증. 내부 리뷰 P1=0/P2=0.
+
+### 다음
+- 후속(TODO): 매처 캐시 무효화(SpecStore 업로드 시 `(host,specVersion)` evict)·멀티 스펙 병합·구조화 spec_source.warnings 채널(seam=SpecParseResult).
+
 ## 2026-06-23 세션 10 — 정규화 고카디널리티 방지 (T1 승격+상한 / T2 param 후보 / T3 sensitive) (doc/13 §5, DECISIONS D20)
 
 ### 한 일

@@ -26,8 +26,6 @@
 - [ ] (확장) `$type` taxonomy 에서 API성 값(xhr/json) 확인 시 `response_type_api` 양성 가중치 추가
 
 ### 스펙 파서 / Spec Store (03 문서)
-- [ ] `PostmanSpecParser` 실구현 (item 트리 DFS, url.path join, `:var`/`{{var}}`→`{var}`, `[DEPRECATED]` 규약)
-- [ ] `CsvSpecParser` 실구현 (헤더 검증, deprecated 파싱, `:var`→`{var}`)
 - [ ] 매처 캐시 무효화 — SpecStore 업로드 시 `(host, specVersion)` EndpointMatcher 캐시 evict
 - [ ] 멀티 스펙 업로드(여러 문서 병합) — 1차 범위 밖, 후속
 
@@ -61,7 +59,6 @@
 - [ ] @Lob String JSON 컬럼 PostgreSQL TEXT 매핑 실검증(canonical/report/classification 공통)
 - [ ] 통합 테스트 (Testcontainers: 실제 PostgreSQL/JPA, REST API e2e, 조건부 GET 304)
 - [ ] 매칭 엣지 케이스(04 §7) 회귀 테스트
-- [ ] 3종 포맷 파싱 → Canonical 동일성 테스트 (Postman/CSV 구현 후)
 
 ---
 
@@ -124,3 +121,10 @@
 - [x] T3 sensitive: `SensitiveKeyMatcher`(@ConfigurationProperties yml, 대소문자무시) — 키이름+flag 보존·값/버킷 억제(REDACTED, 보안신호)
 - [x] 배선: `DiscoveryReport` top-level `droppedByLimit`+ETag 포함, `InventoryBuilder.buildWithLimits`(build→위임 하위호환), `Normalization/SensitiveKeyProperties`
 > 후속(TODO 유지): sensitive/상한 도메인 override·중앙 REST/대시보드, Active/Zombie param 노출, HLL/t-digest 근사
+
+### 스펙 파서 Postman/CSV 실구현 + 공유 정규화 (2026-06-23, doc/14 / DECISIONS D21) — tests=205 green
+- [x] `PostmanSpecParser` 실구현 — Jackson 트리 item DFS(폴더 deprecated 전파), url object/string, `:var`/`{{var}}`→`{var}`, host 변수→null, `[DEPRECATED]`/`(deprecated)`/description, sourceRef
+- [x] `CsvSpecParser` 실구현 — univocity 헤더검증(method/path 필수→fatal), deprecated 토큰(true/false/1/0/y/n/yes/no), BOM/따옴표, 불량행 skip+warn, `:var`→`{var}`
+- [x] 공유 `SpecNormalize`(template/host)·`SpecCanonicalizer`(dedupe+deprecated OR+안정정렬, SpecStore.upload 전 포맷 균일) + SpecFormatDetector `schema.postman.com`. 신규 의존성 0, 시그니처 무변경
+- [x] 3종 포맷 Canonical 동일성 테스트(`ThreeFormatEquivalenceTest`) — (method,host,template,deprecated,version) 동일(sourceRef 제외). 품질 항목 충족
+> 후속(TODO 유지): 매처 캐시 무효화·멀티 스펙 병합·구조화 spec_source.warnings 채널

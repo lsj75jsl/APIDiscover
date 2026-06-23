@@ -47,7 +47,7 @@ class SpecStoreTest {
             repo,
             new SpecFormatDetector(),
             new ObjectMapper(),
-            List.of(new OpenApiSpecParser(), new PostmanSpecParser(), new CsvSpecParser()));
+            List.of(new OpenApiSpecParser(), new PostmanSpecParser(new ObjectMapper()), new CsvSpecParser()));
 
     @Test
     void firstUploadCreatesActiveVersionOne() {
