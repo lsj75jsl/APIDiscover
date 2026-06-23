@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.pentasecurity.apidiscover.ingest.LogWindow;
 import com.pentasecurity.apidiscover.model.DiscoveryReport;
+import com.pentasecurity.apidiscover.model.DroppedNonApi;
 import com.pentasecurity.apidiscover.model.Finding;
 import java.time.Instant;
 import java.util.List;
@@ -25,7 +26,8 @@ class ReportBuilderTest {
                 new Finding.WebPage("h", "GET", "/page", 0.8)); // 요약 제외
 
         LogWindow window = new LogWindow(Instant.EPOCH, Instant.EPOCH.plusSeconds(3600));
-        DiscoveryReport report = builder.build("api.example.com", 7L, window, 4, findings);
+        DiscoveryReport report = builder.build("api.example.com", 7L, window, 4, findings,
+                new DroppedNonApi(2, 1, 3));
 
         assertThat(report.host()).isEqualTo("api.example.com");
         assertThat(report.specVersion()).isEqualTo(7L);
@@ -39,15 +41,21 @@ class ReportBuilderTest {
         assertThat(s.shadow()).isEqualTo(2);
         assertThat(s.zombie()).isEqualTo(1);
         assertThat(s.unused()).isEqualTo(1);
+
+        // dropped 메트릭 임베드 (doc/12 §2)
+        assertThat(report.droppedNonApi()).isEqualTo(new DroppedNonApi(2, 1, 3));
+        assertThat(report.droppedNonApi().total()).isEqualTo(6);
     }
 
     @Test
     void handlesEmptyFindings() {
         DiscoveryReport report = builder.build("h", 1L,
-                new LogWindow(Instant.EPOCH, Instant.EPOCH), 0, List.of());
+                new LogWindow(Instant.EPOCH, Instant.EPOCH), 0, List.of(), null);
 
         assertThat(report.findings()).isEmpty();
         assertThat(report.summary().shadow()).isZero();
         assertThat(report.summary().zombie()).isZero();
+        // null 전달 → 빈 결과 (0,0,0) 으로 정규화(항상 non-null, doc/12 §3)
+        assertThat(report.droppedNonApi()).isEqualTo(new DroppedNonApi(0, 0, 0));
     }
 }

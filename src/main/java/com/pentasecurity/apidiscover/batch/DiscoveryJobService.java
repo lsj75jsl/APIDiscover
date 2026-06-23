@@ -3,6 +3,7 @@ package com.pentasecurity.apidiscover.batch;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pentasecurity.apidiscover.classify.ClassificationResult;
 import com.pentasecurity.apidiscover.classify.Classifier;
 import com.pentasecurity.apidiscover.classify.EffectiveClassification;
 import com.pentasecurity.apidiscover.classify.EffectiveClassificationResolver;
@@ -142,22 +143,26 @@ public class DiscoveryJobService {
         List<DiscoveredEndpoint> discovered = inventoryBuilder.build(requests, matcher);
         // effective 분류 설정(전역+도메인 병합) 해석 → scorer/hints 주입 (doc/10 §6). 설정 부재 시 무회귀.
         EffectiveClassification eff = classificationResolver.resolve(host);
-        List<Finding> findings = classifier.classify(discovered, spec, matcher, eff.scorer(), eff.hints());
+        // findings + non_api dropped 메트릭 동시 산출 (doc/12 §1)
+        ClassificationResult classified =
+                classifier.classifyWithMetrics(discovered, spec, matcher, eff.scorer(), eff.hints());
+        List<Finding> findings = classified.findings();
         // OPTIONS 는 CORS 신호로만 쓰고 보고에서 제외되므로 인벤토리 카운트에서도 뺀다 (과대집계 방지)
         long reportedCount = discovered.stream()
                 .filter(d -> !"OPTIONS".equalsIgnoreCase(d.method()))
                 .count();
-        DiscoveryReport report =
-                reportBuilder.build(host, specVersion, window, (int) reportedCount, findings);
+        DiscoveryReport report = reportBuilder.build(
+                host, specVersion, window, (int) reportedCount, findings, classified.dropped());
 
         return persist(host, report);
     }
 
     private ScanResult persist(String host, DiscoveryReport report) {
         String reportJson = toJson(report);
-        // version(ETag)은 generatedAt/window 를 제외한 '내용'으로 산정 → 동일 결과는 동일 버전 (doc/07 §8)
+        // version(ETag)은 generatedAt/window 를 제외한 '내용'으로 산정 → 동일 결과는 동일 버전 (doc/07 §8).
+        // droppedNonApi 도 결과 콘텐츠 → 포함(findings 불변·dropped 분포만 변해도 version 갱신, doc/12 §4)
         String version = EtagUtil.of(toJson(
-                List.of(report.specVersion(), report.summary(), report.findings())));
+                List.of(report.specVersion(), report.summary(), report.findings(), report.droppedNonApi())));
 
         ScanResult r = scanRepo.findById(host).orElseGet(ScanResult::new);
         r.host = host;

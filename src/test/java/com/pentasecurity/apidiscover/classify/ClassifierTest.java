@@ -8,6 +8,7 @@ import com.pentasecurity.apidiscover.match.EndpointMatcher;
 import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
 import com.pentasecurity.apidiscover.model.Classification;
 import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
+import com.pentasecurity.apidiscover.model.DroppedNonApi;
 import com.pentasecurity.apidiscover.model.EndpointKind;
 import com.pentasecurity.apidiscover.model.Finding;
 import com.pentasecurity.apidiscover.model.MatcherConfig;
@@ -191,6 +192,40 @@ class ClassifierTest {
                 List.of(d), spec, matcher, new ApiScorer(ApiScorer.Profile.LOW), ApiHintMatcher.NONE);
         assertThat(byClass(lowFindings, Classification.SHADOW))
                 .extracting(Finding::pathTemplate).containsExactly("/api/things");
+    }
+
+    // --- classifyWithMetrics 사유별 카운트 (doc/12 §1) ---
+
+    @Test
+    void classifyWithMetricsCountsDropReasons() {
+        // exclude="/internal" + includeWebForms=false
+        var hints = new ApiHintMatcher(
+                new MatcherConfig(List.of(), List.of(), List.of("/internal"), List.of(), false));
+        List<DiscoveredEndpoint> discovered = List.of(
+                de("OPTIONS", "/api/widgets", TemplateSource.INFERRED, EndpointKind.UNKNOWN, 10, "2xx", 5),  // CORS-only → 카운트X
+                de("GET", "/v2/users/{id}", TemplateSource.SPEC, EndpointKind.UNKNOWN, 100, "2xx", 5),        // spec 매칭 → Active
+                de("POST", "/api/orders", TemplateSource.INFERRED, EndpointKind.UNKNOWN, 100, "2xx", 5),      // ADMIT → Shadow
+                de("POST", "/internal/debug", TemplateSource.INFERRED, EndpointKind.UNKNOWN, 100, "2xx", 5),  // DROP_EXCLUDED
+                de("POST", "/form/save", TemplateSource.INFERRED, EndpointKind.WEB_PAGE, 100, "2xx", 5),      // DROP_WEB_FORM
+                de("GET", "/m03/{id}", TemplateSource.INFERRED, EndpointKind.UNKNOWN, 100, "2xx", 5));        // DROP_LOW_SCORE
+
+        ClassificationResult res = classifier.classifyWithMetrics(
+                discovered, spec, matcher, new ApiScorer(), hints);
+
+        assertThat(res.dropped()).isEqualTo(new DroppedNonApi(1, 1, 1));
+        assertThat(res.dropped().total()).isEqualTo(3);
+        assertThat(byClass(res.findings(), Classification.SHADOW))
+                .extracting(Finding::pathTemplate).containsExactly("/api/orders"); // ADMIT 만 Shadow
+        assertThat(res.findings()).noneMatch(f -> f.method().equals("OPTIONS"));   // OPTIONS 미보고·미카운트
+
+        // 불변식: discovered(non-OPTIONS) = specMatched(Active+Zombie) + shadow + dropped.total (doc/12 §1)
+        // 캐비엇: 1:1 spec 매칭 가정. host-agnostic(host=null) spec 이 다중 host 트래픽에 매칭되면 specMatched 측이
+        //         observedSpecKeys 중복제거로 근사가 된다(dropped 메트릭 자체는 항상 정확). 본 테스트는 단일 host.
+        long nonOptions = discovered.stream().filter(d -> !d.method().equals("OPTIONS")).count();
+        int shadow = byClass(res.findings(), Classification.SHADOW).size();
+        int specMatched = byClass(res.findings(), Classification.ACTIVE).size()
+                + byClass(res.findings(), Classification.ZOMBIE).size();
+        assertThat(nonOptions).isEqualTo(specMatched + shadow + res.dropped().total());
     }
 
     // --- helpers ---

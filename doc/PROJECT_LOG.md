@@ -5,6 +5,25 @@
 
 ---
 
+## 2026-06-23 세션 9 — non_api dropped observation 메트릭 (doc/12 §5, DECISIONS D19)
+
+### 한 일
+- **신규**: `model/DroppedNonApi`(record excluded/webForm/lowScore + `@JsonProperty("total")` 파생 — JSON 에 total 출현),
+  `classify/ClassificationResult`(record findings + dropped).
+- **수정**: `Classifier.classifyWithMetrics(5-arg)→ClassificationResult`(게이트 switch: ADMIT→Shadow, DROP_EXCLUDED/WEB_FORM/LOW_SCORE→사유별 ++, default→fail-fast);
+  5-arg `classify→List` 는 `.findings()` 위임(3/4-arg 도 위임 유지=하위호환). `DiscoveryReport` top-level `droppedNonApi`(가산적·항상 non-null),
+  `ReportBuilder.build` 파라미터 추가(null→(0,0,0)), `DiscoveryJobService.analyze` classifyWithMetrics 전환 + ETag 입력에 droppedNonApi 포함.
+- **카운트 대상**: non-OPTIONS·spec 미매칭·게이트 DROP_*(OPTIONS·spec 매칭·ADMIT 제외). 불변식 `discovered(non-OPTIONS)=specMatched+shadow+dropped.total`.
+- **노출/영속**: DiscoveryReport 임베드 → reportJson(@Lob) 자동 포함, `/result` 노출. ScanResult 스키마 변경 0. ETag 에 droppedNonApi 포함(분포 변화 반영, 304 미노출 버그 방지).
+- **리뷰 2라운드**: ① 구현 10건 → ② P3 마무리(게이트 switch default fail-fast, 불변식 host-agnostic 근사 캐비엇 주석). 전건 해소.
+- 테스트: Classifier 사유별 카운트+불변식, ReportBuilder 임베드+빈(0,0,0), reportJson 임베드+ETag dropped 분포 반영. 하위호환(기존 classify→List·LokiLive build 시그니처만).
+
+### 결과
+- BUILD SUCCESSFUL, **tests=167 skipped=1(라이브) failures=0**. 하위호환 유지(기존 테스트 전건 보존).
+
+### 다음
+- 후속(TODO): Actuator/Micrometer 노출·알람(동일 카운트 재사용)·scan-status/ScanResult total 비정규화(선택).
+
 ## 2026-06-23 세션 8 — 분류 설정 중앙 REST API + effective 캐시 활성화 (doc/11 §6, DECISIONS D18)
 
 ### 한 일
