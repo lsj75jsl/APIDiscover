@@ -5,6 +5,26 @@
 
 ---
 
+## 2026-06-23 세션 13 — 버전 기반 Zombie 추정 + Zombie severity (doc/16 §5, DECISIONS D23)
+
+### 한 일
+- **신규**: `model/Severity(score)`+`@JsonProperty("band")` 파생·`model/SeverityBand`(≥0.66 HIGH/≥0.33 MEDIUM/LOW),
+  `classify/ZombieSeverity.of(Evidence)`(결정적 score=0.5·hitsScore(log10)+0.3·successScore(2xx/total)+0.2·spanScore(lastSeen−firstSeen log10), 외부 시계 미사용),
+  `classify/VersionZombieInference`(첫 `^v(\d+)$` 버전·resourceKey={method|host|버전위치 {V} 치환 template} 페어링, 그룹 active Vmax 미만 active→추정, parseInt 오버플로 비버전 폴백),
+  `classify/Evidence`(hits/2xx/total/firstSeen/lastSeen 누적).
+- **수정**: `Finding.Zombie` 에 `Severity severity`+`boolean estimated` 가산. `Classifier` 의 `observedSpecKeys: Set→Map<String,Evidence>`
+  (1st pass 매칭 d 메트릭 누적, host-agnostic spec 다중 host 합산), 2nd pass 버전 추정+severity 배선(명시 deprecated 1.0·estimated=false, 추정 0.6·estimated=true, 모든 Zombie severity).
+- **역할 분리**: confidence(진짜 Zombie 인가)↔severity(조치 시급성) 직교. 추정 0.6·가중치/임계는 코드 상수(1차, 튜닝 시 @ConfigurationProperties seam).
+- **무회귀**: 명시 deprecated Zombie confidence 1.0·reason 보존, 버전 페어 없는 spec 전부 현행. findings 라 reportJson·ETag 자동 반영.
+- **리뷰 2라운드**: ① 구현 9건 → ② P3 보강(parseInt 오버플로 가드+테스트, Classifier 엣지 2건: 신버전 Unused→구버전 미추정·구버전 명시 deprecated→명시 1.0 유지). P1=0/P2=0.
+- 마무리: GitHub PR 워크플로(push → `gh pr create` → 팀장 지시 `gh pr merge --merge --delete-branch`).
+
+### 결과
+- BUILD SUCCESSFUL, **tests=230 skipped=1(라이브) failures=0**. VersionZombieInferenceTest 8·ZombieSeverityTest 5·Classifier 통합 5(+).
+
+### 다음
+- 후속(TODO): 절대 cross-scan recency(스캔 히스토리)·추정 임계/severity 가중치 중앙 API 설정.
+
 ## 2026-06-23 세션 12 — 매처 캐시 무효화 (doc/15 §5, DECISIONS D22)
 
 ### 한 일

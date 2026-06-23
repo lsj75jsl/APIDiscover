@@ -249,4 +249,95 @@ class ClassifierTest {
                 method + " " + HOST + " " + template, method, HOST, template, source, kind, 0.9,
                 false, false, metrics, ParamCandidates.EMPTY);
     }
+
+    /** host 지정 변형(host-agnostic evidence 합산 테스트용). */
+    private static DiscoveredEndpoint deH(String host, String method, String template,
+                                          long hits, String statusBucket) {
+        var metrics = new DiscoveredEndpoint.Metrics(
+                hits, Instant.EPOCH, Instant.EPOCH, Map.of(statusBucket, hits), 5, 10, 50);
+        return new DiscoveredEndpoint(method + " " + host + " " + template, method, host, template,
+                TemplateSource.SPEC, EndpointKind.UNKNOWN, 0.9, false, false, metrics, ParamCandidates.EMPTY);
+    }
+
+    // --- 버전 Zombie + severity (doc/16) ---
+
+    @Test
+    void explicitDeprecatedZombieGetsSeverityNotEstimated() {
+        // 기존 spec 의 /v2/orders/{orderId} deprecated 관측 → conf 1.0·estimated=false (무회귀) + severity 가산
+        var findings = classifier.classify(List.of(
+                de("GET", "/v2/orders/{orderId}", TemplateSource.SPEC, EndpointKind.UNKNOWN, 100, "2xx", 5)),
+                spec, matcher);
+        Finding.Zombie z = (Finding.Zombie) byClass(findings, Classification.ZOMBIE).get(0);
+        assertThat(z.confidence()).isEqualTo(1.0);
+        assertThat(z.estimated()).isFalse();
+        assertThat(z.severity()).isNotNull();
+    }
+
+    @Test
+    void estimatedZombieWhenOlderVersionStillActive() {
+        var verSpec = List.of(ce("GET", "/v1/orders/{id}", false), ce("GET", "/v2/orders/{id}", false));
+        var verMatcher = new EndpointMatcher(verSpec);
+        var findings = classifier.classify(List.of(
+                de("GET", "/v1/orders/{id}", TemplateSource.SPEC, EndpointKind.UNKNOWN, 100, "2xx", 5),
+                de("GET", "/v2/orders/{id}", TemplateSource.SPEC, EndpointKind.UNKNOWN, 200, "2xx", 5)),
+                verSpec, verMatcher);
+
+        var zombies = byClass(findings, Classification.ZOMBIE);
+        assertThat(zombies).extracting(Finding::pathTemplate).containsExactly("/v1/orders/{id}");
+        Finding.Zombie z = (Finding.Zombie) zombies.get(0);
+        assertThat(z.confidence()).isEqualTo(0.6);  // 추정
+        assertThat(z.estimated()).isTrue();
+        assertThat(z.severity()).isNotNull();
+        // 신버전 v2 는 Active 유지(무회귀)
+        assertThat(byClass(findings, Classification.ACTIVE))
+                .extracting(Finding::pathTemplate).containsExactly("/v2/orders/{id}");
+    }
+
+    @Test
+    void olderNotEstimatedWhenNewerVersionUnused() {
+        // P3-2(a): 신버전 v2 미관측(Unused) → active 신버전 없음 → 구버전 v1 추정 안 함(Active 유지)
+        var verSpec = List.of(ce("GET", "/v1/orders/{id}", false), ce("GET", "/v2/orders/{id}", false));
+        var verMatcher = new EndpointMatcher(verSpec);
+        var findings = classifier.classify(List.of(
+                de("GET", "/v1/orders/{id}", TemplateSource.SPEC, EndpointKind.UNKNOWN, 100, "2xx", 5)),
+                verSpec, verMatcher); // v2 미관측
+
+        assertThat(byClass(findings, Classification.ZOMBIE)).isEmpty();
+        assertThat(byClass(findings, Classification.ACTIVE))
+                .extracting(Finding::pathTemplate).containsExactly("/v1/orders/{id}");
+        assertThat(byClass(findings, Classification.UNUSED))
+                .extracting(Finding::pathTemplate).containsExactly("/v2/orders/{id}");
+    }
+
+    @Test
+    void explicitDeprecatedOlderVersionStaysExplicitZombieNotEstimated() {
+        // P3-2(b): 구버전 v1 이 명시 deprecated → 명시 Zombie(1.0) 유지, 추정(0.6)으로 하향/중복 없음
+        var verSpec = List.of(ce("GET", "/v1/orders/{id}", true), ce("GET", "/v2/orders/{id}", false));
+        var verMatcher = new EndpointMatcher(verSpec);
+        var findings = classifier.classify(List.of(
+                de("GET", "/v1/orders/{id}", TemplateSource.SPEC, EndpointKind.UNKNOWN, 100, "2xx", 5),
+                de("GET", "/v2/orders/{id}", TemplateSource.SPEC, EndpointKind.UNKNOWN, 200, "2xx", 5)),
+                verSpec, verMatcher);
+
+        var zombies = byClass(findings, Classification.ZOMBIE);
+        assertThat(zombies).extracting(Finding::pathTemplate).containsExactly("/v1/orders/{id}"); // 1건만
+        Finding.Zombie z = (Finding.Zombie) zombies.get(0);
+        assertThat(z.confidence()).isEqualTo(1.0); // 명시 우선
+        assertThat(z.estimated()).isFalse();
+        assertThat(byClass(findings, Classification.ACTIVE))
+                .extracting(Finding::pathTemplate).containsExactly("/v2/orders/{id}");
+    }
+
+    @Test
+    void evidenceSummedAcrossHostsForHostAgnosticSpec() {
+        var verSpec = List.of(ce("GET", "/legacy/{id}", true)); // host-agnostic deprecated
+        var verMatcher = new EndpointMatcher(verSpec);
+        var findings = classifier.classify(List.of(
+                deH("a.example.com", "GET", "/legacy/{id}", 100, "2xx"),
+                deH("b.example.com", "GET", "/legacy/{id}", 200, "2xx")),
+                verSpec, verMatcher);
+        var zombies = byClass(findings, Classification.ZOMBIE);
+        assertThat(zombies).hasSize(1); // 두 host d → 한 host-agnostic 키로 합산 → 단일 Zombie
+        assertThat(((Finding.Zombie) zombies.get(0)).severity()).isNotNull();
+    }
 }

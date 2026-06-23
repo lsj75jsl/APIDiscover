@@ -10,9 +10,11 @@ import com.pentasecurity.apidiscover.model.EndpointKind;
 import com.pentasecurity.apidiscover.model.Finding;
 import com.pentasecurity.apidiscover.model.TemplateSource;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.springframework.stereotype.Component;
@@ -76,7 +78,8 @@ public class Classifier {
         int excluded = 0;
         int webForm = 0;
         int lowScore = 0;
-        Set<String> observedSpecKeys = new HashSet<>();
+        // 매칭 키 → 누적 Evidence (severity 입력). host-agnostic spec 은 여러 host d 가 한 키에 합산 (doc/16 §4)
+        Map<String, Evidence> observedSpec = new HashMap<>();
 
         // CORS preflight 신호: host+template 이 OPTIONS 로 관측된 집합 (doc/08 §4)
         Set<String> corsKeys = new HashSet<>();
@@ -96,7 +99,8 @@ public class Classifier {
             }
             Optional<CanonicalEndpoint> matched = matcher.match(d.method(), d.host(), d.pathTemplate());
             if (matched.isPresent()) {
-                observedSpecKeys.add(key(matched.get())); // Active/Zombie 는 2차 (스펙 권위, 게이트 우회)
+                // Active/Zombie 는 2차 (스펙 권위, 게이트 우회). 매칭 d 메트릭을 Evidence 에 누적(severity 용)
+                observedSpec.computeIfAbsent(key(matched.get()), k -> new Evidence()).add(d.metrics());
                 continue;
             }
             // 문서에 없음 → ApiScorer 게이트 (doc/08, doc/09 §2.2). 전달된 scorer 사용(doc/10 §6)
@@ -115,14 +119,30 @@ public class Classifier {
         }
 
         // --- 2차: 문서 측(S) ---
+        // active(observed & 비-deprecated) 중 버전 추정 Zombie 집합 (신버전 active + 구버전 트래픽 지속, doc/16 §1)
+        List<CanonicalEndpoint> active = new ArrayList<>();
         for (CanonicalEndpoint s : spec) {
-            boolean observed = observedSpecKeys.contains(key(s));
+            if (!s.deprecated() && observedSpec.containsKey(key(s))) {
+                active.add(s);
+            }
+        }
+        Set<CanonicalEndpoint> estimatedZombies = VersionZombieInference.estimate(active);
+
+        for (CanonicalEndpoint s : spec) {
+            Evidence ev = observedSpec.get(key(s));
+            boolean observed = ev != null;
             if (s.deprecated()) {
                 if (observed) {
+                    // 명시 deprecated Zombie: confidence 1.0·estimated=false (무회귀) + severity 가산
                     findings.add(new Finding.Zombie(s.host(), s.method(), s.pathTemplate(), 1.0,
-                            s.sourceRef(), "문서에 deprecated 표기, 그러나 트래픽 발생"));
+                            ZombieSeverity.of(ev), false, s.sourceRef(), "문서에 deprecated 표기, 그러나 트래픽 발생"));
                 }
                 // deprecated && !observed → Deprecated-clean: 조치 불필요, Finding 미발행
+            } else if (observed && estimatedZombies.contains(s)) {
+                // 버전 추정 Zombie: confidence 0.6·estimated=true (doc/16 §1, 명시보다 낮게)
+                findings.add(new Finding.Zombie(s.host(), s.method(), s.pathTemplate(), 0.6,
+                        ZombieSeverity.of(ev), true, s.sourceRef(),
+                        "신버전 active, 구버전 트래픽 지속 — deprecated 미표기"));
             } else if (observed) {
                 findings.add(new Finding.Active(s.host(), s.method(), s.pathTemplate(), s.sourceRef()));
             } else {

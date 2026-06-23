@@ -35,8 +35,6 @@
 - [ ] distinct/분위수 대용량 근사 (HLL/t-digest) — 현재 정확 Set/nearest-rank, 규모 보고 교체
 
 ### 분류 (04 문서)
-- [ ] 버전 기반 Zombie 추정 (04 §5, deprecated 미표기 구버전)
-- [ ] Zombie severity 산정
 - [ ] (한계) preflight vs 진짜 OPTIONS 구분 불가로 스펙 OPTIONS operation Unused 오판 가능
 
 ### 리포트/출력 (01 문서)
@@ -133,3 +131,9 @@
 - [x] `SpecStore.upload` save 후 `invalidate(host)`, `DiscoveryJobService.analyze` `new EndpointMatcher`→`matcherCache.get(host,specVersion,supplier)`(specVersion=0 균일)
 - [x] 순환 회피(캐시 무의존·build supplier 호출측 공급), 불변 매처 공유 안전. 무회귀(동일 spec→동일 matcher→findings/ETag 불변)
 > 후속(TODO 유지): 멀티 인스턴스 cross-instance 무효화(HA, ShedLock 도입 시)
+
+### 버전 기반 Zombie 추정 + Zombie severity (2026-06-23, doc/16 / DECISIONS D23) — tests=230 green
+- [x] 버전 Zombie 추정: `VersionZombieInference`(첫 `^v(\d+)$` 버전·resourceKey {V} 페어링, 그룹 active Vmax 미만 active→추정 Zombie confidence 0.6·estimated, parseInt 오버플로 비버전 폴백)
+- [x] Zombie severity: `ZombieSeverity`(결정적 score=0.5·hits(log)+0.3·2xx비율+0.2·span(log)→HIGH/MED/LOW, 외부 시계 미사용, 모든 Zombie 적용), `model/Severity`(+@JsonProperty band 파생)·`SeverityBand`
+- [x] `Finding.Zombie` severity+estimated 가산, `Classifier` observedSpecKeys Set→Map<Evidence>(host-agnostic 합산), 명시 1.0/추정 0.6. confidence↔severity 직교. 무회귀(명시 Zombie 1.0 보존·비버전 spec 현행)
+> 후속(TODO 유지): 절대 cross-scan recency(히스토리)·추정 임계/severity 가중치 중앙 API 설정

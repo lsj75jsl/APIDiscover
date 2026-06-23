@@ -9,6 +9,7 @@ import com.pentasecurity.apidiscover.model.DroppedByLimit;
 import com.pentasecurity.apidiscover.model.DroppedNonApi;
 import com.pentasecurity.apidiscover.model.Finding;
 import com.pentasecurity.apidiscover.model.ParamCandidates;
+import com.pentasecurity.apidiscover.model.Severity;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -23,7 +24,7 @@ class ReportBuilderTest {
                 new Finding.Active("h", "GET", "/a", "ref"),
                 new Finding.Shadow("h", "GET", "/s1", 0.9, "r", ParamCandidates.EMPTY),
                 new Finding.Shadow("h", "POST", "/s2", 0.5, "r", ParamCandidates.EMPTY),
-                new Finding.Zombie("h", "GET", "/z", 1.0, "ref", "r"),
+                new Finding.Zombie("h", "GET", "/z", 1.0, new Severity(0.5), false, "ref", "r"),
                 new Finding.Unused("h", "GET", "/u", "ref"),
                 new Finding.WebPage("h", "GET", "/page", 0.8)); // 요약 제외
 

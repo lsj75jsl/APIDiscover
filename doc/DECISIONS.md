@@ -183,6 +183,19 @@ doc/10 저장/병합 위에 REST 4종을 신규 `ClassificationController`(`@Req
 - **무회귀**: 동일 spec→동일 matcher→동일 findings/ETag, 재생성만 제거. SpecStore/DiscoveryJobService 수동생성 테스트 인자 추가(가산).
 - **범위 밖**: 멀티 인스턴스 cross-instance 무효화(HA 후속, doc/11 §3 한계와 동일).
 
+### D23. 버전 기반 Zombie 추정 + Zombie severity (doc/16)
+명시 deprecated 만 Zombie 이던 것을 버전 보강(§5) + 모든 Zombie 에 severity(§4.2) 부여. 1 PR.
+- **버전 추정**: 첫 `^v\d+$` 세그먼트=버전, resourceKey(버전 위치 "{V}" 치환·나머지 동일)로 페어링. 그룹 내 active(observed&비deprecated) 최대버전 Vmax,
+  active 이면서 `<Vmax` → **추정 Zombie**(Active 재분류). 신뢰도 **0.6**(명시 1.0 보다 낮게, doc/04 §5), `estimated=true`. `!deprecated` 에만 적용(중복 없음).
+  신버전이 Unused/deprecated 면 트리거 안 함.
+- **severity=f(hits,recency,2xx)**: 외부 시계 없이 가용 메트릭만으로 결정적 산출 — hitsScore(log10 볼륨)·successScore(2xx/total)·spanScore(lastSeen−firstSeen, recency 대용).
+  score=0.5·hits+0.3·success+0.2·span → band HIGH≥0.66/MED≥0.33/LOW. **모든 Zombie(명시+추정)에 적용.** confidence(진짜냐)와 severity(시급성) **직교**.
+- **shape**: `Finding.Zombie` 에 `Severity severity`+`boolean estimated` 가산. `model/Severity(score)`+`@JsonProperty band()` 파생+`enum SeverityBand`. findings 가 ETag 입력이라 노출/ETag 자동.
+- **산정 위치**: Classifier(spec+observed+메트릭 보유). `observedSpecKeys: Set→Map<String,Evidence>`(1st pass 매칭 d 메트릭 누적, host-agnostic 다중 host 합산).
+  헬퍼 `VersionZombieInference`·`ZombieSeverity` 분리. 무회귀: 명시 Zombie confidence 1.0 보존, 버전 추정은 버전 페어 있을 때만(비버전 spec 무영향).
+- **설정(린)**: 추정 0.6·severity 가중치/임계는 코드 상수(1차), 튜닝 시 `@ConfigurationProperties` 이동(seam). 중앙 API 후속.
+- **범위 밖**: 절대 cross-scan recency(히스토리), 추정 임계 중앙 설정.
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.
