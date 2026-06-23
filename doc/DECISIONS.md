@@ -217,6 +217,12 @@ doc/08 §9 보류($type taxonomy 불확실) 항목을 **양성-only 비대칭 + 
   - P4(외부연동 후순위): 서비스간 인증·완료 웹훅·분석 파라미터 중앙 API 확장. 자체 분석기능(P1) 안정 후 진행.
 - **근거**: 분석 정확도(자체 기능)가 제품 가치의 핵심이고 외부 연동은 그 결과를 전달하는 계층 → 자체 기능 선행이 합리적. 코드 변경 없는 문서 작업(branch docs/tasks-sync-and-db-schema). doc/18(DB 스키마)은 technical_writer 담당이라 미관여.
 
+### D26. 설계 도출 개발 항목의 subitem 추적 (TASKS 일원화, D25 연계)
+설계 과정에서 나온 dev 항목이 설계문서 본문에만 흩어지지 않도록 TASKS 로 일원화·추적하는 규칙을 CLAUDE.md 에 영구 코드화.
+- **규칙(사용자 결정)**: architect 가 설계를 완료하면 도출된 dev 구현 체크리스트 + 후속/한계 등 개발 항목을 TASKS 의 **해당 부모 항목 아래 subitem(들여쓴 하위 체크박스)** 으로 추가. subitem 은 개발 완료 시 `[x]`, **모든 subitem 완료 시 부모를 `[x]` 로 바꾸고 Done 섹션으로 이동**한다.
+- **권위**: TASKS = 단일 권위 기준, 설계문서(doc/NN) = 근거·상세. D25 의 '설계문서↔TASKS 매핑표'·우선순위(P1~P4)와 일관 — 새 subitem 은 부모의 P 버킷을 따른다.
+- **근거**: 항목 단위로 완료를 확인해 추적성을 높이고 설계와 실행의 싱크를 유지. D25(흩어진 dev 항목 일원화)의 운영 규칙화. 코드 변경 없는 문서 작업(branch docs/subitem-tracking-policy).
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.
