@@ -142,6 +142,26 @@ class ClassificationControllerTest {
                 .andExpect(jsonPath("$.effective.weights.responseTypeApi").value(0.42)); // 전역 CUSTOM 상속
     }
 
+    @Test
+    void putMatcherOptionsOperationPrefixesReflectedInEffective() throws Exception {
+        // doc/23 §8 M2: optionsOperationPrefixes 가 MatcherConfig=REST DTO 라 컨트롤러 변경 없이 수용·effective 반영
+        mvc.perform(put("/api/v1/classification").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"profile\":\"MIDDLE\",\"matcher\":{\"optionsOperationPrefixes\":[\"/api/widgets\"]}}"))
+                .andExpect(status().isOk());
+        registerDomain("shop.example.com");
+        mvc.perform(get("/api/v1/domains/shop.example.com/classification"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.effective.matcher.optionsOperationPrefixes[0]").value("/api/widgets"));
+    }
+
+    @Test
+    void putRejectsInvalidOptionsOperationPrefix() throws Exception {
+        // 검증 자동(ApiHintMatcher validatePrefixes 재사용) — '/' 미시작 prefix → 400 (profile 포함, 검증이 진짜 prefix 에서 터지게)
+        mvc.perform(put("/api/v1/classification").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"profile\":\"MIDDLE\",\"matcher\":{\"optionsOperationPrefixes\":[\"api/widgets\"]}}"))
+                .andExpect(status().isBadRequest());
+    }
+
     // --- 400 검증 ---
 
     @Test

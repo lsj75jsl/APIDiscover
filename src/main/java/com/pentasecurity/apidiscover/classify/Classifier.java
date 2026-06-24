@@ -91,10 +91,15 @@ public class Classifier {
 
         // --- 1차: 관찰 측(D) ---
         for (DiscoveredEndpoint d : discovered) {
-            // OPTIONS 는 CORS preflight 신호로만 쓰고 그 자체는 보고하지 않는다
-            // (한계) preflight 와 진짜 OPTIONS operation 을 구분할 수 없어, 스펙에 OPTIONS 가 정의돼 있으면
-            //        매칭 전 skip 되어 observed 로 잡히지 않고 2차에서 Unused 로 오판될 수 있다 (doc/TASKS 분류)
+            // OPTIONS 는 CORS preflight 신호로만 쓰고 그 자체는 보고하지 않는다(corsKeys 는 위에서 모든 OPTIONS 로 구축).
+            // M2(doc/23 §8): operator 가 genuine OPTIONS operation 으로 선언 + 스펙 OPTIONS 매칭될 때만 observed 진입
+            //   → 2차 Active/Zombie 로 false-Unused 회복. 그 외(미선언/미스펙) OPTIONS 는 현행대로 skip(Shadow 미생성).
             if ("OPTIONS".equalsIgnoreCase(d.method())) {
+                if (hints.genuineOptions(d.pathTemplate())) {
+                    Optional<CanonicalEndpoint> matchedOpt = matcher.match(d.method(), d.host(), d.pathTemplate());
+                    matchedOpt.ifPresent(
+                            ce -> observedSpec.computeIfAbsent(key(ce), k -> new Evidence()).add(d.metrics()));
+                }
                 continue;
             }
             Optional<CanonicalEndpoint> matched = matcher.match(d.method(), d.host(), d.pathTemplate());

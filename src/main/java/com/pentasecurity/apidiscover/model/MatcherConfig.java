@@ -18,6 +18,7 @@ public record MatcherConfig(
         List<String> apiPathRegexes,
         List<String> excludePathPrefixes,
         List<String> excludePathRegexes,
+        List<String> optionsOperationPrefixes, // "OPTIONS 가 진짜 operation 인 경로" operator 선언 (doc/23 §8, M2)
         Boolean includeWebForms // null = 상속(merge 에서 전역값/기본 false 로 해소), §4
 ) {
 
@@ -27,11 +28,23 @@ public record MatcherConfig(
         apiPathRegexes = copyOrEmpty(apiPathRegexes);
         excludePathPrefixes = copyOrEmpty(excludePathPrefixes);
         excludePathRegexes = copyOrEmpty(excludePathRegexes);
+        optionsOperationPrefixes = copyOrEmpty(optionsOperationPrefixes);
+    }
+
+    /**
+     * 하위호환 5-arg — optionsOperationPrefixes 기본 빈(doc/23 §8). 기존 호출부/stored matcherJson 무변경
+     * (M1 의 Finding.Unused 4-arg 편의 ctor 패턴 동형).
+     */
+    public MatcherConfig(List<String> apiPathPrefixes, List<String> apiPathRegexes,
+                         List<String> excludePathPrefixes, List<String> excludePathRegexes,
+                         Boolean includeWebForms) {
+        this(apiPathPrefixes, apiPathRegexes, excludePathPrefixes, excludePathRegexes,
+                List.of(), includeWebForms);
     }
 
     /** 빈값 + includeWebForms=true. 매처 비활성 센티넬 — 레거시 오버로드·미배선 파이프라인이 쓰면 현행 동작 불변. */
     public static final MatcherConfig NONE =
-            new MatcherConfig(List.of(), List.of(), List.of(), List.of(), Boolean.TRUE);
+            new MatcherConfig(List.of(), List.of(), List.of(), List.of(), List.of(), Boolean.TRUE);
 
     /**
      * 전역+도메인 effective 설정 병합 (doc/09 §4).
@@ -57,12 +70,13 @@ public record MatcherConfig(
                 union(g.apiPathRegexes, d.apiPathRegexes),
                 union(g.excludePathPrefixes, d.excludePathPrefixes),
                 union(g.excludePathRegexes, d.excludePathRegexes),
+                union(g.optionsOperationPrefixes, d.optionsOperationPrefixes),
                 webForms);
     }
 
     /** merge 내부용: 빈 list + includeWebForms=null(상속 미지정). NONE(=true) 과 달리 상속 시맨틱 보존. */
     private static final MatcherConfig NONE_EMPTY =
-            new MatcherConfig(List.of(), List.of(), List.of(), List.of(), null);
+            new MatcherConfig(List.of(), List.of(), List.of(), List.of(), List.of(), null);
 
     private static List<String> union(List<String> a, List<String> b) {
         LinkedHashSet<String> set = new LinkedHashSet<>(a);
