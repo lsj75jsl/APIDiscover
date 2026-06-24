@@ -4,6 +4,7 @@ package com.pentasecurity.apidiscover.parse;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.pentasecurity.apidiscover.config.NormalizationProperties;
+import com.pentasecurity.apidiscover.config.ParseProperties;
 import com.pentasecurity.apidiscover.model.ParsedRequest;
 import com.pentasecurity.apidiscover.model.QueryParamObs;
 import com.pentasecurity.apidiscover.model.ValueLenBucket;
@@ -14,7 +15,8 @@ import org.junit.jupiter.api.Test;
 
 class LogLineParserTest {
 
-    private final LogLineParser parser = new LogLineParser(NormalizationProperties.defaults());
+    private final LogLineParser parser =
+            new LogLineParser(NormalizationProperties.defaults(), ParseProperties.defaults());
 
     private static final String SAMPLE = String.join("^|^", List.of(
             "203.0.113.5",                              // 1 client_real_ip
@@ -58,6 +60,16 @@ class LogLineParserTest {
         assertThat(r.type()).isEqualTo("api");
         assertThat(r.referer()).isNull();
         assertThat(r.requestId()).isNull();
+        assertThat(r.acrm()).isNull(); // 기본 parse.acrm-field-index=-1 → 미사용 (doc/23 §9.2)
+    }
+
+    @Test
+    void readsAcrmAtConfiguredIndexWhenPresentElseNull() {
+        // doc/23 M3: "있으면 읽는" — 설정 인덱스에 필드 존재 시 읽고, "-"/부재면 null
+        var p = new LogLineParser(NormalizationProperties.defaults(), new ParseProperties(20));
+        assertThat(p.parse(SAMPLE + "^|^GET").orElseThrow().acrm()).isEqualTo("GET"); // idx20 존재
+        assertThat(p.parse(SAMPLE + "^|^-").orElseThrow().acrm()).isNull();            // "-" → null
+        assertThat(p.parse(SAMPLE).orElseThrow().acrm()).isNull();                     // idx20 부재(20필드) → null
     }
 
     @Test

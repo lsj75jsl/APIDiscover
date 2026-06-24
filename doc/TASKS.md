@@ -38,7 +38,20 @@
 ### P1. 자체 분석 기능 (먼저)
 
 #### 분류 (04/16 문서)
-- [ ] (한계) preflight vs 진짜 OPTIONS 구분 불가로 스펙 OPTIONS operation Unused 오판 가능
+- [ ] (한계) preflight vs 진짜 OPTIONS 구분 불가로 스펙 OPTIONS operation Unused 오판 가능 **(분석 완료 → doc/23, DECISIONS D32 — B: 로그 신호 부재로 한계 확정·문서화)**
+  - [x] (판정) 로그 신호 분석 → B 확정(Origin/ACRM 미로깅·약신호 비결정) + 한계 범위·영향 문서화 (doc/23 §1·§2)
+  - [x] (M1·권장·선택) Unused(OPTIONS) inconclusive 주석 — `corsKeys` 재사용, `Finding.Unused`+`preflightAmbiguous`(4-arg 편의 ctor 하위호환), 2차 패스 분기(host-agnostic spec 은 template 매칭) + 테스트 3
+  - [x] (M2) operator genuine-OPTIONS 힌트 (설계 → doc/23 §8, DECISIONS D32) — documented OPTIONS 의 false-Unused 회복(spec-match 한정)
+    - [x] (M2-a) `MatcherConfig`+`optionsOperationPrefixes`(List)+5-arg 편의 ctor+`merge` union+NONE/NONE_EMPTY (matcherJson 마이그레이션 0). 리졸버 정규화 6-arg 보존(누락 버그 방지)
+    - [x] (M2-b) `ApiHintMatcher` `genuineOptions(template)` (validatePrefixes 재사용·세그먼트경계 prefixMatch)
+    - [x] (M2-c) `Classifier` 1차 OPTIONS 분기 한정 — `genuineOptions && matcher.match(OPTIONS)→observedSpec(→Active)`, else skip; corsKeys/cors 보너스 무변경
+    - [x] (M2-d) 테스트 — 선언+spec+트래픽→Active(M1 ambiguous 아님)/미선언→M1 유지/선언+미스펙·과declare→skip(Shadow 무)/merge 전역∪도메인/중앙 PUT 수용·검증(400)/기존 호출부 무변경
+  - [x] (M3) acrm 결정적 preflight 해소 (설계 → doc/23 §9, DECISIONS D32) — **dormant 구현 완료**(기본 idx=-1→DORMANT=현행 100%, org 로그포맷 커밋 시 활성)
+    - [x] (M3-a) `ParsedRequest`+`acrm`(nullable, 14-arg 편의 ctor) + `LogLineParser` 설정 인덱스(`apidiscover.parse.acrm-field-index` 기본 -1=미사용, 있으면 읽는·20/24필드 호환)
+    - [x] (M3-b) `Acc`+`acrmPresentCount`(add/mergeFrom) → `DiscoveredEndpoint.Metrics`+`acrmPresentCount`(7-arg 편의 ctor 하위호환)
+    - [x] (M3-c) `Classifier` 가용성 게이트(`Σ acrmPresentCount(OPTIONS)>0`=ACTIVE) — ACTIVE: acrm-absent=genuine→정상 매칭(Active/Shadow)·corsKeys=preflight(acrm>0)만; DORMANT: 현행 skip+M2
+    - [x] (M3-d) M1 정합 — `preflightAmbiguous` 조건에 `&& !preflightActive`(ACTIVE→확실 판정 자동 승급); M2 와 게이트 배타
+    - [x] (M3-e) `model/PreflightSignal(status, acrmPresentOptions)` DiscoveryReport 노출 + ETag(status 만) + 테스트(dormant 무회귀·active genuine→Active·pure preflight→plain Unused·mixed·게이트 경계·인덱스 파싱·ETag bump)
 - [ ] **(신규, doc/16 후속)** 절대 cross-scan recency 로 Zombie severity 보강 — 현재 severity 는 단일 스캔 내 span 대용. `→ 의존:` 스캔 이력(과거 lastSeen) 영속(현재 ScanResult 최신 1건만)
 
 #### 리포트/출력 (01/12/14 문서)

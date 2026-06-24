@@ -33,8 +33,17 @@ public sealed interface Finding
         @Override public Classification classification() { return Classification.ACTIVE; }
     }
 
-    /** 문서엔 있으나 트래픽 없음 (S \ D). */
-    record Unused(String host, String method, String pathTemplate, String specRef) implements Finding {
+    /**
+     * 문서엔 있으나 트래픽 없음 (S \ D). preflightAmbiguous=OPTIONS operation 인데 OPTIONS 트래픽은 관측됨 —
+     * preflight/진짜 구분 불가라 Unused 저신뢰(operator 오도 방지, doc/23 M1). 기본 false=현행.
+     */
+    record Unused(String host, String method, String pathTemplate, String specRef, boolean preflightAmbiguous)
+            implements Finding {
+        /** 하위호환 — preflightAmbiguous 기본 false (doc/23 M1, doc/16 Zombie severity 추가와 동형). */
+        public Unused(String host, String method, String pathTemplate, String specRef) {
+            this(host, method, pathTemplate, specRef, false);
+        }
+
         @Override public Classification classification() { return Classification.UNUSED; }
     }
 

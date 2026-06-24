@@ -53,6 +53,22 @@ class MatcherConfigMergeTest {
     }
 
     @Test
+    void unionsOptionsOperationPrefixesWithDedup() {
+        // doc/23 §8 M2: optionsOperationPrefixes 전역∪도메인 union·dedup
+        var global = new MatcherConfig(List.of(), List.of(), List.of(), List.of(), List.of("/a", "/b"), null);
+        var domain = new MatcherConfig(List.of(), List.of(), List.of(), List.of(), List.of("/b", "/c"), null);
+        var merged = MatcherConfig.merge(global, domain);
+        assertThat(merged.optionsOperationPrefixes()).containsExactly("/a", "/b", "/c");
+    }
+
+    @Test
+    void fiveArgConstructorDefaultsOptionsPrefixesEmpty() {
+        // 하위호환 5-arg ctor → optionsOperationPrefixes 빈
+        var c = new MatcherConfig(List.of("/api"), List.of(), List.of(), List.of(), true);
+        assertThat(c.optionsOperationPrefixes()).isEmpty();
+    }
+
+    @Test
     void mergeTreatsNullArgsAsEmpty() {
         var domain = cfg(List.of("/api"), List.of(), true);
         var merged = MatcherConfig.merge(null, domain);

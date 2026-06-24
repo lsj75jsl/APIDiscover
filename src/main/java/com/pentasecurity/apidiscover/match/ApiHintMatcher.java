@@ -41,6 +41,7 @@ public final class ApiHintMatcher {
 
     private final List<String> apiPrefixes;
     private final List<String> excludePrefixes;
+    private final List<String> optionsOperationPrefixes;
     private final List<CompiledRegex> apiRegexes;
     private final List<CompiledRegex> excludeRegexes;
     private final boolean includeWebForms;
@@ -53,6 +54,8 @@ public final class ApiHintMatcher {
         Objects.requireNonNull(cfg, "cfg");
         this.apiPrefixes = validatePrefixes(cfg.apiPathPrefixes(), "apiPathPrefixes");
         this.excludePrefixes = validatePrefixes(cfg.excludePathPrefixes(), "excludePathPrefixes");
+        this.optionsOperationPrefixes =
+                validatePrefixes(cfg.optionsOperationPrefixes(), "optionsOperationPrefixes");
         this.apiRegexes = compileRegexes(cfg.apiPathRegexes(), "apiPathRegexes");
         this.excludeRegexes = compileRegexes(cfg.excludePathRegexes(), "excludePathRegexes");
         this.includeWebForms = Boolean.TRUE.equals(cfg.includeWebForms());
@@ -76,6 +79,19 @@ public final class ApiHintMatcher {
             }
         }
         return anyRegexMatch(apiRegexes, template);
+    }
+
+    /** template 이 operator 선언 genuine-OPTIONS operation 경로(prefix 세그먼트경계)에 매치되는지 (doc/23 §8 M2). */
+    public boolean genuineOptions(String template) {
+        if (template == null) {
+            return false;
+        }
+        for (String p : optionsOperationPrefixes) {
+            if (prefixMatch(template, p)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** template 이 exclude(prefix/regex)에 매치되는지. */

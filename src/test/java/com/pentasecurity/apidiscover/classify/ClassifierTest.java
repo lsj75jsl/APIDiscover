@@ -229,6 +229,203 @@ class ClassifierTest {
         assertThat(nonOptions).isEqualTo(specMatched + shadow + res.dropped().total());
     }
 
+    // --- OPTIONS preflight inconclusive (doc/23 M1) ---
+
+    @Test
+    void optionsSpecOpWithObservedOptionsTrafficIsPreflightAmbiguous() {
+        // 스펙 OPTIONS operation + OPTIONS 트래픽 관측(corsKeys hit) → Unused 이나 preflightAmbiguous=true
+        List<CanonicalEndpoint> optSpec = List.of(ce("OPTIONS", "/api/widgets", false));
+        var optMatcher = new EndpointMatcher(optSpec);
+        List<DiscoveredEndpoint> discovered = List.of(
+                de("OPTIONS", "/api/widgets", TemplateSource.INFERRED, EndpointKind.UNKNOWN, 10, "2xx", 5));
+
+        List<Finding> findings = classifier.classify(discovered, optSpec, optMatcher);
+
+        var unused = byClass(findings, Classification.UNUSED);
+        assertThat(unused).extracting(Finding::pathTemplate).containsExactly("/api/widgets");
+        assertThat(((Finding.Unused) unused.get(0)).preflightAmbiguous()).isTrue();
+    }
+
+    @Test
+    void optionsSpecOpWithNoOptionsTrafficIsPlainUnused() {
+        // 스펙 OPTIONS operation + OPTIONS 트래픽 없음 → corsKeys 미hit → plain Unused(preflightAmbiguous=false)
+        List<CanonicalEndpoint> optSpec = List.of(ce("OPTIONS", "/api/widgets", false));
+        var optMatcher = new EndpointMatcher(optSpec);
+        List<DiscoveredEndpoint> discovered = List.of(
+                de("GET", "/other", TemplateSource.INFERRED, EndpointKind.UNKNOWN, 5, "2xx", 2));
+
+        List<Finding> findings = classifier.classify(discovered, optSpec, optMatcher);
+
+        var unused = byClass(findings, Classification.UNUSED);
+        assertThat(unused).extracting(Finding::pathTemplate).containsExactly("/api/widgets");
+        assertThat(((Finding.Unused) unused.get(0)).preflightAmbiguous()).isFalse();
+    }
+
+    @Test
+    void nonOptionsUnusedIsNeverPreflightAmbiguous() {
+        // 비-OPTIONS Unused(/v2/legacy)는 OPTIONS 아니므로 preflightAmbiguous 절대 false (비대칭)
+        List<DiscoveredEndpoint> discovered = List.of(
+                de("GET", "/v2/users/{id}", TemplateSource.SPEC, EndpointKind.UNKNOWN, 100, "2xx", 5));
+        List<Finding> findings = classifier.classify(discovered, spec, matcher);
+
+        Finding legacy = byClass(findings, Classification.UNUSED).stream()
+                .filter(f -> f.pathTemplate().equals("/v2/legacy")).findFirst().orElseThrow();
+        assertThat(((Finding.Unused) legacy).preflightAmbiguous()).isFalse();
+    }
+
+    @Test
+    void concreteHostOptionsSpecMatchesSameHostTrafficOnly() {
+        // optionsTrafficObserved concrete-host(host!=null) exact 분기: 동일 host→ambiguous / 다른 host→false(cross-host 비매칭)
+        List<CanonicalEndpoint> optSpec = List.of(
+                new CanonicalEndpoint("OPTIONS", "/api/widgets", "api.example.com", false, null, "ref"));
+        var optMatcher = new EndpointMatcher(optSpec);
+
+        List<Finding> same = classifier.classify(
+                List.of(deH("api.example.com", "OPTIONS", "/api/widgets", 10, "2xx")), optSpec, optMatcher);
+        assertThat(((Finding.Unused) byClass(same, Classification.UNUSED).get(0)).preflightAmbiguous()).isTrue();
+
+        List<Finding> cross = classifier.classify(
+                List.of(deH("other.example.com", "OPTIONS", "/api/widgets", 10, "2xx")), optSpec, optMatcher);
+        assertThat(((Finding.Unused) byClass(cross, Classification.UNUSED).get(0)).preflightAmbiguous()).isFalse();
+    }
+
+    // --- M2: operator genuine-OPTIONS 힌트 (doc/23 §8) ---
+
+    private static ApiHintMatcher optionsHints(String... prefixes) {
+        return new ApiHintMatcher(new MatcherConfig(
+                List.of(), List.of(), List.of(), List.of(), List.of(prefixes), false));
+    }
+
+    @Test
+    void declaredGenuineOptionsWithSpecAndTrafficBecomesActive() {
+        // 선언 + 스펙 OPTIONS op + OPTIONS 트래픽 → observed → Active (M1 ambiguous 아님)
+        List<CanonicalEndpoint> optSpec = List.of(ce("OPTIONS", "/api/widgets", false));
+        var optMatcher = new EndpointMatcher(optSpec);
+        List<DiscoveredEndpoint> discovered = List.of(
+                de("OPTIONS", "/api/widgets", TemplateSource.INFERRED, EndpointKind.UNKNOWN, 10, "2xx", 5));
+
+        List<Finding> findings = classifier.classify(discovered, optSpec, optMatcher, optionsHints("/api/widgets"));
+
+        assertThat(byClass(findings, Classification.ACTIVE))
+                .extracting(Finding::pathTemplate).containsExactly("/api/widgets");
+        assertThat(byClass(findings, Classification.UNUSED)).isEmpty();
+    }
+
+    @Test
+    void undeclaredOptionsSpecOpStaysM1Ambiguous() {
+        // 미선언(NONE) → genuineOptions=false → M1 preflightAmbiguous 유지(Active 아님)
+        List<CanonicalEndpoint> optSpec = List.of(ce("OPTIONS", "/api/widgets", false));
+        var optMatcher = new EndpointMatcher(optSpec);
+        List<DiscoveredEndpoint> discovered = List.of(
+                de("OPTIONS", "/api/widgets", TemplateSource.INFERRED, EndpointKind.UNKNOWN, 10, "2xx", 5));
+
+        List<Finding> findings = classifier.classify(discovered, optSpec, optMatcher, ApiHintMatcher.NONE);
+
+        var unused = byClass(findings, Classification.UNUSED);
+        assertThat(unused).extracting(Finding::pathTemplate).containsExactly("/api/widgets");
+        assertThat(((Finding.Unused) unused.get(0)).preflightAmbiguous()).isTrue();
+        assertThat(byClass(findings, Classification.ACTIVE)).isEmpty();
+    }
+
+    @Test
+    void declaredOptionsWithoutSpecMatchIsSkippedNoShadowEvenWhenOverDeclared() {
+        // 과declare(/api) + 스펙엔 GET op 만(OPTIONS op 없음) → spec-match 한정으로 observed 미진입 → OPTIONS skip(Shadow 무폭발)
+        List<CanonicalEndpoint> getSpec = List.of(ce("GET", "/api/widgets", false));
+        var m = new EndpointMatcher(getSpec);
+        List<DiscoveredEndpoint> discovered = List.of(
+                de("OPTIONS", "/api/widgets", TemplateSource.INFERRED, EndpointKind.UNKNOWN, 50, "2xx", 5));
+
+        List<Finding> findings = classifier.classify(discovered, getSpec, m, optionsHints("/api"));
+
+        assertThat(findings).noneMatch(f -> f.method().equals("OPTIONS")); // OPTIONS 미보고
+        assertThat(byClass(findings, Classification.SHADOW)).isEmpty();     // preflight 홍수 무폭발(불변식 보존)
+        // GET op 미관측 → Unused(비-OPTIONS → preflightAmbiguous=false)
+        var unused = byClass(findings, Classification.UNUSED);
+        assertThat(unused).extracting(Finding::pathTemplate).containsExactly("/api/widgets");
+        assertThat(((Finding.Unused) unused.get(0)).preflightAmbiguous()).isFalse();
+    }
+
+    // --- M3: acrm 결정적 preflight 가용성 게이트 (doc/23 §9) ---
+
+    /** OPTIONS discovered — hits 중 acrmCount 건이 preflight(acrm). hits-acrmCount = genuine. */
+    private static DiscoveredEndpoint deAcrm(String template, long hits, long acrmCount) {
+        var metrics = new DiscoveredEndpoint.Metrics(
+                hits, Instant.EPOCH, Instant.EPOCH, Map.of("2xx", hits), 5, 10, 50, acrmCount);
+        return new DiscoveredEndpoint("OPTIONS " + HOST + " " + template, "OPTIONS", HOST, template,
+                TemplateSource.INFERRED, EndpointKind.UNKNOWN, 0.9, false, false, metrics, ParamCandidates.EMPTY);
+    }
+
+    @Test
+    void activeGateGenuineOptionsBecomesActive() {
+        // acrm 가용(Σacrm>0=ACTIVE) + genuine hit(acrm-absent) → 정상 매칭 → Active
+        List<CanonicalEndpoint> optSpec = List.of(ce("OPTIONS", "/api/widgets", false));
+        var m = new EndpointMatcher(optSpec);
+        var findings = classifier.classify(List.of(deAcrm("/api/widgets", 10, 3)), optSpec, m); // 7 genuine
+        assertThat(byClass(findings, Classification.ACTIVE))
+                .extracting(Finding::pathTemplate).containsExactly("/api/widgets");
+        assertThat(byClass(findings, Classification.UNUSED)).isEmpty();
+    }
+
+    @Test
+    void activeGatePurePreflightIsPlainUnusedNotAmbiguous() {
+        // 전부 preflight(acrm) → genuine 0 → skip. ACTIVE 라 M1 ambiguous 자동 승급(plain Unused)
+        List<CanonicalEndpoint> optSpec = List.of(ce("OPTIONS", "/api/widgets", false));
+        var m = new EndpointMatcher(optSpec);
+        var findings = classifier.classify(List.of(deAcrm("/api/widgets", 5, 5)), optSpec, m);
+        var unused = byClass(findings, Classification.UNUSED);
+        assertThat(unused).extracting(Finding::pathTemplate).containsExactly("/api/widgets");
+        assertThat(((Finding.Unused) unused.get(0)).preflightAmbiguous()).isFalse();
+        assertThat(byClass(findings, Classification.ACTIVE)).isEmpty();
+    }
+
+    @Test
+    void gateBoundaryAcrmZeroDormantOnePlusActive() {
+        List<CanonicalEndpoint> optSpec = List.of(ce("OPTIONS", "/api/widgets", false));
+        var m = new EndpointMatcher(optSpec);
+        // acrm 0 → Σ=0 → DORMANT → M1 ambiguous(corsKeys hit, 미선언)
+        var dormant = classifier.classify(List.of(deAcrm("/api/widgets", 5, 0)), optSpec, m);
+        assertThat(((Finding.Unused) byClass(dormant, Classification.UNUSED).get(0)).preflightAmbiguous()).isTrue();
+        // acrm 1 → Σ=1 → ACTIVE, genuine 4 → 매칭 → Active
+        var active = classifier.classify(List.of(deAcrm("/api/widgets", 5, 1)), optSpec, m);
+        assertThat(byClass(active, Classification.ACTIVE))
+                .extracting(Finding::pathTemplate).containsExactly("/api/widgets");
+    }
+
+    @Test
+    void activeMixedGenuineAndPreflightSignatures() {
+        // genuine(/api/widgets, acrm 0) + pure-preflight(/api/things, acrm 전부). Σacrm>0(=ACTIVE) → genuine→Active, preflight→skip
+        List<CanonicalEndpoint> optSpec = List.of(
+                ce("OPTIONS", "/api/widgets", false), ce("OPTIONS", "/api/things", false));
+        var m = new EndpointMatcher(optSpec);
+        var findings = classifier.classify(List.of(
+                deAcrm("/api/widgets", 8, 0), deAcrm("/api/things", 6, 6)), optSpec, m);
+
+        assertThat(byClass(findings, Classification.ACTIVE))
+                .extracting(Finding::pathTemplate).containsExactly("/api/widgets");
+        var unused = byClass(findings, Classification.UNUSED);
+        assertThat(unused).extracting(Finding::pathTemplate).containsExactly("/api/things");
+        assertThat(((Finding.Unused) unused.get(0)).preflightAmbiguous()).isFalse(); // ACTIVE → 승급
+    }
+
+    @Test
+    void activeGenuineUnmatchedOptionsBecomesShadowButPreflightExcludedFloodSafe() {
+        // P3: ACTIVE + genuine + 미문서(미매칭) OPTIONS → fall-through → gate → Shadow (신규 경로).
+        // pure-preflight(acrm>0) 분은 제외 → preflight flood 가 Shadow 로 안 터짐(불변식2 flood-safety).
+        List<CanonicalEndpoint> emptySpec = List.of();
+        var m = new EndpointMatcher(emptySpec);
+        List<DiscoveredEndpoint> discovered = List.of(
+                deAcrm("/api/v1/probe", 5, 0),        // genuine 미문서 OPTIONS(api_seg+version+repeat→ADMIT) → Shadow
+                deAcrm("/api/v1/preflight", 10, 10)); // pure preflight → skip(보고 안 함). 게이트 ACTIVE 유발(Σacrm>0)
+
+        List<Finding> findings = classifier.classify(discovered, emptySpec, m);
+
+        var shadows = byClass(findings, Classification.SHADOW);
+        assertThat(shadows).hasSize(1); // genuine 1건만 (preflight flood 없음)
+        assertThat(shadows.get(0).method()).isEqualTo("OPTIONS");
+        assertThat(shadows.get(0).pathTemplate()).isEqualTo("/api/v1/probe");
+        assertThat(findings).noneMatch(f -> f.pathTemplate().equals("/api/v1/preflight")); // preflight 미보고(flood-safe)
+    }
+
     // --- helpers ---
 
     private static List<Finding> byClass(List<Finding> findings, Classification c) {

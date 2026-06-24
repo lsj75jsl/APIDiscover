@@ -9,6 +9,7 @@ import com.pentasecurity.apidiscover.classify.ApiScorer;
 import com.pentasecurity.apidiscover.classify.Classifier;
 import com.pentasecurity.apidiscover.config.ApiDiscoverProperties;
 import com.pentasecurity.apidiscover.config.NormalizationProperties;
+import com.pentasecurity.apidiscover.config.ParseProperties;
 import com.pentasecurity.apidiscover.config.SensitiveKeyProperties;
 import com.pentasecurity.apidiscover.match.EndpointMatcher;
 import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
@@ -19,6 +20,7 @@ import com.pentasecurity.apidiscover.model.DroppedNonApi;
 import com.pentasecurity.apidiscover.model.DroppedNonExistent;
 import com.pentasecurity.apidiscover.model.EndpointKind;
 import com.pentasecurity.apidiscover.model.EndpointKindSignal;
+import com.pentasecurity.apidiscover.model.PreflightSignal;
 import com.pentasecurity.apidiscover.model.TypeDistribution;
 import com.pentasecurity.apidiscover.model.Finding;
 import com.pentasecurity.apidiscover.model.ParsedRequest;
@@ -75,7 +77,7 @@ class LokiLiveIntegrationTest {
 
         // 2) 파싱
         NormalizationProperties norm = NormalizationProperties.defaults();
-        LogLineParser parser = new LogLineParser(norm);
+        LogLineParser parser = new LogLineParser(norm, ParseProperties.defaults());
         List<ParsedRequest> requests = new ArrayList<>();
         for (String line : lines) {
             parser.parse(line).ifPresent(requests::add);
@@ -92,7 +94,7 @@ class LokiLiveIntegrationTest {
         DiscoveryReport report = new ReportBuilder().build(
                 DOMAIN, 0L, window, discovered.size(), findings,
                 new DroppedNonApi(0, 0, 0), new DroppedByLimit(0, 0), DroppedNonExistent.NONE,
-                EndpointKindSignal.NONE, TypeDistribution.NONE);
+                EndpointKindSignal.NONE, TypeDistribution.NONE, PreflightSignal.NONE);
 
         // 검증
         assertThat(requests).as("파싱된 요청이 있어야 함").isNotEmpty();

@@ -138,8 +138,9 @@ public class EffectiveClassificationResolver {
                 ? parseMatcher(global.matcherJson, "global")
                 : MatcherConfig.NONE;
         if (m.includeWebForms() == null) {
+            // includeWebForms 만 TRUE 로 정규화 — 나머지 필드(optionsOperationPrefixes 포함) 전부 보존(6-arg)
             m = new MatcherConfig(m.apiPathPrefixes(), m.apiPathRegexes(),
-                    m.excludePathPrefixes(), m.excludePathRegexes(), Boolean.TRUE);
+                    m.excludePathPrefixes(), m.excludePathRegexes(), m.optionsOperationPrefixes(), Boolean.TRUE);
         }
         return m;
     }

@@ -16,7 +16,8 @@ public record DiscoveryReport(
         DroppedByLimit droppedByLimit, // 카디널리티 상한 초과 drop 집계 (doc/13), 항상 non-null
         DroppedNonExistent droppedNonExistent, // 404-only 비실재 drop 집계 (doc/19), 항상 non-null
         EndpointKindSignal endpointKindSignal, // endpoint_kind referer 보조 신호 커버리지 (doc/20), 항상 non-null
-        TypeDistribution typeDistribution // corpus $type 히스토그램 (doc/21), 항상 non-null
+        TypeDistribution typeDistribution, // corpus $type 히스토그램 (doc/21), 항상 non-null
+        PreflightSignal preflightSignal // CORS preflight 결정신호(acrm) 가용성 (doc/23 §9), 항상 non-null
 ) {
     public record Summary(
             int discovered,

@@ -8,6 +8,8 @@ import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
 import com.pentasecurity.apidiscover.model.DroppedNonApi;
 import com.pentasecurity.apidiscover.model.EndpointKind;
 import com.pentasecurity.apidiscover.model.Finding;
+import com.pentasecurity.apidiscover.model.PreflightSignal;
+import com.pentasecurity.apidiscover.model.SignalStatus;
 import com.pentasecurity.apidiscover.model.TemplateSource;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -81,21 +83,53 @@ public class Classifier {
         // 매칭 키 → 누적 Evidence (severity 입력). host-agnostic spec 은 여러 host d 가 한 키에 합산 (doc/16 §4)
         Map<String, Evidence> observedSpec = new HashMap<>();
 
-        // CORS preflight 신호: host+template 이 OPTIONS 로 관측된 집합 (doc/08 §4)
+        // M3 가용성 게이트(doc/23 §9.3): acrm(결정적 preflight 신호) 관측 합 > 0 → ACTIVE, 아니면 DORMANT(현행+M2).
+        // 기본 parse.acrm-field-index=-1 → acrm 전부 null → 합 0 → DORMANT → 현행 100%(무회귀 핵심).
+        long acrmPresentOptions = 0;
+        for (DiscoveredEndpoint d : discovered) {
+            if ("OPTIONS".equalsIgnoreCase(d.method()) && d.metrics() != null) {
+                acrmPresentOptions += d.metrics().acrmPresentCount();
+            }
+        }
+        boolean preflightActive = acrmPresentOptions > 0;
+
+        // CORS preflight 신호: host+template 이 OPTIONS 로 관측된 집합 (doc/08 §4).
+        // ACTIVE 면 진짜 preflight(acrm>0)만 — genuine-only OPTIONS 은 보너스 안 줌(정밀). DORMANT 면 모든 OPTIONS(현행).
         Set<String> corsKeys = new HashSet<>();
         for (DiscoveredEndpoint d : discovered) {
             if ("OPTIONS".equalsIgnoreCase(d.method())) {
-                corsKeys.add(hostTemplateKey(d.host(), d.pathTemplate()));
+                boolean isPreflightSig = d.metrics() != null && d.metrics().acrmPresentCount() > 0;
+                if (!preflightActive || isPreflightSig) {
+                    corsKeys.add(hostTemplateKey(d.host(), d.pathTemplate()));
+                }
             }
         }
 
         // --- 1차: 관찰 측(D) ---
         for (DiscoveredEndpoint d : discovered) {
-            // OPTIONS 는 CORS preflight 신호로만 쓰고 그 자체는 보고하지 않는다
-            // (한계) preflight 와 진짜 OPTIONS operation 을 구분할 수 없어, 스펙에 OPTIONS 가 정의돼 있으면
-            //        매칭 전 skip 되어 observed 로 잡히지 않고 2차에서 Unused 로 오판될 수 있다 (doc/TASKS 분류)
+            // OPTIONS 분기 (doc/23). corsKeys 는 위에서 구축됨.
+            //   ACTIVE(acrm 가용): acrm-absent hit 존재 = genuine OPTIONS 호출 → 정상 매칭(매칭→Active, 미매칭→gate→Shadow,
+            //     preflight 는 acrm 으로 제외돼 flood 없음). pure preflight(acrm-only) → skip(cors 신호만). [M3]
+            //   DORMANT(acrm 미가용): M2 operator 선언 + 스펙 OPTIONS 매칭만 observed(→Active), 그 외 skip(현행). [M2]
             if ("OPTIONS".equalsIgnoreCase(d.method())) {
-                continue;
+                boolean genuine;
+                if (preflightActive) {
+                    long acrm = (d.metrics() == null) ? 0 : d.metrics().acrmPresentCount();
+                    long hits = (d.metrics() == null) ? 0 : d.metrics().hits();
+                    genuine = hits - acrm > 0;
+                } else {
+                    genuine = hints.genuineOptions(d.pathTemplate());
+                }
+                if (!genuine) {
+                    continue; // pure preflight(ACTIVE) / 미선언(DORMANT) → cors 신호만, 보고 안 함
+                }
+                if (!preflightActive) {
+                    // DORMANT genuine(M2): spec-match 한정 observed (미매칭은 Shadow 안 만듦 — 불변식 보존)
+                    matcher.match(d.method(), d.host(), d.pathTemplate())
+                            .ifPresent(ce -> observedSpec.computeIfAbsent(key(ce), k -> new Evidence()).add(d.metrics()));
+                    continue;
+                }
+                // ACTIVE genuine → 아래 일반 매칭/게이트 로직으로 fall through (매칭→Active, 미매칭→Shadow)
             }
             Optional<CanonicalEndpoint> matched = matcher.match(d.method(), d.host(), d.pathTemplate());
             if (matched.isPresent()) {
@@ -146,10 +180,20 @@ public class Classifier {
             } else if (observed) {
                 findings.add(new Finding.Active(s.host(), s.method(), s.pathTemplate(), s.sourceRef()));
             } else {
-                findings.add(new Finding.Unused(s.host(), s.method(), s.pathTemplate(), s.sourceRef()));
+                // !deprecated && !observed → Unused. DORMANT 에서만 M1 preflightAmbiguous(저신뢰).
+                // ACTIVE(M3)면 acrm 으로 확실 판정 → genuine→Active(여기 미도달)/pure preflight→plain Unused → ambiguous 자동 승급(doc/23 §9.4)
+                boolean preflightAmbiguous = !preflightActive
+                        && "OPTIONS".equalsIgnoreCase(s.method())
+                        && optionsTrafficObserved(corsKeys, s);
+                findings.add(new Finding.Unused(
+                        s.host(), s.method(), s.pathTemplate(), s.sourceRef(), preflightAmbiguous));
             }
         }
-        return new ClassificationResult(findings, new DroppedNonApi(excluded, webForm, lowScore));
+        PreflightSignal preflightSignal = preflightActive
+                ? new PreflightSignal(SignalStatus.ACTIVE, acrmPresentOptions)
+                : PreflightSignal.NONE;
+        return new ClassificationResult(
+                findings, new DroppedNonApi(excluded, webForm, lowScore), preflightSignal);
     }
 
     /** Shadow 신뢰도 (doc/04 §4.1). 기본 1.0 에서 감산, [0,1] clamp. */
@@ -198,5 +242,17 @@ public class Classifier {
     private static String hostTemplateKey(String host, String template) {
         String h = (host == null) ? "*" : host.toLowerCase(Locale.ROOT);
         return h + "|" + template;
+    }
+
+    /**
+     * OPTIONS 트래픽이 이 spec OPTIONS operation 의 template 으로 관측됐는지 (corsKeys 재사용, doc/23 M1).
+     * corsKeys 는 discovered concrete host 키라, host-agnostic spec(host=null)은 template 으로 매칭(observed 와 동일하게 host 무관 취급).
+     */
+    private static boolean optionsTrafficObserved(Set<String> corsKeys, CanonicalEndpoint s) {
+        if (s.host() != null) {
+            return corsKeys.contains(hostTemplateKey(s.host(), s.pathTemplate()));
+        }
+        String suffix = "|" + s.pathTemplate();
+        return corsKeys.stream().anyMatch(k -> k.endsWith(suffix));
     }
 }
