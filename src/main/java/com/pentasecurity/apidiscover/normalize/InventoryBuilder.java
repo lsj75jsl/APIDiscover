@@ -6,7 +6,9 @@ import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
 import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
 import com.pentasecurity.apidiscover.model.DroppedByLimit;
 import com.pentasecurity.apidiscover.model.DroppedNonExistent;
+import com.pentasecurity.apidiscover.model.EndpointKindSignal;
 import com.pentasecurity.apidiscover.model.ParsedRequest;
+import com.pentasecurity.apidiscover.model.RefererSignal;
 import com.pentasecurity.apidiscover.model.TemplateSource;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -22,20 +24,24 @@ public class InventoryBuilder {
     private final EndpointKindClassifier kindClassifier;
     private final CardinalityNormalizer cardinalityNormalizer;
     private final ParamCandidateExtractor paramExtractor;
+    private final RefererSignalExtractor refererSignalExtractor;
 
     public InventoryBuilder(PathNormalizer pathNormalizer,
                             EndpointKindClassifier kindClassifier,
                             CardinalityNormalizer cardinalityNormalizer,
-                            ParamCandidateExtractor paramExtractor) {
+                            ParamCandidateExtractor paramExtractor,
+                            RefererSignalExtractor refererSignalExtractor) {
         this.pathNormalizer = pathNormalizer;
         this.kindClassifier = kindClassifier;
         this.cardinalityNormalizer = cardinalityNormalizer;
         this.paramExtractor = paramExtractor;
+        this.refererSignalExtractor = refererSignalExtractor;
     }
 
-    /** 인벤토리 + 상한 drop + 비실재(404-only) drop 집계. */
+    /** 인벤토리 + 상한 drop + 비실재(404-only) drop + endpoint_kind referer 신호. */
     public record InventoryResult(List<DiscoveredEndpoint> endpoints, DroppedByLimit droppedByLimit,
-                                  DroppedNonExistent droppedNonExistent) {}
+                                  DroppedNonExistent droppedNonExistent,
+                                  EndpointKindSignal endpointKindSignal) {}
 
     /**
      * 레거시: 인벤토리만 반환(하위호환). {@link #buildWithLimits} 위임.
@@ -48,6 +54,9 @@ public class InventoryBuilder {
      * 파이프라인(doc/13 §4.1): 1차 템플릿+집계 → T1 승격 → T1 상한 → T2 param 후보 → T3 sensitive → 방출.
      */
     public InventoryResult buildWithLimits(List<ParsedRequest> requests, EndpointMatcher matcher) {
+        // 0: corpus pre-pass — referer 기반 web_page 보조 신호(정적 부모 PAGE_URLS + 커버리지 게이트, doc/20 §1)
+        RefererSignal refererSignal = refererSignalExtractor.build(requests);
+
         // 1·2: 1차 템플릿(spec/휴리스틱) + Acc 집계(+query obs)
         Map<String, Acc> bySignature = new LinkedHashMap<>();
         for (ParsedRequest r : requests) {
@@ -80,11 +89,13 @@ public class InventoryBuilder {
             ParamCandidateExtractor.Result pr = paramExtractor.extract(acc);
             droppedParams += pr.droppedParams();
             EndpointKindClassifier.KindResult kind =
-                    kindClassifier.classify(acc.template(), acc.typeDist());
+                    kindClassifier.classify(acc.template(), acc.typeDist(), refererSignal);
             result.add(acc.toEndpoint(kind.kind(), kind.confidence(), pr.candidates()));
         }
         DroppedByLimit dropped = new DroppedByLimit(norm.droppedTemplates(), droppedParams);
-        return new InventoryResult(result, dropped, new DroppedNonExistent(droppedNonExistent));
+        EndpointKindSignal kindSignal = new EndpointKindSignal(refererSignal.status(),
+                refererSignal.staticRatio(), refererSignal.refererPresentRatio());
+        return new InventoryResult(result, dropped, new DroppedNonExistent(droppedNonExistent), kindSignal);
     }
 
     /** 스펙 우선 매칭 → 없으면 휴리스틱. */

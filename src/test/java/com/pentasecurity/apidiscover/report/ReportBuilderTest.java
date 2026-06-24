@@ -8,6 +8,8 @@ import com.pentasecurity.apidiscover.model.DiscoveryReport;
 import com.pentasecurity.apidiscover.model.DroppedByLimit;
 import com.pentasecurity.apidiscover.model.DroppedNonApi;
 import com.pentasecurity.apidiscover.model.DroppedNonExistent;
+import com.pentasecurity.apidiscover.model.EndpointKindSignal;
+import com.pentasecurity.apidiscover.model.SignalStatus;
 import com.pentasecurity.apidiscover.model.Finding;
 import com.pentasecurity.apidiscover.model.ParamCandidates;
 import com.pentasecurity.apidiscover.model.Severity;
@@ -31,7 +33,8 @@ class ReportBuilderTest {
 
         LogWindow window = new LogWindow(Instant.EPOCH, Instant.EPOCH.plusSeconds(3600));
         DiscoveryReport report = builder.build("api.example.com", 7L, window, 4, findings,
-                new DroppedNonApi(2, 1, 3), new DroppedByLimit(4, 5), new DroppedNonExistent(8));
+                new DroppedNonApi(2, 1, 3), new DroppedByLimit(4, 5), new DroppedNonExistent(8),
+                new EndpointKindSignal(SignalStatus.ACTIVE, 0.1, 0.5));
 
         assertThat(report.host()).isEqualTo("api.example.com");
         assertThat(report.specVersion()).isEqualTo(7L);
@@ -52,12 +55,14 @@ class ReportBuilderTest {
         assertThat(report.droppedByLimit()).isEqualTo(new DroppedByLimit(4, 5));
         assertThat(report.droppedByLimit().total()).isEqualTo(9);
         assertThat(report.droppedNonExistent()).isEqualTo(new DroppedNonExistent(8)); // doc/19
+        assertThat(report.endpointKindSignal())
+                .isEqualTo(new EndpointKindSignal(SignalStatus.ACTIVE, 0.1, 0.5)); // doc/20
     }
 
     @Test
     void handlesEmptyFindings() {
         DiscoveryReport report = builder.build("h", 1L,
-                new LogWindow(Instant.EPOCH, Instant.EPOCH), 0, List.of(), null, null, null);
+                new LogWindow(Instant.EPOCH, Instant.EPOCH), 0, List.of(), null, null, null, null);
 
         assertThat(report.findings()).isEmpty();
         assertThat(report.summary().shadow()).isZero();
@@ -66,5 +71,6 @@ class ReportBuilderTest {
         assertThat(report.droppedNonApi()).isEqualTo(new DroppedNonApi(0, 0, 0));
         assertThat(report.droppedByLimit()).isEqualTo(new DroppedByLimit(0, 0));
         assertThat(report.droppedNonExistent()).isEqualTo(DroppedNonExistent.NONE);
+        assertThat(report.endpointKindSignal()).isEqualTo(EndpointKindSignal.NONE); // doc/20
     }
 }

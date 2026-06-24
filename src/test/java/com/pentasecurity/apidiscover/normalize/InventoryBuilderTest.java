@@ -10,7 +10,9 @@ import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
 import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
 import com.pentasecurity.apidiscover.model.DroppedByLimit;
 import com.pentasecurity.apidiscover.model.DroppedNonExistent;
+import com.pentasecurity.apidiscover.model.EndpointKind;
 import com.pentasecurity.apidiscover.model.ParsedRequest;
+import com.pentasecurity.apidiscover.model.SignalStatus;
 import com.pentasecurity.apidiscover.model.TemplateSource;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -25,7 +27,8 @@ class InventoryBuilderTest {
     private final InventoryBuilder builder = new InventoryBuilder(
             new PathNormalizer(), new EndpointKindClassifier(),
             new CardinalityNormalizer(NORM),
-            new ParamCandidateExtractor(new SensitiveKeyMatcher(SensitiveKeyProperties.defaults()), NORM));
+            new ParamCandidateExtractor(new SensitiveKeyMatcher(SensitiveKeyProperties.defaults()), NORM),
+            new RefererSignalExtractor(new PathNormalizer()));
 
     private static ParsedRequest req(String method, String path, int status, String clientIp, long respMs) {
         return req(method, path, status, clientIp, respMs, null);
@@ -40,6 +43,11 @@ class InventoryBuilderTest {
     private static ParsedRequest reqUa(String path, String userAgent) {
         return new ParsedRequest("GET", path, List.of(), 200, HOST, "a",
                 userAgent, Instant.EPOCH, 10, 100, true, null, null, null);
+    }
+
+    private static ParsedRequest reqRef(String path, String type, String referer) {
+        return new ParsedRequest("GET", path, List.of(), 200, HOST, "a",
+                "ua", Instant.EPOCH, 10, 100, true, referer, type, null);
     }
 
     @Test
@@ -252,5 +260,36 @@ class InventoryBuilderTest {
             assertThat(e.templateSource()).isEqualTo(TemplateSource.SPEC);
         });
         assertThat(result.droppedNonExistent()).isEqualTo(DroppedNonExistent.NONE);
+    }
+
+    // --- endpoint_kind referer 보조 신호 (doc/20) ---
+
+    @Test
+    void refererSignalActiveAndPromotesUnknownPageToWebPage() {
+        // 페이지 /guide 의 정적 자식 2개(referer=/guide) → ACTIVE 신호 + /guide UNKNOWN→WEB_PAGE(conf 0.6)
+        List<ParsedRequest> reqs = List.of(
+                reqRef("/css/a.css", null, "https://h/guide"),
+                reqRef("/js/b.js", null, "https://h/guide"),
+                reqRef("/guide", null, "https://h/")); // 페이지 자체($type 부재 → UNKNOWN)
+        InventoryBuilder.InventoryResult result = builder.buildWithLimits(reqs, null);
+
+        assertThat(result.endpointKindSignal().status()).isEqualTo(SignalStatus.ACTIVE);
+        var byT = result.endpoints().stream().collect(
+                java.util.stream.Collectors.toMap(DiscoveredEndpoint::pathTemplate, e -> e));
+        assertThat(byT.get("/guide").endpointKind()).isEqualTo(EndpointKind.WEB_PAGE);
+        assertThat(byT.get("/guide").kindConfidence()).isEqualTo(0.6);
+    }
+
+    @Test
+    void dormantSignalLeavesEndpointsUnchanged() {
+        // 정적 미경유(전부 api·referer 부재) → DORMANT → /thing 현행 UNKNOWN (무회귀)
+        List<ParsedRequest> reqs = List.of(
+                req("GET", "/thing", 200, "a", 5),
+                req("GET", "/thing", 200, "b", 6));
+        InventoryBuilder.InventoryResult result = builder.buildWithLimits(reqs, null);
+
+        assertThat(result.endpointKindSignal().status()).isEqualTo(SignalStatus.DORMANT);
+        assertThat(result.endpoints()).singleElement()
+                .satisfies(e -> assertThat(e.endpointKind()).isEqualTo(EndpointKind.UNKNOWN));
     }
 }
