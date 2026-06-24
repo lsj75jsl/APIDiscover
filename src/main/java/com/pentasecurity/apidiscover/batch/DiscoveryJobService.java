@@ -29,6 +29,7 @@ import com.pentasecurity.apidiscover.model.DiscoveryReport;
 import com.pentasecurity.apidiscover.model.EndpointObservation;
 import com.pentasecurity.apidiscover.model.Finding;
 import com.pentasecurity.apidiscover.model.ParsedRequest;
+import com.pentasecurity.apidiscover.model.SpecSource;
 import com.pentasecurity.apidiscover.normalize.InventoryBuilder;
 import com.pentasecurity.apidiscover.parse.LogLineParser;
 import com.pentasecurity.apidiscover.report.EtagUtil;
@@ -150,6 +151,10 @@ public class DiscoveryJobService {
         List<CanonicalEndpoint> spec = active.isPresent()
                 ? specStore.loadActiveCanonical(host) : List.of();
         long specVersion = active.map(r -> r.specVersion).orElse(0L);
+        // 스펙 출처/파싱 경고(업로드 시 영속, 재파싱 없음) → 리포트 specSource (doc/25 §A.2)
+        SpecSource specSource = active
+                .map(r -> new SpecSource(r.specVersion, r.format, parseWarnings(r.warningsJson)))
+                .orElse(SpecSource.EMPTY);
         // (host, specVersion) 캐시 — 동일 버전 재스캔 시 matcher 재생성 제거. 없으면 supplier 로 빌드 (doc/15 §3)
         EndpointMatcher matcher = matcherCache.get(host, specVersion, () -> new EndpointMatcher(spec));
 
@@ -173,12 +178,26 @@ public class DiscoveryJobService {
         DiscoveryReport report = reportBuilder.build(
                 host, specVersion, window, (int) reportedCount, findings,
                 classified.dropped(), inventory.droppedByLimit(), inventory.droppedNonExistent(),
-                inventory.endpointKindSignal(), inventory.typeDistribution(), classified.preflightSignal());
+                inventory.endpointKindSignal(), inventory.typeDistribution(), classified.preflightSignal(),
+                specSource);
 
         ScanResult result = persist(host, report);
         // 이력 merge(min firstSeen / max lastSeen) 후 save (doc/24 §7). spec 매칭만 → spec-bound.
         saveHistory(host, mergeHistory(priorHistory, classified.observedTimes()));
         return result;
+    }
+
+    /** SpecRecord.warningsJson(List&lt;String&gt;) 파싱. null/손상 → 빈 list (doc/25 §A.2). */
+    private List<String> parseWarnings(String json) {
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            return objectMapper.readValue(json, new TypeReference<List<String>>() {});
+        } catch (JsonProcessingException e) {
+            log.warn("corrupt spec warningsJson — treating as empty");
+            return List.of();
+        }
     }
 
     /** EndpointHistory 로드 → Map&lt;specKey, EndpointObservation&gt;. 행 없음/파싱 실패 → 빈 map(콜드스타트=현행). */
@@ -243,11 +262,12 @@ public class DiscoveryJobService {
         // $type 분포는 distinct 키집합(정렬, count 제외)만 → 신규 값=드리프트 bump, count 변동=무bump (doc/21 §3 Tier1)
         // preflightSignal 은 status 만 → DORMANT↔ACTIVE 전환=실제 분류 변화 bump, acrm count churn 없음 (doc/23 §9.5)
         // Zombie severity 는 band 로 투영 → entrenchment/hits 발 미세 creep 무bump, band 전이 시만 bump (doc/24 §5)
+        // specSource(warnings) 는 spec 버전당 고정 → 신규 업로드(새 버전) bump 에 편승, churn 0 (doc/25 §A.4)
         String version = EtagUtil.of(toJson(List.of(
                 report.specVersion(), report.summary(), findingsEtagView(report.findings()),
                 report.droppedNonApi(), report.droppedByLimit(), report.droppedNonExistent(),
                 report.endpointKindSignal(), report.typeDistribution().distinctKeys(),
-                report.preflightSignal().status())));
+                report.preflightSignal().status(), report.specSource())));
 
         ScanResult r = scanRepo.findById(host).orElseGet(ScanResult::new);
         r.host = host;
@@ -265,6 +285,9 @@ public class DiscoveryJobService {
         r.shadow = s.shadow();
         r.zombie = s.zombie();
         r.unused = s.unused();
+        // scan-status at-a-glance 비정규화 합계(사유별 상세는 /result 만, doc/25 §C). ETag 무영향.
+        r.totalDropped = report.droppedNonApi().total() + report.droppedByLimit().total()
+                + report.droppedNonExistent().notFound();
         return scanRepo.save(r);
     }
 
@@ -276,15 +299,29 @@ public class DiscoveryJobService {
     private static List<Object> findingsEtagView(List<Finding> findings) {
         List<Object> out = new ArrayList<>(findings.size());
         for (Finding f : findings) {
-            if (f instanceof Finding.Zombie z) {
-                // host=null(host-agnostic spec) 가능 → null 허용 Arrays.asList (List.of 는 null 거부)
-                out.add(java.util.Arrays.asList("ZOMBIE", z.host(), z.method(), z.pathTemplate(),
-                        z.confidence(), z.estimated(), z.severity().band(), z.reason()));
-            } else {
-                out.add(f);
+            // host=null(host-agnostic spec) 가능 → null 허용 Arrays.asList (List.of 는 null 거부)
+            // params 는 정렬 명칭집합으로 축약 → count/lenBuckets 발 churn 제거(Shadow·Active·Zombie 균일, doc/25 §B.3)
+            switch (f) {
+                case Finding.Zombie z -> out.add(java.util.Arrays.asList("ZOMBIE", z.host(), z.method(),
+                        z.pathTemplate(), z.confidence(), z.estimated(), z.severity().band(), z.reason(),
+                        paramsKey(z.params())));
+                case Finding.Shadow s -> out.add(java.util.Arrays.asList("SHADOW", s.host(), s.method(),
+                        s.pathTemplate(), s.confidence(), s.reason(), paramsKey(s.params())));
+                case Finding.Active a -> out.add(java.util.Arrays.asList("ACTIVE", a.host(), a.method(),
+                        a.pathTemplate(), a.specRef(), paramsKey(a.params())));
+                default -> out.add(f); // Unused, WebPage — params 없음
             }
         }
         return out;
+    }
+
+    /** params → [정렬 query 이름, 정렬 path 토큰] (count/buckets 제외 — 명칭집합만, doc/25 §B.3). */
+    private static Object paramsKey(com.pentasecurity.apidiscover.model.ParamCandidates p) {
+        List<String> q = p.query().stream()
+                .map(com.pentasecurity.apidiscover.model.ParamCandidates.QueryParam::name).sorted().toList();
+        List<String> path = p.path().stream()
+                .map(com.pentasecurity.apidiscover.model.ParamCandidates.PathParam::token).sorted().toList();
+        return java.util.Arrays.asList(q, path);
     }
 
     private String toJson(Object value) {

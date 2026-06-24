@@ -41,6 +41,7 @@ import com.pentasecurity.apidiscover.normalize.RefererSignalExtractor;
 import com.pentasecurity.apidiscover.normalize.SensitiveKeyMatcher;
 import com.pentasecurity.apidiscover.parse.LogLineParser;
 import com.pentasecurity.apidiscover.report.ReportBuilder;
+import com.pentasecurity.apidiscover.spec.SpecFormat;
 import com.pentasecurity.apidiscover.spec.SpecStore;
 import java.time.Duration;
 import java.time.Instant;
@@ -299,6 +300,61 @@ class DiscoveryJobServiceTest {
         // 재스캔(동일 데이터+이력): now 무의존·lifespan 동일 → 동일 version (doc/24 §5)
         ScanResult s2 = service.analyze(HOST, lines, window);
         assertThat(s2.version).isEqualTo(s1.version);
+    }
+
+    @Test
+    void reportExposesSpecSourceWarningsAndLowConfidenceFlag() {
+        // §A: 업로드 시 영속된 warnings → specSource 로 로드(재파싱 없음), low_confidence 플래그 노출
+        SpecRecord rec = new SpecRecord();
+        rec.specVersion = 2L;
+        rec.format = SpecFormat.OPENAPI;
+        rec.warningsJson = "[\"row 3 skipped: missing method\"]";
+        when(specStore.activeMeta(HOST)).thenReturn(Optional.of(rec));
+        when(specStore.loadActiveCanonical(HOST)).thenReturn(List.of(
+                new CanonicalEndpoint("GET", "/v2/old", null, true, null, "ref"))); // deprecated → Zombie
+        when(scanRepo.findById(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.save(any(ScanResult.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        ScanResult r = service.analyze(HOST, List.of(
+                line("GET", "/v2/old", 200), line("GET", "/v2/old", 200)), window);
+        assertThat(r.reportJson).contains("\"specSource\"").contains("missing method").contains("\"low_confidence\"");
+    }
+
+    @Test
+    void activeParamsQueryCountChangeDoesNotBumpEtag() {
+        // §B.3: query param count 만 다른 두 스캔 → ETag 이름집합 투영 동일 → 무bump
+        SpecRecord rec = new SpecRecord();
+        rec.specVersion = 1L;
+        rec.format = SpecFormat.OPENAPI;
+        when(specStore.activeMeta(HOST)).thenReturn(Optional.of(rec));
+        when(specStore.loadActiveCanonical(HOST)).thenReturn(List.of(
+                new CanonicalEndpoint("GET", "/v2/users/{id}", null, false, null, "ref"))); // Active
+        when(scanRepo.findById(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.save(any(ScanResult.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        ScanResult a = service.analyze(HOST, List.of(
+                line("GET", "/v2/users/1?expand=full", 200), line("GET", "/v2/users/2?expand=full", 200)), window);
+        ScanResult b = service.analyze(HOST, List.of(
+                line("GET", "/v2/users/1?expand=full", 200), line("GET", "/v2/users/2?expand=full", 200),
+                line("GET", "/v2/users/3?expand=full", 200), line("GET", "/v2/users/4?expand=full", 200)), window);
+        assertThat(a.active).isEqualTo(1);
+        assertThat(a.version).isEqualTo(b.version); // expand count 2 vs 4, 이름집합 {expand} 동일 → 무bump
+    }
+
+    @Test
+    void scanStatusTotalDroppedSumsThreeDroppedKinds() {
+        // §C: totalDropped = droppedNonApi.total + byLimit.total + nonExistent.notFound. /result 상세 불변
+        when(specStore.activeMeta(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.findById(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.save(any(ScanResult.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // /page x2 → DROP_LOW_SCORE(non_api 1), /probe/1·/probe/2 404-only → nonExistent 1
+        ScanResult r = service.analyze(HOST, List.of(
+                line("GET", "/page", 200), line("GET", "/page", 200),
+                line("GET", "/probe/1", 404), line("GET", "/probe/2", 404)), window);
+
+        assertThat(r.totalDropped).isEqualTo(2); // 1(lowScore) + 0 + 1(nonExistent)
+        assertThat(r.reportJson).contains("\"droppedNonApi\"").contains("\"droppedNonExistent\""); // 상세 불변
     }
 
     @Test

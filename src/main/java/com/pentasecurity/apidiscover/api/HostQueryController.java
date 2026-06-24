@@ -54,6 +54,6 @@ public class HostQueryController {
 
         ScanResult r = jobService.runOnDemand(hostname, domain, window);
         return new ScanStatusView(r.host, r.state, r.lastScanAt, r.version,
-                new SummaryView(r.discovered, r.active, r.shadow, r.zombie, r.unused));
+                new SummaryView(r.discovered, r.active, r.shadow, r.zombie, r.unused), r.totalDropped);
     }
 }

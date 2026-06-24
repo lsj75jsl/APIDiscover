@@ -35,13 +35,14 @@ public final class DomainDtos {
             Instant uploadedAt
     ) {}
 
-    /** 스캔 상태 — 경량 메타 (doc/07 §3.2). */
+    /** 스캔 상태 — 경량 메타 (doc/07 §3.2). totalDropped=dropped 3종 합 at-a-glance (doc/25 §C). */
     public record ScanStatusView(
             String host,
             String state,
             Instant lastScanAt,
             String version,
-            SummaryView summary
+            SummaryView summary,
+            int totalDropped
     ) {}
 
     public record SummaryView(

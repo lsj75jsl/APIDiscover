@@ -15,7 +15,7 @@ class CsvSpecParserTest {
     private final CsvSpecParser parser = new CsvSpecParser();
 
     private List<CanonicalEndpoint> parse(String csv) {
-        return parser.parse(csv.getBytes(StandardCharsets.UTF_8));
+        return parser.parse(csv.getBytes(StandardCharsets.UTF_8)).endpoints();
     }
 
     @Test
@@ -26,6 +26,21 @@ class CsvSpecParserTest {
         // path 만 없음 → fatal
         assertThatThrownBy(() -> parse("method,host\nGET,api.example.com\n"))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void collectsWarningsForSkippedRowAndUnknownDeprecated() {
+        // doc/25 §A.1: recoverable 경고를 warnings 로 수집(log 만 아님). 빈 method 행 skip + unknown deprecated
+        String csv = """
+                method,path,deprecated
+                GET,/ok,maybe
+                ,/skipme,false
+                """;
+        SpecParseResult r = parser.parse(csv.getBytes(StandardCharsets.UTF_8));
+        assertThat(r.endpoints()).extracting(CanonicalEndpoint::pathTemplate).containsExactly("/ok");
+        assertThat(r.warnings()).hasSize(2)
+                .anyMatch(w -> w.contains("unrecognized deprecated"))
+                .anyMatch(w -> w.contains("missing method/path"));
     }
 
     @Test
@@ -111,7 +126,7 @@ class CsvSpecParserTest {
         bos.writeBytes(new byte[]{(byte) 0xEF, (byte) 0xBB, (byte) 0xBF}); // UTF-8 BOM
         bos.writeBytes(csv.getBytes(StandardCharsets.UTF_8));
 
-        List<CanonicalEndpoint> all = parser.parse(bos.toByteArray());
+        List<CanonicalEndpoint> all = parser.parse(bos.toByteArray()).endpoints();
         assertThat(all).singleElement().satisfies(e -> {
             assertThat(e.method()).isEqualTo("GET");
             assertThat(e.pathTemplate()).isEqualTo("/users/{id}"); // BOM 이 method 헤더 인식 깨지 않음

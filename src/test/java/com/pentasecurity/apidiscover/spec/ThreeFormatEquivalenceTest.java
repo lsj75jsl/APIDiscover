@@ -75,9 +75,9 @@ class ThreeFormatEquivalenceTest {
 
     @Test
     void threeFormatsProduceEquivalentCanonical() {
-        Set<String> openapi = tuples(new OpenApiSpecParser().parse(bytes(OPENAPI)));
-        Set<String> postman = tuples(new PostmanSpecParser(new ObjectMapper()).parse(bytes(POSTMAN)));
-        Set<String> csv = tuples(new CsvSpecParser().parse(bytes(CSV)));
+        Set<String> openapi = tuples(new OpenApiSpecParser().parse(bytes(OPENAPI)).endpoints());
+        Set<String> postman = tuples(new PostmanSpecParser(new ObjectMapper()).parse(bytes(POSTMAN)).endpoints());
+        Set<String> csv = tuples(new CsvSpecParser().parse(bytes(CSV)).endpoints());
 
         // sourceRef(포맷별 provenance) 제외, (method,host,template,deprecated,version) 동일
         assertThat(openapi).isEqualTo(EXPECTED);

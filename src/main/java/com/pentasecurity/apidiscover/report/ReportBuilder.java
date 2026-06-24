@@ -9,6 +9,7 @@ import com.pentasecurity.apidiscover.model.DroppedNonExistent;
 import com.pentasecurity.apidiscover.model.EndpointKindSignal;
 import com.pentasecurity.apidiscover.model.Finding;
 import com.pentasecurity.apidiscover.model.PreflightSignal;
+import com.pentasecurity.apidiscover.model.SpecSource;
 import com.pentasecurity.apidiscover.model.TypeDistribution;
 import java.time.Instant;
 import java.util.List;
@@ -22,22 +23,33 @@ public class ReportBuilder {
                                  int discoveredCount, List<Finding> findings, DroppedNonApi dropped,
                                  DroppedByLimit droppedByLimit, DroppedNonExistent droppedNonExistent,
                                  EndpointKindSignal endpointKindSignal, TypeDistribution typeDistribution,
-                                 PreflightSignal preflightSignal) {
+                                 PreflightSignal preflightSignal, SpecSource specSource) {
         int active = 0;
         int shadow = 0;
         int zombie = 0;
         int unused = 0;
+        int lowConfidence = 0;
         for (Finding f : findings) {
             switch (f) {
                 case Finding.Active a -> active++;
-                case Finding.Shadow s -> shadow++;
-                case Finding.Zombie z -> zombie++;
+                case Finding.Shadow s -> {
+                    shadow++;
+                    if (s.lowConfidence()) {
+                        lowConfidence++;
+                    }
+                }
+                case Finding.Zombie z -> {
+                    zombie++;
+                    if (z.lowConfidence()) {
+                        lowConfidence++;
+                    }
+                }
                 case Finding.Unused u -> unused++;
                 case Finding.WebPage w -> { /* 비 API: 요약 카운트 제외 */ }
             }
         }
 
-        var summary = new DiscoveryReport.Summary(discoveredCount, active, shadow, zombie, unused);
+        var summary = new DiscoveryReport.Summary(discoveredCount, active, shadow, zombie, unused, lowConfidence);
         // droppedNonApi/droppedByLimit 는 항상 non-null(빈 결과) → shape 일관 (doc/12 §3, doc/13 §1.2)
         DroppedNonApi nonApi = dropped != null ? dropped : new DroppedNonApi(0, 0, 0);
         DroppedByLimit byLimit = droppedByLimit != null ? droppedByLimit : DroppedByLimit.NONE;
@@ -45,7 +57,8 @@ public class ReportBuilder {
         EndpointKindSignal kindSignal = endpointKindSignal != null ? endpointKindSignal : EndpointKindSignal.NONE;
         TypeDistribution typeDist = typeDistribution != null ? typeDistribution : TypeDistribution.NONE;
         PreflightSignal preflight = preflightSignal != null ? preflightSignal : PreflightSignal.NONE;
+        SpecSource source = specSource != null ? specSource : SpecSource.EMPTY;
         return new DiscoveryReport(host, Instant.now(), window, specVersion, summary, findings,
-                nonApi, byLimit, nonExistent, kindSignal, typeDist, preflight);
+                nonApi, byLimit, nonExistent, kindSignal, typeDist, preflight, source);
     }
 }

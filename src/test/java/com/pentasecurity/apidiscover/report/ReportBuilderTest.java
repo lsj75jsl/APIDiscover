@@ -11,7 +11,9 @@ import com.pentasecurity.apidiscover.model.DroppedNonExistent;
 import com.pentasecurity.apidiscover.model.EndpointKindSignal;
 import com.pentasecurity.apidiscover.model.PreflightSignal;
 import com.pentasecurity.apidiscover.model.SignalStatus;
+import com.pentasecurity.apidiscover.model.SpecSource;
 import com.pentasecurity.apidiscover.model.TypeDistribution;
+import com.pentasecurity.apidiscover.spec.SpecFormat;
 import com.pentasecurity.apidiscover.model.Finding;
 import com.pentasecurity.apidiscover.model.ParamCandidates;
 import com.pentasecurity.apidiscover.model.Severity;
@@ -28,7 +30,7 @@ class ReportBuilderTest {
         List<Finding> findings = List.of(
                 new Finding.Active("h", "GET", "/a", "ref"),
                 new Finding.Shadow("h", "GET", "/s1", 0.9, "r", ParamCandidates.EMPTY),
-                new Finding.Shadow("h", "POST", "/s2", 0.5, "r", ParamCandidates.EMPTY),
+                new Finding.Shadow("h", "POST", "/s2", 0.4, "r", ParamCandidates.EMPTY), // <0.5 → low_confidence
                 new Finding.Zombie("h", "GET", "/z", 1.0, new Severity(0.5), false, "ref", "r"),
                 new Finding.Unused("h", "GET", "/u", "ref"),
                 new Finding.WebPage("h", "GET", "/page", 0.8)); // 요약 제외
@@ -38,7 +40,8 @@ class ReportBuilderTest {
         DiscoveryReport report = builder.build("api.example.com", 7L, window, 4, findings,
                 new DroppedNonApi(2, 1, 3), new DroppedByLimit(4, 5), new DroppedNonExistent(8),
                 new EndpointKindSignal(SignalStatus.ACTIVE, 0.1, 0.5), typeDist,
-                new PreflightSignal(SignalStatus.ACTIVE, 3));
+                new PreflightSignal(SignalStatus.ACTIVE, 3),
+                new SpecSource(7L, SpecFormat.OPENAPI, List.of("w1")));
 
         assertThat(report.host()).isEqualTo("api.example.com");
         assertThat(report.specVersion()).isEqualTo(7L);
@@ -52,6 +55,7 @@ class ReportBuilderTest {
         assertThat(s.shadow()).isEqualTo(2);
         assertThat(s.zombie()).isEqualTo(1);
         assertThat(s.unused()).isEqualTo(1);
+        assertThat(s.lowConfidence()).isEqualTo(1); // /s2 confidence 0.4<0.5 (doc/25 §A.3)
 
         // dropped 메트릭 임베드 (doc/12 §2, doc/13 §1.2)
         assertThat(report.droppedNonApi()).isEqualTo(new DroppedNonApi(2, 1, 3));
@@ -64,12 +68,13 @@ class ReportBuilderTest {
         assertThat(report.typeDistribution()).isEqualTo(typeDist); // doc/21
         assertThat(report.typeDistribution().distinctKeys()).containsExactly("document"); // ETag 키(count 제외)
         assertThat(report.preflightSignal()).isEqualTo(new PreflightSignal(SignalStatus.ACTIVE, 3)); // doc/23
+        assertThat(report.specSource()).isEqualTo(new SpecSource(7L, SpecFormat.OPENAPI, List.of("w1"))); // doc/25 §A
     }
 
     @Test
     void handlesEmptyFindings() {
         DiscoveryReport report = builder.build("h", 1L,
-                new LogWindow(Instant.EPOCH, Instant.EPOCH), 0, List.of(), null, null, null, null, null, null);
+                new LogWindow(Instant.EPOCH, Instant.EPOCH), 0, List.of(), null, null, null, null, null, null, null);
 
         assertThat(report.findings()).isEmpty();
         assertThat(report.summary().shadow()).isZero();
@@ -81,5 +86,7 @@ class ReportBuilderTest {
         assertThat(report.endpointKindSignal()).isEqualTo(EndpointKindSignal.NONE); // doc/20
         assertThat(report.typeDistribution()).isEqualTo(TypeDistribution.NONE); // doc/21
         assertThat(report.preflightSignal()).isEqualTo(PreflightSignal.NONE); // doc/23 (null→NONE)
+        assertThat(report.specSource()).isEqualTo(SpecSource.EMPTY); // doc/25 §A (null→EMPTY)
+        assertThat(report.summary().lowConfidence()).isZero();
     }
 }

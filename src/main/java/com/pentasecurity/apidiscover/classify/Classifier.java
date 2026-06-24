@@ -9,6 +9,7 @@ import com.pentasecurity.apidiscover.model.DroppedNonApi;
 import com.pentasecurity.apidiscover.model.EndpointKind;
 import com.pentasecurity.apidiscover.model.EndpointObservation;
 import com.pentasecurity.apidiscover.model.Finding;
+import com.pentasecurity.apidiscover.model.ParamCandidates;
 import com.pentasecurity.apidiscover.model.PreflightSignal;
 import com.pentasecurity.apidiscover.model.SignalStatus;
 import com.pentasecurity.apidiscover.model.TemplateSource;
@@ -142,7 +143,7 @@ public class Classifier {
                 if (!preflightActive) {
                     // DORMANT genuine(M2): spec-match 한정 observed (미매칭은 Shadow 안 만듦 — 불변식 보존)
                     matcher.match(d.method(), d.host(), d.pathTemplate())
-                            .ifPresent(ce -> observedSpec.computeIfAbsent(key(ce), k -> new Evidence()).add(d.metrics()));
+                            .ifPresent(ce -> observedSpec.computeIfAbsent(key(ce), k -> new Evidence()).add(d));
                     continue;
                 }
                 // ACTIVE genuine → 아래 일반 매칭/게이트 로직으로 fall through (매칭→Active, 미매칭→Shadow)
@@ -150,7 +151,7 @@ public class Classifier {
             Optional<CanonicalEndpoint> matched = matcher.match(d.method(), d.host(), d.pathTemplate());
             if (matched.isPresent()) {
                 // Active/Zombie 는 2차 (스펙 권위, 게이트 우회). 매칭 d 메트릭을 Evidence 에 누적(severity 용)
-                observedSpec.computeIfAbsent(key(matched.get()), k -> new Evidence()).add(d.metrics());
+                observedSpec.computeIfAbsent(key(matched.get()), k -> new Evidence()).add(d);
                 continue;
             }
             // 문서에 없음 → ApiScorer 게이트 (doc/08, doc/09 §2.2). 전달된 scorer 사용(doc/10 §6)
@@ -186,7 +187,8 @@ public class Classifier {
                     // 명시 deprecated Zombie: confidence 1.0·estimated=false (무회귀) + severity 가산(이력 entrenchment 포함)
                     Instant prior = priorFirstSeen.getOrDefault(key(s), ev.firstSeen);
                     findings.add(new Finding.Zombie(s.host(), s.method(), s.pathTemplate(), 1.0,
-                            ZombieSeverity.of(ev, prior), false, s.sourceRef(), "문서에 deprecated 표기, 그러나 트래픽 발생"));
+                            ZombieSeverity.of(ev, prior), false, s.sourceRef(), "문서에 deprecated 표기, 그러나 트래픽 발생",
+                            specParams(ev, s)));
                 }
                 // deprecated && !observed → Deprecated-clean: 조치 불필요, Finding 미발행
             } else if (observed && estimatedZombies.contains(s)) {
@@ -194,9 +196,10 @@ public class Classifier {
                 Instant prior = priorFirstSeen.getOrDefault(key(s), ev.firstSeen);
                 findings.add(new Finding.Zombie(s.host(), s.method(), s.pathTemplate(), 0.6,
                         ZombieSeverity.of(ev, prior), true, s.sourceRef(),
-                        "신버전 active, 구버전 트래픽 지속 — deprecated 미표기"));
+                        "신버전 active, 구버전 트래픽 지속 — deprecated 미표기", specParams(ev, s)));
             } else if (observed) {
-                findings.add(new Finding.Active(s.host(), s.method(), s.pathTemplate(), s.sourceRef()));
+                findings.add(new Finding.Active(s.host(), s.method(), s.pathTemplate(), s.sourceRef(),
+                        specParams(ev, s)));
             } else {
                 // !deprecated && !observed → Unused. DORMANT 에서만 M1 preflightAmbiguous(저신뢰).
                 // ACTIVE(M3)면 acrm 으로 확실 판정 → genuine→Active(여기 미도달)/pure preflight→plain Unused → ambiguous 자동 승급(doc/23 §9.4)
@@ -257,6 +260,33 @@ public class Classifier {
     private static String key(CanonicalEndpoint e) {
         String host = (e.host() == null) ? "*" : e.host().toLowerCase(Locale.ROOT);
         return e.method().toUpperCase(Locale.ROOT) + "|" + host + "|" + e.pathTemplate();
+    }
+
+    /**
+     * Active/Zombie param 후보 (doc/25 §B): query=관측 누적(ev), path=spec 템플릿 변수(권위).
+     * canonical 은 query param 정의 미보유(doc/03) → query 는 관측 기반.
+     */
+    private static ParamCandidates specParams(Evidence ev, CanonicalEndpoint s) {
+        return new ParamCandidates(ev.queryCandidates(), pathParamsFromTemplate(s.pathTemplate()));
+    }
+
+    /** spec 템플릿의 {var} 세그먼트 → PathParam(0-based 세그먼트 인덱스). */
+    private static List<ParamCandidates.PathParam> pathParamsFromTemplate(String template) {
+        List<ParamCandidates.PathParam> out = new ArrayList<>();
+        if (template == null) {
+            return out;
+        }
+        String body = template.startsWith("/") ? template.substring(1) : template;
+        if (body.isEmpty()) {
+            return out;
+        }
+        String[] segs = body.split("/", -1);
+        for (int i = 0; i < segs.length; i++) {
+            if (segs[i].startsWith("{") && segs[i].endsWith("}")) {
+                out.add(new ParamCandidates.PathParam(i, segs[i]));
+            }
+        }
+        return out;
     }
 
     /** CORS 신호용 host+template 키 (method 무관 — sibling 메서드에 신호 전파). */

@@ -36,6 +36,10 @@ public class SpecRecord {
     @Lob
     public String canonicalJson;
 
+    /** nullable — 파싱 recoverable 경고 List&lt;String&gt; 직렬화(doc/25 §A.2). 스캔이 specSource.warnings 로 로드. */
+    @Lob
+    public String warningsJson;
+
     public int endpointCount;
 
     public Instant uploadedAt;
