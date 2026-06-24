@@ -19,6 +19,8 @@ import com.pentasecurity.apidiscover.domain.ClassificationConfig;
 import com.pentasecurity.apidiscover.domain.ClassificationConfigRepository;
 import com.pentasecurity.apidiscover.domain.DomainClassificationConfigRepository;
 import com.pentasecurity.apidiscover.domain.DomainConfigRepository;
+import com.pentasecurity.apidiscover.domain.EndpointHistory;
+import com.pentasecurity.apidiscover.domain.EndpointHistoryRepository;
 import com.pentasecurity.apidiscover.model.ClassificationProfile;
 import com.pentasecurity.apidiscover.domain.ScanResult;
 import com.pentasecurity.apidiscover.domain.ScanResultRepository;
@@ -62,6 +64,21 @@ class DiscoveryJobServiceTest {
     private final EffectiveClassificationResolver resolver =
             new EffectiveClassificationResolver(globalClsRepo, domainClsRepo, objectMapper);
 
+    // cross-scan 이력 — stateful mock(저장분을 findById 로 반환) → entrenchment/merge 재스캔 테스트 (doc/24)
+    private final java.util.Map<String, EndpointHistory> histStore = new java.util.HashMap<>();
+    private final EndpointHistoryRepository historyRepo = statefulHistory(histStore);
+
+    private static EndpointHistoryRepository statefulHistory(java.util.Map<String, EndpointHistory> store) {
+        EndpointHistoryRepository repo = mock(EndpointHistoryRepository.class);
+        when(repo.findById(any())).thenAnswer(inv -> Optional.ofNullable(store.get(inv.getArgument(0))));
+        when(repo.save(any())).thenAnswer(inv -> {
+            EndpointHistory h = inv.getArgument(0);
+            store.put(h.host, h);
+            return h;
+        });
+        return repo;
+    }
+
     private final DiscoveryJobService service = new DiscoveryJobService(
             new LogLineParser(NORM, ParseProperties.defaults()),
             new InventoryBuilder(new PathNormalizer(), new EndpointKindClassifier(),
@@ -76,6 +93,7 @@ class DiscoveryJobServiceTest {
             scanRepo,
             mock(DomainConfigRepository.class),
             mock(WatermarkRepository.class),
+            historyRepo,
             mock(LokiClient.class),
             mock(LokiQueryBuilder.class),
             objectMapper,
@@ -253,12 +271,53 @@ class DiscoveryJobServiceTest {
                         new RefererSignalExtractor(new PathNormalizer())),
                 specStore, new EndpointMatcherCache(), new Classifier(new ApiScorer()), resolver,
                 new ReportBuilder(), scanRepo, mock(DomainConfigRepository.class), mock(WatermarkRepository.class),
-                mock(LokiClient.class), mock(LokiQueryBuilder.class), objectMapper, props());
+                mock(EndpointHistoryRepository.class), mock(LokiClient.class), mock(LokiQueryBuilder.class),
+                objectMapper, props());
         ScanResult active = acrmService.analyze(HOST, lines, window);
         assertThat(active.reportJson).contains("\"status\":\"ACTIVE\"");
 
         // status 전환(DORMANT→ACTIVE)이 ETag 에 반영 (doc/23 §9.5)
         assertThat(dormant.version).isNotEqualTo(active.version);
+    }
+
+    @Test
+    void crossScanReScanSameDataYieldsSameEtagAndRecordsSpecOnlyHistory() {
+        SpecRecord rec = new SpecRecord();
+        rec.specVersion = 1L;
+        when(specStore.activeMeta(HOST)).thenReturn(Optional.of(rec));
+        when(specStore.loadActiveCanonical(HOST)).thenReturn(List.of(
+                new CanonicalEndpoint("GET", "/v2/old", null, true, null, "ref"))); // deprecated → Zombie
+        when(scanRepo.findById(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.save(any(ScanResult.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        List<String> lines = List.of(line("GET", "/v2/old", 200), line("GET", "/v2/old", 200));
+        ScanResult s1 = service.analyze(HOST, lines, window);
+        assertThat(s1.zombie).isEqualTo(1);
+        assertThat(histStore).containsKey(HOST);                        // spec-only 이력 기록 (doc/24 §3)
+        assertThat(histStore.get(HOST).historyJson).contains("/v2/old");
+
+        // 재스캔(동일 데이터+이력): now 무의존·lifespan 동일 → 동일 version (doc/24 §5)
+        ScanResult s2 = service.analyze(HOST, lines, window);
+        assertThat(s2.version).isEqualTo(s1.version);
+    }
+
+    @Test
+    void zombieSeverityCreepWithinBandDoesNotBumpEtag() {
+        SpecRecord rec = new SpecRecord();
+        rec.specVersion = 1L;
+        when(specStore.activeMeta(HOST)).thenReturn(Optional.of(rec));
+        when(specStore.loadActiveCanonical(HOST)).thenReturn(List.of(
+                new CanonicalEndpoint("GET", "/v2/old", null, true, null, "ref")));
+        when(scanRepo.findById(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.save(any(ScanResult.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // hits 2 vs 3 → Zombie raw severity 미세 creep(≈0.38→0.40)이나 같은 band(MEDIUM) → ETag(band 투영) 동일 (doc/24 §5)
+        ScanResult a = service.analyze(HOST, List.of(
+                line("GET", "/v2/old", 200), line("GET", "/v2/old", 200)), window);
+        ScanResult b = service.analyze(HOST, List.of(
+                line("GET", "/v2/old", 200), line("GET", "/v2/old", 200), line("GET", "/v2/old", 200)), window);
+        assertThat(a.zombie).isEqualTo(1);
+        assertThat(a.version).isEqualTo(b.version);
     }
 
     @Test
@@ -330,7 +389,8 @@ class DiscoveryJobServiceTest {
                 new RefererSignalExtractor(new PathNormalizer()));
         var cappedService = new DiscoveryJobService(new LogLineParser(NORM, ParseProperties.defaults()), cappedInventory, specStore,
                 new EndpointMatcherCache(), new Classifier(new ApiScorer()), resolver, new ReportBuilder(), scanRepo,
-                mock(DomainConfigRepository.class), mock(WatermarkRepository.class), mock(LokiClient.class),
+                mock(DomainConfigRepository.class), mock(WatermarkRepository.class),
+                mock(EndpointHistoryRepository.class), mock(LokiClient.class),
                 mock(LokiQueryBuilder.class), objectMapper, props());
 
         ScanResult result = cappedService.analyze(HOST, List.of(
