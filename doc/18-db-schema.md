@@ -1,6 +1,6 @@
 # 내부 DB 테이블 스키마 (엔티티 역설계)
 
-> 범위: `domain` 패키지의 JPA `@Entity` 6종에서 역설계한 **실제 DB 테이블 스키마** 참고 문서.
+> 범위: `domain` 패키지의 JPA `@Entity` 7종에서 역설계한 **실제 DB 테이블 스키마** 참고 문서.
 > 코드(엔티티 애너테이션)가 단일 진실원이며, 이 문서는 그것을 1:1 로 기술한다. 마이그레이션 스크립트는 없다(아래 §1).
 > 근거 설계: doc/06(스택)·doc/10(분류 설정 저장)·DECISIONS **D11/D17**. 작성 기준 브랜치: `docs/tasks-sync-and-db-schema`.
 
@@ -74,7 +74,7 @@ INSERT 에는 이 기본값이 적용되지 않는다.
 
 ## 2. 테이블별 스키마
 
-총 7개 테이블 — 엔티티 6종이 직접 매핑하는 6개 + `DomainConfig.hostnames` 의 `@ElementCollection` 자식 테이블 1개(`domain_hostnames`).
+총 8개 테이블 — 엔티티 7종이 직접 매핑하는 7개 + `DomainConfig.hostnames` 의 `@ElementCollection` 자식 테이블 1개(`domain_hostnames`).
 
 ### 2.1 `domain_config` — 분석 대상 도메인 설정
 
@@ -187,6 +187,22 @@ H2/PG 이식성이 떨어져 채택하지 않았다(엔티티 주석·doc/10 §1
 | `matcher_json` | `matcherJson` | `@Lob String` | CLOB/TEXT | | nullable | `MatcherConfig`(도메인 override, `includeWebForms` nullable) |
 | `updated_at` | `updatedAt` | `Instant` | TIMESTAMP(6) | | nullable | |
 
+### 2.8 `endpoint_history` — 도메인별 spec endpoint 누적 관측 이력
+
+엔티티 `EndpointHistory` (`@Table(name = "endpoint_history")`). 설계 출처 doc/24 §3 (cross-scan recency Zombie severity 보강, DECISIONS D33).
+
+| 컬럼 | 필드 | JPA 타입 | SQL 타입 | PK | nullable | 비고 |
+|------|------|----------|----------|----|----------|------|
+| `host` | `host` | `@Id String` | VARCHAR(255) | ✔ | NOT NULL | 도메인(PK). 도메인당 1행, in-place 갱신 |
+| `history_json` | `historyJson` | `@Lob String` | CLOB/TEXT | | nullable | `Map<specKey, EndpointObservation>` JSON. specKey=`"METHOD|host|template"`(host=null→`*`) |
+| `updated_at` | `updatedAt` | `Instant` | TIMESTAMP(6) | | nullable | |
+
+- `EndpointObservation`(`model/EndpointObservation.java`)은 `record(Instant firstSeen, Instant lastSeen)` 로, **테이블이 아니라** `history_json` Map 의 값으로 직렬화되는 단위다(Jackson 왕복). 별도 컬럼·테이블 없음.
+- **per-host 1행 + spec 매칭 endpoint 만 기록(spec-bound)**: Zombie/severity 가 spec endpoint 한정이라 spec 크기로 자연 bound(수십~수백). Shadow/inferred·스캐너 noise 는 미기록해 무한 누적을 막는다(doc/24 §3).
+- **`@Lob String` JSON 채택**(정규화 테이블 아님): JSONB 미사용·H2/PG 이식 컨벤션(§1.2, doc/10 §2·D17)·per-host 접근 패턴(`ScanResult.findById` 와 동일). 정규화(엔드포인트당 행)는 규모 확대 시 대안이다(doc/24 §6).
+- **`ddl-auto: update` 로 신규 생성** — 기존 6엔티티/7테이블 및 데이터에 무영향. 콜드스타트(행 없음)=빈 이력=현행 동작(doc/24 §4).
+- 리포지토리: `EndpointHistoryRepository extends JpaRepository<EndpointHistory, String>`.
+
 ---
 
 ## 3. 테이블 관계
@@ -209,10 +225,11 @@ H2/PG 이식성이 떨어져 채택하지 않았다(엔티티 주석·doc/10 §1
                                    │ (전역→도메인 상속, 앱 레벨 병합)
                                    ▼
    domain_config (host, PK)  ◄── 논리 FK(host) ──┐
-        ▲   ▲   ▲   ▲                            │
-        │   │   │   │                            │
-spec_record │   │   domain_classification_config(host, PK·1:1)
- (host 컬럼)│   watermark(host, PK)
+        ▲   ▲   ▲   ▲   ▲                        │
+        │   │   │   │   │                        │
+spec_record │   │   │   domain_classification_config(host, PK·1:1)
+ (host 컬럼)│   │   endpoint_history(host, PK·1:1)
+            │   watermark(host, PK)
             scan_result(host, PK)
 ```
 
@@ -222,6 +239,7 @@ spec_record │   │   domain_classification_config(host, PK·1:1)
 | `domain_config` ↔ `scan_result` | 1 : 1 (도메인당 최신 1건) | `host`(양쪽 PK) | 논리 FK |
 | `domain_config` ↔ `watermark` | 1 : 1 | `host`(양쪽 PK) | 논리 FK |
 | `domain_config` ↔ `domain_classification_config` | 1 : 1 (희소) | `host`(양쪽 PK) | 논리 FK |
+| `domain_config` ↔ `endpoint_history` | 1 : 1 (spec-bound, 도메인당 1행) | `host`(양쪽 PK) | 논리 FK |
 | `classification_config` | 전역 단일 행(싱글톤) | 고정 PK=1 | 도메인 무관, 전역 기본값. 도메인 override 와 앱 레벨 병합(doc/10 §3) |
 
 > 역방향 조회: 한 엣지 서버(hostname)가 서빙하는 도메인은 `DomainConfigRepository.findByHostname` 이 `domain_hostnames`
@@ -242,6 +260,7 @@ spec_record │   │   domain_classification_config(host, PK·1:1)
 | `watermark` | `Watermark` | doc/05 §3.1 |
 | `classification_config` | `ClassificationConfig` | doc/10 §1.1 |
 | `domain_classification_config` | `DomainClassificationConfig` | doc/10 §1.2 |
+| `endpoint_history` | `EndpointHistory` (값=`model/EndpointObservation`) | doc/24 §3, DECISIONS D33 |
 | (전반 영속 컨벤션) | — | doc/06(스택), doc/10 §2·§4, DECISIONS D11·D17 |
 
 ---
