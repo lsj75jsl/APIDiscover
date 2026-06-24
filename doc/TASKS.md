@@ -38,12 +38,6 @@
 ### P1. 자체 분석 기능 (먼저)
 
 #### 정규화/인벤토리 (02/13 문서)
-- [ ] `$type` 전체 taxonomy 광범위 샘플링으로 확정 (다양한 status/method) **(설계 완료 → doc/21, DECISIONS D30)** — subitem 전건 [x], PR 머지 시 부모 Done(D26)
-  - [x] (research 0.4) doc/21 §A 프로토콜로 Loki $type 샘플링(작은 창/limit·부하보호·`limit=1e8` 금지) → type×status×method 증거표(API/웹/혼합 호스트) **→ 완료 2026-06-24, doc/21 §A-결과. vocab={document,library}, API_TYPES 5값 실관측 0, document 트랩 ≈100%(api 호스트). 총 쿼리 3회**
-  - [x] (분석) 증거표 → §B 규칙 → API_TYPES 무변경 확정 + document 트랩 재확인, doc/21·DECISIONS D30 결론 기록
-  - [x] (Tier0) `EndpointKindClassifier.API_TYPES` 무변경 + 근거 주석(실관측 0·관례 유지·responseTypeApi dormant·자동 전파), ApiScorer 무변경 확인
-  - [x] (Tier1·권장) corpus `$type` 히스토그램 — `InventoryBuilder` 집계(top-N 20+other)→`model/TypeDistribution`→`DiscoveryReport`+`ReportBuilder`+`DiscoveryJobService` ETag(distinct 키집합만)
-  - [x] 테스트 — API_TYPES 매핑 5값 불변/히스토그램 집계·top-N·other·노출/ETag(신규 키 bump·count 무bump)/무회귀(확장자 1순위·document 약신호)
 - [ ] distinct/분위수 대용량 근사 (HLL/t-digest, 규모 대응) — 현재 정확 Set/nearest-rank
 
 #### 분류 (04/16 문서)
@@ -85,6 +79,14 @@
 ---
 
 ## Done
+
+### $type taxonomy 샘플링 확정 + corpus $type 히스토그램 (2026-06-24, doc/21 / DECISIONS D30, PR #11) — tests=261 green
+- [x] (research 0.4) doc/21 §A 프로토콜로 Loki $type 샘플링(작은 창/limit·부하보호·`limit=1e8` 금지, 총 3쿼리) → 증거표. **vocab={document,library}, API_TYPES 5값 실관측 0, document 트랩 ≈100%(api 호스트)**
+- [x] (분석) 증거표 → §B 규칙 → API_TYPES 무변경 확정 + document 트랩 재확인, doc/21·DECISIONS D30 결론 기록
+- [x] (Tier0) `EndpointKindClassifier.API_TYPES` 무변경 + 근거 주석(실관측 0·관례 유지·responseTypeApi dormant·자동 전파), ApiScorer 무변경 확인
+- [x] (Tier1) corpus `$type` 히스토그램 — `InventoryBuilder` 집계(top-N 20+other)→`model/TypeDistribution`→`DiscoveryReport`+`ReportBuilder`+`DiscoveryJobService` ETag(distinct 키집합만, count 제외)
+- [x] 테스트 — API_TYPES 매핑 5값 불변/히스토그램 집계·top-N·other·노출/ETag(신규 키 bump·count 무bump)/무회귀(확장자 1순위·document 약신호)
+> 데이터 게이트: 실관측이 추가/제거 근거를 안 줘 API_TYPES 무변경 확정, responseTypeApi/$type-API_CANDIDATE dormant 확정(무감점·무해). Tier1 히스토그램은 앱별 vocab self-reporting(매 스캔, 수동 Loki 재조회 불요). ETag 는 키집합만→드리프트 bump·count 무bump.
 
 ### endpoint_kind referer 보조 신호 (2026-06-24, doc/20 / DECISIONS D29, PR #10) — tests=256 green
 - [x] `model/RefererSignal`(SignalStatus·pageUrls·ratios·`dormant()`) + `model/EndpointKindSignal`(노출 status·ratios·`NONE`) + `enum SignalStatus{ACTIVE,DORMANT}`
