@@ -41,6 +41,15 @@ class EndpointKindClassifierTest {
     }
 
     @Test
+    void allApiTypesMapToApiCandidate() {
+        // doc/21 Tier0: API_TYPES 5값 무변경 확정 — 매핑 잠금(샘플링 실관측 0이나 관례 집합 유지)
+        for (String t : new String[] {"xhr", "fetch", "json", "api", "ajax"}) {
+            assertThat(classifier.classify("/svc", Map.of(t, 5L)).kind())
+                    .as("$type=%s", t).isEqualTo(EndpointKind.API_CANDIDATE);
+        }
+    }
+
+    @Test
     void unknownWhenNoSignal() {
         KindResult r = classifier.classify("/api/orders", Map.of());
         assertThat(r.kind()).isEqualTo(EndpointKind.UNKNOWN);

@@ -14,6 +14,9 @@ import org.springframework.stereotype.Component;
 @Component
 public class EndpointKindClassifier {
 
+    // API성 $type → API_CANDIDATE. 실 Loki 샘플링(doc/21 §A-결과: 3윈도우·2호스트·peak/off-peak)에서 이 5값
+    // 실관측 0, 관측 vocab={document,library} 뿐 → 데이터가 추가·제거 근거를 안 줘 관례 집합 그대로 유지(무변경 확정, D30).
+    // 부재 시 dormant(무감점)이고 ApiScorer.responseTypeApi 는 API_CANDIDATE 만 소비하므로 집합 정제가 자동 전파(doc/17 §1).
     private static final Set<String> API_TYPES = Set.of("xhr", "fetch", "json", "api", "ajax");
     private static final String[] STATIC_EXT = {
             ".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico",

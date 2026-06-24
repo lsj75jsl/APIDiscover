@@ -5,6 +5,21 @@
 
 ---
 
+## 2026-06-24 세션 20 — $type taxonomy 실 Loki 샘플링 (research 0.4, doc/21 §A)
+
+### 한 일
+- **도구**: `sample/type_taxonomy_sample.py` 신규(부하보호 내장 — limit=2000·창=10분·`direction=forward`·페이지 1·순차, `limit=1e8` 우회 금지). raw 라인 로컬 `^|^` split→field 19($type)/9(status)/5(request→method)/8(uri→path) 교차 집계(LogLineParser 인덱스 동일).
+- **샘플(총 쿼리 3회, 한 자리·D7 준수)**: W1 `AORV1`/api.weble.net @09:00(2000줄, 포화), W2 `AOKD1`/www.dreampark-sporex.com @09:00(381줄 전량), W3 `AORV1`/api.weble.net @03:00 off-peak 교차검증(2000줄). status 필터 없이 받아 method·status-class 교차. skip=0.
+
+### 결과
+- **vocabulary = {document, library} 뿐**. `API_TYPES{xhr,fetch,json,api,ajax}` **실관측 0**(3윈도우·2호스트·peak/off-peak·write/4xx/OPTIONS 포함 — status=200 GET 편향 제거 후에도 0).
+- **document 트랩 ≈100% 확정**: api.weble.net 은 OPTIONS=2066(CORS)·POST write·RESTful path(`/users/{id}` 등) 전부 `$type=document`. web_page 신호 신뢰 불가 재확인. 시간대 무관(peak/off-peak 동일).
+- 웹 호스트: library 86.6%(전부 GET·정적확장자)→STATIC, document 13.4%(확장자 없는 page path)→WEB_PAGE 약신호. 확장자 1순위라 library 집합 추가는 무영향.
+- **분석 권고(§B)**: Tier0 API_TYPES **무변경**(신규 api성 0, 보수적 비대칭 기준 미충족), ApiScorer 무변경(자동 정합). `$type→API_CANDIDATE`/responseTypeApi **dormant 확정**(무해·무감점). Tier1 corpus 히스토그램 노출 가치 상향(앱별 vocab·트랩 self-reporting). 증거표 doc/21 §A-결과 기록.
+
+### 다음 단계
+- (분석/architect·dev) §A-결과 → DECISIONS 정식 기록(API_TYPES 무변경+근거 주석), Tier1 히스토그램 구현 여부 확정. TASKS '$type 전체 taxonomy 샘플링' subitem 진행.
+
 ## 2026-06-24 세션 19 — endpoint_kind referer 보조 신호 (doc/20 §7, DECISIONS D29)
 
 ### 한 일

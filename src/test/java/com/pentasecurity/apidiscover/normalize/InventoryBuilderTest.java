@@ -292,4 +292,38 @@ class InventoryBuilderTest {
         assertThat(result.endpoints()).singleElement()
                 .satisfies(e -> assertThat(e.endpointKind()).isEqualTo(EndpointKind.UNKNOWN));
     }
+
+    // --- corpus $type 히스토그램 (doc/21 Tier1) ---
+
+    @Test
+    void typeDistributionAggregatesCorpusByCount() {
+        List<ParsedRequest> reqs = List.of(
+                req("GET", "/p1", 200, "a", 5, "document"),
+                req("GET", "/p2", 200, "b", 5, "document"),
+                req("GET", "/s.js", 200, "c", 5, "library"));
+        var td = builder.buildWithLimits(reqs, null).typeDistribution();
+
+        assertThat(td.top()).extracting(e -> e.type() + ":" + e.count())
+                .containsExactly("document:2", "library:1"); // count 내림차순
+        assertThat(td.other()).isZero();
+        assertThat(td.distinctKeys()).containsExactly("document", "library"); // 정렬·count 제외(ETag 키)
+    }
+
+    @Test
+    void typeDistributionCapsTopNIntoOther() {
+        // 22개 distinct $type(t00 최다 count=22 … t21=1) → top-N 20 + other(t20=2 + t21=1 = 3)
+        List<ParsedRequest> reqs = new ArrayList<>();
+        for (int i = 0; i < 22; i++) {
+            String type = String.format("t%02d", i);
+            for (int c = 0; c < 22 - i; c++) {
+                reqs.add(req("GET", "/x", 200, "a", 5, type));
+            }
+        }
+        var td = builder.buildWithLimits(reqs, null).typeDistribution();
+
+        assertThat(td.top()).hasSize(20);
+        assertThat(td.top().get(0).type()).isEqualTo("t00");  // 최다 count
+        assertThat(td.other()).isEqualTo(3);                  // t20(2)+t21(1)
+        assertThat(td.distinctKeys()).hasSize(20).contains("t00", "t19").doesNotContain("t20", "t21");
+    }
 }
