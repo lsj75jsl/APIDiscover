@@ -38,7 +38,13 @@
 ### P1. 자체 분석 기능 (먼저)
 
 #### 분류 (04/16 문서)
-- [ ] **(신규, doc/16 후속)** 절대 cross-scan recency 로 Zombie severity 보강 — 현재 severity 는 단일 스캔 내 span 대용. `→ 의존:` 스캔 이력(과거 lastSeen) 영속(현재 ScanResult 최신 1건만)
+- [ ] **(신규, doc/16 후속)** 절대 cross-scan recency 로 Zombie severity 보강 — 현재 severity 는 단일 스캔 내 span 대용. `→ 의존:` 스캔 이력(과거 lastSeen) 영속(현재 ScanResult 최신 1건만) **(설계 완료 → doc/24, DECISIONS D33)**
+  - [x] `domain/EndpointHistory`(@Id host, @Lob historyJson=`Map<specKey,{firstSeen,lastSeen}>`, updatedAt)+repository (spec 매칭만 기록→spec-bound, ddl-auto 신규 테이블) + `model/EndpointObservation`
+  - [x] `ZombieSeverity.of(Evidence, Instant historicalFirstSeen)` — base(doc/16 불변)+`entrenchmentBonus`(W0.2/GRACE7d/SAT90d 1차값·코드상수). `of(Evidence)` 오버로드(현행 위임=콜드스타트)
+  - [x] `Classifier.classifyWithMetrics` +`priorFirstSeen`(빈 map 오버로드 하위호환)→Zombie severity 에 prior firstSeen; `ClassificationResult` +`observedTimes`(3-arg 편의 ctor, observedSpec 투영)
+  - [x] `DiscoveryJobService.analyze` — EndpointHistory 로드→priorFirstSeen 주입, persist 후 observedTimes merge(min firstSeen/max lastSeen)→save. ETag findings 의 Zombie severity→`band` 투영(churn 버킷화)
+  - [x] 테스트 — 콜드스타트(보너스0=현행·기존 단언 green)/entrenched(lifespan≥SAT→band 상향)/GRACE 미만 무보너스/ETag(재스캔 동일 version·creep 무bump)/spec-only(observedTimes)
+  - [x] (doc/18 sync, technical_writer) 신규 `endpoint_history` 테이블 스키마 반영 (§2.8, 6→7엔티티/7→8테이블)
 
 #### 리포트/출력 (01/12/14 문서)
 - [ ] `low_confidence` 분리 노출 + `spec_source.warnings` 리포트 반영 — `→ 의존:` doc/14 seam(`SpecParser.parse→SpecParseResult(endpoints, warnings)`), 현재 파서 경고는 log 만

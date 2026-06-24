@@ -7,10 +7,12 @@ import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
 import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
 import com.pentasecurity.apidiscover.model.DroppedNonApi;
 import com.pentasecurity.apidiscover.model.EndpointKind;
+import com.pentasecurity.apidiscover.model.EndpointObservation;
 import com.pentasecurity.apidiscover.model.Finding;
 import com.pentasecurity.apidiscover.model.PreflightSignal;
 import com.pentasecurity.apidiscover.model.SignalStatus;
 import com.pentasecurity.apidiscover.model.TemplateSource;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -76,6 +78,20 @@ public class Classifier {
                                                     EndpointMatcher matcher,
                                                     ApiScorer scorer,
                                                     ApiHintMatcher hints) {
+        // 하위호환 5-arg: 이력 없음(빈 map) → entrenchment 보너스 0 = 현행 (doc/24 §4)
+        return classifyWithMetrics(discovered, spec, matcher, scorer, hints, Map.of());
+    }
+
+    /**
+     * 6-arg: cross-scan 이력(priorFirstSeen: specKey→이력상 최초 firstSeen)으로 Zombie severity entrenchment 보강(doc/24 §7).
+     * 빈 map → 콜드스타트(현행). observedTimes(이력 merge 입력)도 함께 산출.
+     */
+    public ClassificationResult classifyWithMetrics(List<DiscoveredEndpoint> discovered,
+                                                    List<CanonicalEndpoint> spec,
+                                                    EndpointMatcher matcher,
+                                                    ApiScorer scorer,
+                                                    ApiHintMatcher hints,
+                                                    Map<String, Instant> priorFirstSeen) {
         List<Finding> findings = new ArrayList<>();
         int excluded = 0;
         int webForm = 0;
@@ -167,15 +183,17 @@ public class Classifier {
             boolean observed = ev != null;
             if (s.deprecated()) {
                 if (observed) {
-                    // 명시 deprecated Zombie: confidence 1.0·estimated=false (무회귀) + severity 가산
+                    // 명시 deprecated Zombie: confidence 1.0·estimated=false (무회귀) + severity 가산(이력 entrenchment 포함)
+                    Instant prior = priorFirstSeen.getOrDefault(key(s), ev.firstSeen);
                     findings.add(new Finding.Zombie(s.host(), s.method(), s.pathTemplate(), 1.0,
-                            ZombieSeverity.of(ev), false, s.sourceRef(), "문서에 deprecated 표기, 그러나 트래픽 발생"));
+                            ZombieSeverity.of(ev, prior), false, s.sourceRef(), "문서에 deprecated 표기, 그러나 트래픽 발생"));
                 }
                 // deprecated && !observed → Deprecated-clean: 조치 불필요, Finding 미발행
             } else if (observed && estimatedZombies.contains(s)) {
                 // 버전 추정 Zombie: confidence 0.6·estimated=true (doc/16 §1, 명시보다 낮게)
+                Instant prior = priorFirstSeen.getOrDefault(key(s), ev.firstSeen);
                 findings.add(new Finding.Zombie(s.host(), s.method(), s.pathTemplate(), 0.6,
-                        ZombieSeverity.of(ev), true, s.sourceRef(),
+                        ZombieSeverity.of(ev, prior), true, s.sourceRef(),
                         "신버전 active, 구버전 트래픽 지속 — deprecated 미표기"));
             } else if (observed) {
                 findings.add(new Finding.Active(s.host(), s.method(), s.pathTemplate(), s.sourceRef()));
@@ -192,8 +210,11 @@ public class Classifier {
         PreflightSignal preflightSignal = preflightActive
                 ? new PreflightSignal(SignalStatus.ACTIVE, acrmPresentOptions)
                 : PreflightSignal.NONE;
+        // 이력 merge 입력: spec 매칭(observedSpec)만 — specKey→{firstSeen,lastSeen} (doc/24 §3 spec-bound)
+        Map<String, EndpointObservation> observedTimes = new HashMap<>();
+        observedSpec.forEach((k, ev) -> observedTimes.put(k, new EndpointObservation(ev.firstSeen, ev.lastSeen)));
         return new ClassificationResult(
-                findings, new DroppedNonApi(excluded, webForm, lowScore), preflightSignal);
+                findings, new DroppedNonApi(excluded, webForm, lowScore), preflightSignal, observedTimes);
     }
 
     /** Shadow 신뢰도 (doc/04 §4.1). 기본 1.0 에서 감산, [0,1] clamp. */

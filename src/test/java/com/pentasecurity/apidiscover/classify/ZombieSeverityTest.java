@@ -66,4 +66,38 @@ class ZombieSeverityTest {
         // 0.5·0.1 + 0.3·1.0 + 0.2·0 = 0.35
         assertThat(ZombieSeverity.of(e).score()).isEqualTo(0.35);
     }
+
+    // --- cross-scan entrenchment 보너스 (doc/24) ---
+
+    @Test
+    void entrenchedLifespanRaisesSeverityBand() {
+        // 낮은 base(LOW) zombie 가 누적 lifespan 100일(≥SAT) → +W(0.2) → band 상향(LOW→MEDIUM)
+        Evidence e = new Evidence();
+        e.hits = 10; // hitsScore≈0.348, span 0 → base≈0.174 (LOW)
+        e.total = 10; // success 0
+        Instant last = Instant.EPOCH.plusSeconds(200L * 86_400);
+        e.firstSeen = last;
+        e.lastSeen = last; // window span 0
+
+        Severity cold = ZombieSeverity.of(e, last);                          // 콜드스타트(이력=현재) → 보너스 0
+        Severity entrenched = ZombieSeverity.of(e, last.minusSeconds(100L * 86_400)); // 이력 최초 100일 전
+
+        assertThat(cold.band()).isEqualTo(SeverityBand.LOW);
+        assertThat(entrenched.score()).isGreaterThan(cold.score());
+        assertThat(entrenched.band()).isEqualTo(SeverityBand.MEDIUM); // +0.2 → ≥0.33
+        assertThat(ZombieSeverity.of(e).score()).isEqualTo(cold.score()); // of(e) 오버로드=콜드스타트
+    }
+
+    @Test
+    void lifespanWithinGraceGivesNoBonus() {
+        // 누적 lifespan 3일(< GRACE 7일) → 보너스 0 → base 와 동일(연속·콜드스타트 자동 흡수)
+        Evidence e = new Evidence();
+        e.hits = 10;
+        e.total = 10;
+        Instant last = Instant.EPOCH.plusSeconds(200L * 86_400);
+        e.firstSeen = last;
+        e.lastSeen = last;
+        Severity within = ZombieSeverity.of(e, last.minusSeconds(3L * 86_400));
+        assertThat(within.score()).isEqualTo(ZombieSeverity.of(e).score());
+    }
 }

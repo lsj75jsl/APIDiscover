@@ -2,6 +2,7 @@
 package com.pentasecurity.apidiscover.batch;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pentasecurity.apidiscover.classify.ClassificationResult;
 import com.pentasecurity.apidiscover.classify.Classifier;
@@ -10,6 +11,8 @@ import com.pentasecurity.apidiscover.classify.EffectiveClassificationResolver;
 import com.pentasecurity.apidiscover.config.ApiDiscoverProperties;
 import com.pentasecurity.apidiscover.domain.DomainConfig;
 import com.pentasecurity.apidiscover.domain.DomainConfigRepository;
+import com.pentasecurity.apidiscover.domain.EndpointHistory;
+import com.pentasecurity.apidiscover.domain.EndpointHistoryRepository;
 import com.pentasecurity.apidiscover.domain.ScanResult;
 import com.pentasecurity.apidiscover.domain.ScanResultRepository;
 import com.pentasecurity.apidiscover.domain.SpecRecord;
@@ -23,6 +26,7 @@ import com.pentasecurity.apidiscover.match.EndpointMatcherCache;
 import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
 import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
 import com.pentasecurity.apidiscover.model.DiscoveryReport;
+import com.pentasecurity.apidiscover.model.EndpointObservation;
 import com.pentasecurity.apidiscover.model.Finding;
 import com.pentasecurity.apidiscover.model.ParsedRequest;
 import com.pentasecurity.apidiscover.normalize.InventoryBuilder;
@@ -33,8 +37,10 @@ import com.pentasecurity.apidiscover.spec.SpecStore;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.slf4j.Logger;
@@ -57,6 +63,7 @@ public class DiscoveryJobService {
     private final ScanResultRepository scanRepo;
     private final DomainConfigRepository domainRepo;
     private final WatermarkRepository watermarkRepo;
+    private final EndpointHistoryRepository endpointHistoryRepo;
     private final LokiClient lokiClient;
     private final LokiQueryBuilder queryBuilder;
     private final ObjectMapper objectMapper;
@@ -72,6 +79,7 @@ public class DiscoveryJobService {
                                ScanResultRepository scanRepo,
                                DomainConfigRepository domainRepo,
                                WatermarkRepository watermarkRepo,
+                               EndpointHistoryRepository endpointHistoryRepo,
                                LokiClient lokiClient,
                                LokiQueryBuilder queryBuilder,
                                ObjectMapper objectMapper,
@@ -86,6 +94,7 @@ public class DiscoveryJobService {
         this.scanRepo = scanRepo;
         this.domainRepo = domainRepo;
         this.watermarkRepo = watermarkRepo;
+        this.endpointHistoryRepo = endpointHistoryRepo;
         this.lokiClient = lokiClient;
         this.queryBuilder = queryBuilder;
         this.objectMapper = objectMapper;
@@ -149,9 +158,13 @@ public class DiscoveryJobService {
         List<DiscoveredEndpoint> discovered = inventory.endpoints();
         // effective 분류 설정(전역+도메인 병합) 해석 → scorer/hints 주입 (doc/10 §6). 설정 부재 시 무회귀.
         EffectiveClassification eff = classificationResolver.resolve(host);
-        // findings + non_api dropped 메트릭 동시 산출 (doc/12 §1)
+        // cross-scan 이력 로드 → Zombie severity entrenchment 입력 (doc/24 §7). 콜드스타트=빈 map=현행.
+        Map<String, EndpointObservation> priorHistory = loadHistory(host);
+        Map<String, Instant> priorFirstSeen = new HashMap<>();
+        priorHistory.forEach((k, obs) -> priorFirstSeen.put(k, obs.firstSeen()));
+        // findings + non_api dropped 메트릭 + observedTimes 동시 산출 (doc/12 §1, doc/24)
         ClassificationResult classified =
-                classifier.classifyWithMetrics(discovered, spec, matcher, eff.scorer(), eff.hints());
+                classifier.classifyWithMetrics(discovered, spec, matcher, eff.scorer(), eff.hints(), priorFirstSeen);
         List<Finding> findings = classified.findings();
         // OPTIONS 는 CORS 신호로만 쓰고 보고에서 제외되므로 인벤토리 카운트에서도 뺀다 (과대집계 방지)
         long reportedCount = discovered.stream()
@@ -162,7 +175,65 @@ public class DiscoveryJobService {
                 classified.dropped(), inventory.droppedByLimit(), inventory.droppedNonExistent(),
                 inventory.endpointKindSignal(), inventory.typeDistribution(), classified.preflightSignal());
 
-        return persist(host, report);
+        ScanResult result = persist(host, report);
+        // 이력 merge(min firstSeen / max lastSeen) 후 save (doc/24 §7). spec 매칭만 → spec-bound.
+        saveHistory(host, mergeHistory(priorHistory, classified.observedTimes()));
+        return result;
+    }
+
+    /** EndpointHistory 로드 → Map&lt;specKey, EndpointObservation&gt;. 행 없음/파싱 실패 → 빈 map(콜드스타트=현행). */
+    private Map<String, EndpointObservation> loadHistory(String host) {
+        return endpointHistoryRepo.findById(host)
+                .map(h -> h.historyJson)
+                .map(this::parseHistory)
+                .orElseGet(HashMap::new);
+    }
+
+    private Map<String, EndpointObservation> parseHistory(String json) {
+        if (json == null || json.isBlank()) {
+            return new HashMap<>();
+        }
+        try {
+            return objectMapper.readValue(json, new TypeReference<HashMap<String, EndpointObservation>>() {});
+        } catch (JsonProcessingException e) {
+            // 손상 이력 → 빈 이력으로 폴백(콜드스타트). 분류는 진행, 다음 save 가 정상 이력으로 덮어씀.
+            log.warn("corrupt endpoint_history JSON — treating as empty (cold start)");
+            return new HashMap<>();
+        }
+    }
+
+    /** prior ∪ current: firstSeen=min, lastSeen=max (firstSeen 단조 비감소 → lifespan 단조 비감소, doc/24 §7). */
+    private static Map<String, EndpointObservation> mergeHistory(
+            Map<String, EndpointObservation> prior, Map<String, EndpointObservation> current) {
+        Map<String, EndpointObservation> out = new HashMap<>(prior);
+        current.forEach((k, cur) -> out.merge(k, cur, (p, c) -> new EndpointObservation(
+                earliest(p.firstSeen(), c.firstSeen()), latest(p.lastSeen(), c.lastSeen()))));
+        return out;
+    }
+
+    private void saveHistory(String host, Map<String, EndpointObservation> history) {
+        if (history.isEmpty()) {
+            return; // spec 매칭 endpoint 없음 → 기록할 이력 없음
+        }
+        EndpointHistory h = endpointHistoryRepo.findById(host).orElseGet(EndpointHistory::new);
+        h.host = host;
+        h.historyJson = toJson(history);
+        h.updatedAt = Instant.now(); // bookkeeping 메타데이터(ETag/severity 무관 — lifespan 은 데이터 ts)
+        endpointHistoryRepo.save(h);
+    }
+
+    private static Instant earliest(Instant a, Instant b) {
+        if (a == null) {
+            return b;
+        }
+        return (b == null || a.isBefore(b)) ? a : b;
+    }
+
+    private static Instant latest(Instant a, Instant b) {
+        if (a == null) {
+            return b;
+        }
+        return (b == null || a.isAfter(b)) ? a : b;
     }
 
     private ScanResult persist(String host, DiscoveryReport report) {
@@ -171,8 +242,9 @@ public class DiscoveryJobService {
         // dropped 메트릭·endpoint_kind 신호 모두 결과 콘텐츠 → 포함(분포 변화 반영, doc/12 §4, doc/13 §4.2, doc/19 §4, doc/20 §5)
         // $type 분포는 distinct 키집합(정렬, count 제외)만 → 신규 값=드리프트 bump, count 변동=무bump (doc/21 §3 Tier1)
         // preflightSignal 은 status 만 → DORMANT↔ACTIVE 전환=실제 분류 변화 bump, acrm count churn 없음 (doc/23 §9.5)
+        // Zombie severity 는 band 로 투영 → entrenchment/hits 발 미세 creep 무bump, band 전이 시만 bump (doc/24 §5)
         String version = EtagUtil.of(toJson(List.of(
-                report.specVersion(), report.summary(), report.findings(),
+                report.specVersion(), report.summary(), findingsEtagView(report.findings()),
                 report.droppedNonApi(), report.droppedByLimit(), report.droppedNonExistent(),
                 report.endpointKindSignal(), report.typeDistribution().distinctKeys(),
                 report.preflightSignal().status())));
@@ -194,6 +266,25 @@ public class DiscoveryJobService {
         r.zombie = s.zombie();
         r.unused = s.unused();
         return scanRepo.save(r);
+    }
+
+    /**
+     * ETag 입력용 findings 투영 — Zombie severity 의 raw score 를 band(HIGH/MED/LOW)로 버킷화(doc/24 §5).
+     * 지속 zombie 의 lastSeen 전진·hits 증가발 severity 미세 creep 이 매 스캔 ETag 를 bump 하는 것을 막고, band 전이 시만 bump.
+     * 그 외 finding 은 그대로(Shadow confidence churn 은 별개·범위 밖).
+     */
+    private static List<Object> findingsEtagView(List<Finding> findings) {
+        List<Object> out = new ArrayList<>(findings.size());
+        for (Finding f : findings) {
+            if (f instanceof Finding.Zombie z) {
+                // host=null(host-agnostic spec) 가능 → null 허용 Arrays.asList (List.of 는 null 거부)
+                out.add(java.util.Arrays.asList("ZOMBIE", z.host(), z.method(), z.pathTemplate(),
+                        z.confidence(), z.estimated(), z.severity().band(), z.reason()));
+            } else {
+                out.add(f);
+            }
+        }
+        return out;
     }
 
     private String toJson(Object value) {

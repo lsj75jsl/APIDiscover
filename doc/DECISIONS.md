@@ -281,6 +281,17 @@ doc/08 §9 보류 사유($type taxonomy 불확실·document 트랩)를 실 Loki 
 - **정의적 해결(M3·설계 doc/23 §9, 후속·org 로그포맷 의존)**: isPreflight=**`OPTIONS && acrm!=null`(결정적**, acrm 은 preflight 에만 부착; origin/204 약신호·origin 필드 미채택). 파서 설정 인덱스 `parse.acrm-field-index`(기본 -1=미사용, "있으면 읽는", 20/24필드 호환). **가용성 게이트(무회귀 핵심, doc/20 dormant 선례)**: `Σ acrmPresentCount(OPTIONS)>0`=ACTIVE, 아니면 **DORMANT=현행 전부 skip**(idx -1→acrm 전부 null→자동 dormant, Classifier config 무의존→회귀 구조적 불가). ACTIVE: acrm-absent OPTIONS=genuine→정상 매칭(Active/Shadow, preflight 가 acrm 으로 정밀 제외돼 flood-safe), acrm present=preflight→skip(cors only). **M1 정합**: `preflightAmbiguous` 조건에 `&& dormant` → ACTIVE 면 확실 판정(genuine→Active/pure preflight→plain Unused)으로 자동 승급. **M2 정합**: 게이트 배타(ACTIVE=acrm 자동·권위, DORMANT=M2 수동 spec-match). 노출 `model/PreflightSignal(status)`, ETag=status 만(전환 bump·count 무churn). 무회귀: 기본 dormant=현행 100%·가산 필드. **구현 시점**: org 로그포맷 커밋 시 착수(dormant 선구현은 speculative — 설계/seam 으로 충분).
 - **무회귀**: 순수 문서=코드 0. M1 채택 시 Finding.Unused +필드 가산(현행 기본)·ETag 1회(doc/16 선례).
 
+### D33. cross-scan recency 로 Zombie severity 보강 (doc/24)
+doc/16 severity 의 window-한정 spanScore 를 스캔 간 이력으로 보강. **recency = zombie 누적 lifespan(entrenchment)**, `now()` 불사용.
+- **의미 확정**: "절대 recency" = `lifespan = lastSeen − firstSeen(이력 최초)` (얼마나 오래 지속 = entrenched = 시급성↑). **`now−lastSeen` 류 미채택** — Zombie 는 정의상 트래픽 보유라 ≈0 으로 퇴화 + `now()` ETag churn. 모두 **데이터 타임스탬프** 기반.
+- **보강(additive), 대체 아님**: `severity = clamp(base(doc/16 불변) + entrenchmentBonus(lifespanDays))`. bonus = `W·clamp01((log10(days+1)−log10(GRACE+1))/(log10(SAT+1)−log10(GRACE+1)))`, GRACE 미만→0. 1차값 W=0.2/GRACE=7d/SAT=90d(코드상수, 보정=D24 보류 연계). **대체 시 척도 불일치 cliff** → 보강이 base 불변·연속·콜드스타트 무회귀.
+- **콜드스타트 자동 흡수**: 이력 없으면 historicalFirstSeen=현재 firstSeen → lifespan=window span ≪ GRACE → bonus 0 → **base=현행**(별도 분기 불요, doc/20 무증거 선례). `ZombieSeverity.of(Evidence)` 오버로드 보존→기존 테스트 무변경.
+- **이력 영속**: 신규 `EndpointHistory`(@Id host, **@Lob historyJson** = `Map<specKey,{firstSeen,lastSeen}>`, specKey=`METHOD|host|template`). @Lob JSON(D11 컨벤션·per-host·ScanResult 와 분리=관심사 분리). **spec 매칭 endpoint 만 기록**→spec 크기 bound(누적 방지, Shadow/noise 미기록). ddl-auto 신규 테이블(기존 무영향). ScanResult.findById 패턴 재사용.
+- **ETag churn 방지(핵심)**: ① `now()` 불사용 → lifespan=데이터 ts → 동일 데이터+이력 재스캔=동일 severity=동일 ETag(시간 흐름 bump 없음). ② **ETag 의 Zombie severity 를 raw score→`band` 투영(버킷화)** → band 전이 시만 bump, 미세 creep(매 스캔 lastSeen 전진) 무bump(선례 distinctKeys/status 투영; pre-existing hits churn 도 완화). raw score 는 body 유지.
+- **흐름**: analyze 가 EndpointHistory 로드→priorFirstSeen 을 Classifier 에 주입(빈 map 오버로드 하위호환), `ClassificationResult.observedTimes` 로 persist 가 merge(min firstSeen/max lastSeen)→save.
+- **규모**: host당 @Lob 1행 spec-bound, 스캔당 findById 1+merge O(관측). 정규화 테이블은 대량 규모 후속.
+- **범위 밖**: 실데이터 보정(D24 보류)·entrenchment 임계 중앙 API(P4)·추세 신호·정규화 테이블·doc/18 sync(technical_writer).
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.
