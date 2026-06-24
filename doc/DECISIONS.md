@@ -292,6 +292,14 @@ doc/16 severity 의 window-한정 spanScore 를 스캔 간 이력으로 보강. 
 - **규모**: host당 @Lob 1행 spec-bound, 스캔당 findById 1+merge O(관측). 정규화 테이블은 대량 규모 후속.
 - **범위 밖**: 실데이터 보정(D24 보류)·entrenchment 임계 중앙 API(P4)·추세 신호·정규화 테이블·doc/18 sync(technical_writer).
 
+### D34. 리포트/출력 보강 3항목 (doc/25)
+리포트/출력 P1 3건을 1 PR(분리 가능)로 통합. 공통: 가산 노출·편의 ctor 하위호환·ETag 데이터 ts+버킷/명칭집합 투영(doc/21·24 선례).
+- **A. low_confidence + spec_source.warnings**: ① `SpecParseResult(endpoints, warnings)` seam **신설**(doc/14 deferred 분) — 3 파서가 log.warn→warnings 수집. ② warnings 업로드 시점 생성→**`SpecRecord.warningsJson` 영속**→스캔이 로드(재파싱 없음, doc/10)→`model/SpecSource(specVersion, format, warnings)` = DiscoveryReport top-level(specVersion 유지·가산). ③ low_confidence = **파생 플래그**(Shadow/Zombie `@JsonProperty low_confidence`=confidence<0.5 1차값, 단일진실원=confidence) + `Summary.lowConfidence` 카운트. **별도 섹션 미채택**(findings 리스트 계약 불변). ETag: warnings 버전당 고정(specVersion 편승, churn 0), 카운트는 임계교차만.
+- **B. Active/Zombie params**: `Finding.Active`·`Finding.Zombie` +`ParamCandidates params`(편의 ctor=EMPTY 하위호환). 출처 = **관측 query(매칭 `DiscoveredEndpoint.params` 재사용, `Evidence` 가 params 누적·union)** + **spec 템플릿 path(권위)**. 한계: `CanonicalEndpoint` 는 query-param 정의 미보유(doc/03) → "spec param 정의"=path 템플릿 한정, query 는 관측 기반(canonical query-param 확장은 범위 밖). ETag: doc/24 findings-투영 확장 → params를 **정렬 이름집합+path 토큰**(count/buckets 제외)으로 축약(doc/21 distinctKeys 동형), Shadow·Active·Zombie 균일 → 추가 churn 0 + 기존 Shadow params churn 완화.
+- **C. scan-status total_dropped**(선택·낮음): `ScanResult` +`int totalDropped`(persist 에서 droppedNonApi.total+byLimit.total+nonExistent.notFound), `ScanStatusView` +totalDropped. 비정규화 합계(reportJson 파싱 불요), 사유별 상세(/result)는 불변. **ETag 무영향**(scan-status 비대상, 구성요소는 이미 /result ETag).
+- **무회귀**: 전부 가산/파생, 편의 ctor, ddl-auto 컬럼(warningsJson·totalDropped 기존 0/null). 무스펙/무params/무dropped=현행. doc/18 sync=technical_writer.
+- **범위 밖**: spec query-param 정의 캐노니컬 확장, THRESHOLD/spec_source 실데이터 보정(D24 보류 연계), Shadow confidence ETag 버킷화(pre-existing).
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.

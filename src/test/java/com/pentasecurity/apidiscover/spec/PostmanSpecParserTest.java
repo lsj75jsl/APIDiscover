@@ -41,7 +41,14 @@ class PostmanSpecParserTest {
             """;
 
     private List<CanonicalEndpoint> parsed() {
-        return parser.parse(COLLECTION.getBytes(StandardCharsets.UTF_8));
+        return parser.parse(COLLECTION.getBytes(StandardCharsets.UTF_8)).endpoints();
+    }
+
+    @Test
+    void collectsWarningsForSkippedItems() {
+        // doc/25 §A.1: "Broken No Method" item skip → warnings 수집(log 만 아님)
+        SpecParseResult r = parser.parse(COLLECTION.getBytes(StandardCharsets.UTF_8));
+        assertThat(r.warnings()).anyMatch(w -> w.contains("missing method"));
     }
 
     private CanonicalEndpoint byRef(List<CanonicalEndpoint> all, String ref) {
@@ -97,7 +104,7 @@ class PostmanSpecParserTest {
                   { "name": "Ep", "request": { "method": "GET",
                       "url": { "host": ["api","example","com"], "path": ["v2","ping"] } } } ] }
                 """;
-        List<CanonicalEndpoint> all = parser.parse(json.getBytes(StandardCharsets.UTF_8));
+        List<CanonicalEndpoint> all = parser.parse(json.getBytes(StandardCharsets.UTF_8)).endpoints();
         assertThat(all).singleElement().satisfies(e -> {
             assertThat(e.host()).isEqualTo("api.example.com");
             assertThat(e.pathTemplate()).isEqualTo("/v2/ping");
@@ -112,7 +119,7 @@ class PostmanSpecParserTest {
                   { "name": "NoUrl", "request": { "method": "GET" } },
                   { "name": "Ok", "request": { "method": "GET", "url": { "path": ["ping"] } } } ] }
                 """;
-        List<CanonicalEndpoint> all = parser.parse(json.getBytes(StandardCharsets.UTF_8));
+        List<CanonicalEndpoint> all = parser.parse(json.getBytes(StandardCharsets.UTF_8)).endpoints();
         assertThat(all).singleElement().satisfies(e -> {
             assertThat(e.sourceRef()).isEqualTo("postman#Ok");
             assertThat(e.pathTemplate()).isEqualTo("/ping");
@@ -127,7 +134,7 @@ class PostmanSpecParserTest {
                   { "name": "Old (deprecated)", "request": { "method": "GET", "url": { "path": ["a"] } } },
                   { "name": "Older [deprecated]", "request": { "method": "GET", "url": { "path": ["b"] } } } ] }
                 """;
-        List<CanonicalEndpoint> all = parser.parse(json.getBytes(StandardCharsets.UTF_8));
+        List<CanonicalEndpoint> all = parser.parse(json.getBytes(StandardCharsets.UTF_8)).endpoints();
         assertThat(all).extracting(CanonicalEndpoint::deprecated).containsExactly(true, true);
     }
 

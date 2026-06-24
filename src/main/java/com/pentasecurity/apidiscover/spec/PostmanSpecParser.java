@@ -34,7 +34,7 @@ public class PostmanSpecParser implements SpecParser {
     }
 
     @Override
-    public List<CanonicalEndpoint> parse(byte[] content) {
+    public SpecParseResult parse(byte[] content) {
         JsonNode root;
         try {
             root = objectMapper.readTree(content);
@@ -53,15 +53,23 @@ public class PostmanSpecParser implements SpecParser {
         Map<String, String> vars = collectionVars(root);
 
         List<CanonicalEndpoint> out = new ArrayList<>();
+        List<String> warnings = new ArrayList<>();
         for (JsonNode item : items) {
-            walk(item, "", false, version, vars, out);
+            walk(item, "", false, version, vars, out, warnings);
         }
-        return out;
+        return new SpecParseResult(out, warnings);
+    }
+
+    /** recoverable 경고: warnings 수집 + 로그 유지(doc/25 §A.1). */
+    private void warn(List<String> warnings, String message) {
+        warnings.add(message);
+        log.warn(message);
     }
 
     /** item 트리 DFS. 폴더 name·deprecated 를 자식에 전파. */
     private void walk(JsonNode node, String namePath, boolean parentDeprecated,
-                      String version, Map<String, String> vars, List<CanonicalEndpoint> out) {
+                      String version, Map<String, String> vars, List<CanonicalEndpoint> out,
+                      List<String> warnings) {
         String name = text(node.path("name"));
         String path = namePath.isEmpty() ? (name == null ? "" : name)
                 : (name == null ? namePath : namePath + "/" + name);
@@ -70,13 +78,13 @@ public class PostmanSpecParser implements SpecParser {
         JsonNode children = node.get("item");
         if (children != null && children.isArray()) { // 폴더
             for (JsonNode child : children) {
-                walk(child, path, deprecated, version, vars, out);
+                walk(child, path, deprecated, version, vars, out, warnings);
             }
             return;
         }
         JsonNode request = node.get("request");
         if (request != null && !request.isNull()) { // leaf
-            CanonicalEndpoint ep = leaf(request, path, deprecated, version, vars);
+            CanonicalEndpoint ep = leaf(request, path, deprecated, version, vars, warnings);
             if (ep != null) {
                 out.add(ep);
             }
@@ -85,20 +93,20 @@ public class PostmanSpecParser implements SpecParser {
     }
 
     private CanonicalEndpoint leaf(JsonNode request, String namePath, boolean deprecated,
-                                   String version, Map<String, String> vars) {
+                                   String version, Map<String, String> vars, List<String> warnings) {
         if (request.isTextual()) {
-            log.warn("Postman item '{}' request has no method (string form), skipping", namePath);
+            warn(warnings, "Postman item '" + namePath + "' request has no method (string form), skipping");
             return null;
         }
         String method = text(request.path("method"));
         if (method == null) {
-            log.warn("Postman item '{}' missing method, skipping", namePath);
+            warn(warnings, "Postman item '" + namePath + "' missing method, skipping");
             return null;
         }
         JsonNode urlNode = request.get("url");
         String rawPath = extractPath(urlNode);
         if (rawPath == null) {
-            log.warn("Postman item '{}' missing url, skipping", namePath);
+            warn(warnings, "Postman item '" + namePath + "' missing url, skipping");
             return null;
         }
         String template = SpecNormalize.template(rawPath);

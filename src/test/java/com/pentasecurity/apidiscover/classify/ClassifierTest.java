@@ -465,6 +465,40 @@ class ClassifierTest {
         assertThat(result.observedTimes()).containsOnlyKeys("GET|*|/v2/old"); // spec 키만
     }
 
+    // --- Active/Zombie param 후보 (doc/25 §B) ---
+
+    @Test
+    void activeAndZombieExposeObservedQueryAndSpecPathParams() {
+        // query=관측 누적(ev), path=spec 템플릿 변수(권위)
+        List<CanonicalEndpoint> spec2 = List.of(
+                ce("GET", "/v2/users/{id}", false),    // Active
+                ce("GET", "/v2/orders/{id}", true));   // deprecated → Zombie
+        var m = new EndpointMatcher(spec2);
+        List<Finding> findings = classifier.classify(List.of(
+                deP("a.example.com", "/v2/users/{id}", query("expand")),
+                deP("a.example.com", "/v2/orders/{id}", query("expand"))), spec2, m);
+
+        Finding.Active active = (Finding.Active) byClass(findings, Classification.ACTIVE).get(0);
+        assertThat(active.params().query()).extracting(ParamCandidates.QueryParam::name).containsExactly("expand");
+        assertThat(active.params().path()).extracting(ParamCandidates.PathParam::token).containsExactly("{id}");
+
+        Finding.Zombie zombie = (Finding.Zombie) byClass(findings, Classification.ZOMBIE).get(0);
+        assertThat(zombie.params().query()).extracting(ParamCandidates.QueryParam::name).containsExactly("expand");
+        assertThat(zombie.params().path()).extracting(ParamCandidates.PathParam::token).containsExactly("{id}");
+    }
+
+    @Test
+    void evidenceUnionsQueryParamsAcrossHosts() {
+        // host-agnostic spec 이 여러 host d 에 매칭 → query 이름 union (doc/25 §B.2)
+        List<CanonicalEndpoint> spec2 = List.of(ce("GET", "/legacy/{id}", true)); // host=null, deprecated → Zombie
+        var m = new EndpointMatcher(spec2);
+        Finding.Zombie z = (Finding.Zombie) byClass(classifier.classify(List.of(
+                deP("a.example.com", "/legacy/{id}", query("a")),
+                deP("b.example.com", "/legacy/{id}", query("b"))), spec2, m), Classification.ZOMBIE).get(0);
+        assertThat(z.params().query()).extracting(ParamCandidates.QueryParam::name)
+                .containsExactlyInAnyOrder("a", "b");
+    }
+
     // --- helpers ---
 
     private static List<Finding> byClass(List<Finding> findings, Classification c) {
@@ -493,6 +527,20 @@ class ClassifierTest {
                 hits, Instant.EPOCH, Instant.EPOCH, Map.of(statusBucket, hits), 5, 10, 50);
         return new DiscoveredEndpoint(method + " " + host + " " + template, method, host, template,
                 TemplateSource.SPEC, EndpointKind.UNKNOWN, 0.9, false, false, metrics, ParamCandidates.EMPTY);
+    }
+
+    /** host+params 지정(doc/25 §B Active/Zombie params·멀티host union 테스트). SPEC 매칭 GET. */
+    private static DiscoveredEndpoint deP(String host, String template, ParamCandidates params) {
+        var metrics = new DiscoveredEndpoint.Metrics(
+                10, Instant.EPOCH, Instant.EPOCH, Map.of("2xx", 10L), 5, 10, 50);
+        return new DiscoveredEndpoint("GET " + host + " " + template, "GET", host, template,
+                TemplateSource.SPEC, EndpointKind.UNKNOWN, 0.9, false, false, metrics, params);
+    }
+
+    private static ParamCandidates query(String... names) {
+        List<ParamCandidates.QueryParam> q = java.util.Arrays.stream(names)
+                .map(n -> new ParamCandidates.QueryParam(n, 1, java.util.Set.of(), false)).toList();
+        return new ParamCandidates(q, List.of());
     }
 
     // --- 버전 Zombie + severity (doc/16) ---

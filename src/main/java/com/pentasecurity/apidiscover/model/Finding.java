@@ -1,8 +1,13 @@
 // 분류 결과 1건 (doc/04 §3). sealed interface + 패턴매칭 대상
 package com.pentasecurity.apidiscover.model;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 public sealed interface Finding
         permits Finding.Shadow, Finding.Zombie, Finding.Active, Finding.Unused, Finding.WebPage {
+
+    /** low_confidence 임계 (doc/25 §A.3, 1차값·캐비엇). 단일 진실원=confidence. */
+    double LOW_CONFIDENCE_THRESHOLD = 0.5;
 
     Classification classification();
 
@@ -17,19 +22,42 @@ public sealed interface Finding
                   ParamCandidates params)
             implements Finding {
         @Override public Classification classification() { return Classification.SHADOW; }
+
+        /** 파생 — confidence < 임계 (doc/25 §A.3). 별도 섹션 아닌 플래그(findings 계약 불변). */
+        @JsonProperty("low_confidence")
+        public boolean lowConfidence() { return confidence < LOW_CONFIDENCE_THRESHOLD; }
     }
 
     /**
      * 문서에 deprecated 인데 트래픽 지속(S_deprecated ∩ D) 또는 버전 추정 Zombie(doc/16).
      * confidence=진짜 Zombie 인가(명시 1.0/추정 0.6), severity=조치 시급성(트래픽 메트릭) — 직교. estimated=버전 추정 여부.
+     * params=관측 query + spec 템플릿 path 후보 (doc/25 §B).
      */
     record Zombie(String host, String method, String pathTemplate, double confidence,
-                  Severity severity, boolean estimated, String specRef, String reason) implements Finding {
+                  Severity severity, boolean estimated, String specRef, String reason,
+                  ParamCandidates params) implements Finding {
+        /** 하위호환 — params 기본 EMPTY (doc/25 §B). */
+        public Zombie(String host, String method, String pathTemplate, double confidence,
+                      Severity severity, boolean estimated, String specRef, String reason) {
+            this(host, method, pathTemplate, confidence, severity, estimated, specRef, reason,
+                    ParamCandidates.EMPTY);
+        }
+
         @Override public Classification classification() { return Classification.ZOMBIE; }
+
+        /** 파생 — confidence < 임계 (doc/25 §A.3). */
+        @JsonProperty("low_confidence")
+        public boolean lowConfidence() { return confidence < LOW_CONFIDENCE_THRESHOLD; }
     }
 
-    /** 문서에 있고(미deprecated) 트래픽 정상. */
-    record Active(String host, String method, String pathTemplate, String specRef) implements Finding {
+    /** 문서에 있고(미deprecated) 트래픽 정상. params=관측 query + spec 템플릿 path 후보 (doc/25 §B). */
+    record Active(String host, String method, String pathTemplate, String specRef, ParamCandidates params)
+            implements Finding {
+        /** 하위호환 — params 기본 EMPTY (doc/25 §B). */
+        public Active(String host, String method, String pathTemplate, String specRef) {
+            this(host, method, pathTemplate, specRef, ParamCandidates.EMPTY);
+        }
+
         @Override public Classification classification() { return Classification.ACTIVE; }
     }
 

@@ -57,7 +57,8 @@ public class SpecStore {
         }
 
         // parse 직후 전 포맷 균일 정규화(dedupe+deprecated OR+안정정렬, doc/14 §0.1)
-        List<CanonicalEndpoint> canonical = SpecCanonicalizer.canonicalize(parser.parse(content));
+        SpecParseResult parsed = parser.parse(content);
+        List<CanonicalEndpoint> canonical = SpecCanonicalizer.canonicalize(parsed.endpoints());
         if (canonical.isEmpty()) {
             throw new IllegalArgumentException("no endpoints found in spec");
         }
@@ -78,6 +79,7 @@ public class SpecStore {
         record.specVersion = nextVersion;
         record.rawDoc = content;
         record.canonicalJson = writeCanonical(canonical);
+        record.warningsJson = writeWarnings(parsed.warnings());
         record.endpointCount = canonical.size();
         record.uploadedAt = Instant.now();
         record.active = true;
@@ -105,6 +107,18 @@ public class SpecStore {
             return objectMapper.writeValueAsString(canonical);
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("failed to serialize canonical endpoints", e);
+        }
+    }
+
+    /** warnings 직렬화. 빈 list → null(컬럼 비움). */
+    private String writeWarnings(List<String> warnings) {
+        if (warnings == null || warnings.isEmpty()) {
+            return null;
+        }
+        try {
+            return objectMapper.writeValueAsString(warnings);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("failed to serialize spec warnings", e);
         }
     }
 

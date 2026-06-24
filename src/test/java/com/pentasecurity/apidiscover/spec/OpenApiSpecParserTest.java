@@ -38,7 +38,7 @@ class OpenApiSpecParserTest {
 
     @Test
     void parsesPathsWithServerBasePathAndVersion() {
-        List<CanonicalEndpoint> endpoints = parser.parse(OPENAPI_3.getBytes(StandardCharsets.UTF_8));
+        List<CanonicalEndpoint> endpoints = parser.parse(OPENAPI_3.getBytes(StandardCharsets.UTF_8)).endpoints();
 
         assertThat(endpoints).hasSize(2);
         assertThat(endpoints).allSatisfy(e -> {
@@ -53,7 +53,7 @@ class OpenApiSpecParserTest {
 
     @Test
     void detectsDeprecatedForZombieDetection() {
-        List<CanonicalEndpoint> endpoints = parser.parse(OPENAPI_3.getBytes(StandardCharsets.UTF_8));
+        List<CanonicalEndpoint> endpoints = parser.parse(OPENAPI_3.getBytes(StandardCharsets.UTF_8)).endpoints();
 
         CanonicalEndpoint orders = endpoints.stream()
                 .filter(e -> e.pathTemplate().endsWith("/orders/{orderId}"))
@@ -81,7 +81,7 @@ class OpenApiSpecParserTest {
                         '200':
                           description: ok
                 """;
-        List<CanonicalEndpoint> endpoints = parser.parse(noServer.getBytes(StandardCharsets.UTF_8));
+        List<CanonicalEndpoint> endpoints = parser.parse(noServer.getBytes(StandardCharsets.UTF_8)).endpoints();
 
         assertThat(endpoints).singleElement().satisfies(e -> {
             assertThat(e.host()).isNull();

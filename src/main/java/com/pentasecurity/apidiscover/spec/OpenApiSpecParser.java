@@ -27,7 +27,7 @@ public class OpenApiSpecParser implements SpecParser {
     }
 
     @Override
-    public List<CanonicalEndpoint> parse(byte[] content) {
+    public SpecParseResult parse(byte[] content) {
         String text = new String(content, StandardCharsets.UTF_8);
 
         ParseOptions options = new ParseOptions();
@@ -39,13 +39,15 @@ public class OpenApiSpecParser implements SpecParser {
             throw new IllegalArgumentException(
                     "invalid OpenAPI document: " + String.join("; ", safeMessages(result)));
         }
+        // api!=null 이나 messages 가 있으면 recoverable 경고($ref 미해석 등) → warnings 수집(doc/25 §A.1)
+        List<String> warnings = (result.getMessages() == null) ? List.of() : List.copyOf(result.getMessages());
 
         String version = (api.getInfo() != null) ? api.getInfo().getVersion() : null;
         List<Origin> origins = origins(api);
 
         List<CanonicalEndpoint> endpoints = new ArrayList<>();
         if (api.getPaths() == null) {
-            return endpoints;
+            return new SpecParseResult(endpoints, warnings);
         }
 
         for (Map.Entry<String, PathItem> pathEntry : api.getPaths().entrySet()) {
@@ -69,7 +71,7 @@ public class OpenApiSpecParser implements SpecParser {
                 }
             }
         }
-        return endpoints;
+        return new SpecParseResult(endpoints, warnings);
     }
 
     private static List<String> safeMessages(SwaggerParseResult result) {

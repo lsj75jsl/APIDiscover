@@ -1,6 +1,7 @@
 // 도메인별 최신 스캔 결과/메타 엔티티 (doc/07 §3.2, §3.3)
 package com.pentasecurity.apidiscover.domain;
 
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Lob;
@@ -39,4 +40,9 @@ public class ScanResult {
     public int shadow;
     public int zombie;
     public int unused;
+
+    /** dropped 3종 합계(non_api+byLimit+nonExistent) — scan-status at-a-glance (doc/25 §C). */
+    // ddl-auto ALTER ADD COLUMN 시 DEFAULT 0 → 기존 PG 행 NULL 없이 0 백필(int primitive 안전).
+    @Column(columnDefinition = "integer default 0")
+    public int totalDropped;
 }

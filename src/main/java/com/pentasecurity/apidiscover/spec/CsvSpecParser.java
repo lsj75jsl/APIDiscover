@@ -29,7 +29,7 @@ public class CsvSpecParser implements SpecParser {
     }
 
     @Override
-    public List<CanonicalEndpoint> parse(byte[] content) {
+    public SpecParseResult parse(byte[] content) {
         byte[] body = stripBom(content);
 
         CsvParserSettings settings = new CsvParserSettings();
@@ -39,6 +39,7 @@ public class CsvSpecParser implements SpecParser {
         CsvParser parser = new CsvParser(settings);
 
         List<CanonicalEndpoint> out = new ArrayList<>();
+        List<String> warnings = new ArrayList<>();
         parser.beginParsing(new ByteArrayInputStream(body), StandardCharsets.UTF_8);
         try {
             Map<String, Integer> col = headerIndex(parser.getContext().headers()); // 필수 헤더 검증 포함
@@ -50,11 +51,11 @@ public class CsvSpecParser implements SpecParser {
                 String method = at(values, col.get("method"));
                 String path = at(values, col.get("path"));
                 if (isBlank(method) || isBlank(path)) {
-                    log.warn("CSV row {} missing method/path, skipping", row);
+                    warn(warnings, "CSV row " + row + " missing method/path, skipping");
                     continue;
                 }
                 String host = SpecNormalize.host(at(values, col.get("host")));
-                boolean deprecated = parseDeprecated(at(values, col.get("deprecated")), row);
+                boolean deprecated = parseDeprecated(at(values, col.get("deprecated")), row, warnings);
                 String version = nullIfBlank(at(values, col.get("version")));
                 String template = SpecNormalize.template(path);
                 out.add(new CanonicalEndpoint(method.trim().toUpperCase(Locale.ROOT), template, host,
@@ -63,7 +64,13 @@ public class CsvSpecParser implements SpecParser {
         } finally {
             parser.stopParsing();
         }
-        return out;
+        return new SpecParseResult(out, warnings);
+    }
+
+    /** recoverable 경고: warnings 수집 + 로그 유지(doc/25 §A.1). */
+    private static void warn(List<String> warnings, String message) {
+        warnings.add(message);
+        log.warn(message);
     }
 
     /** 헤더 인덱스 맵(소문자·trim). 필수 method/path 누락 시 fatal. */
@@ -83,7 +90,7 @@ public class CsvSpecParser implements SpecParser {
         return col;
     }
 
-    private static boolean parseDeprecated(String raw, int row) {
+    private static boolean parseDeprecated(String raw, int row, List<String> warnings) {
         if (isBlank(raw)) {
             return false;
         }
@@ -94,7 +101,7 @@ public class CsvSpecParser implements SpecParser {
         if (FALSE_TOKENS.contains(t)) {
             return false;
         }
-        log.warn("CSV row {} unrecognized deprecated value '{}', treating as false", row, raw);
+        warn(warnings, "CSV row " + row + " unrecognized deprecated value '" + raw + "', treating as false");
         return false;
     }
 

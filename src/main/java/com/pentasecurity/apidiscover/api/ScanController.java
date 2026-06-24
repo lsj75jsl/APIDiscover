@@ -35,7 +35,7 @@ public class ScanController {
     public ScanStatusView status(@PathVariable String host) {
         ScanResult r = find(host);
         return new ScanStatusView(r.host, r.state, r.lastScanAt, r.version,
-                new SummaryView(r.discovered, r.active, r.shadow, r.zombie, r.unused));
+                new SummaryView(r.discovered, r.active, r.shadow, r.zombie, r.unused), r.totalDropped);
     }
 
     /** 결과 — 조건부 GET. If-None-Match 가 현재 version 과 같으면 304(doc/07 §3.3). */

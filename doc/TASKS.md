@@ -41,9 +41,20 @@
 > (현재 비어 있음 — OPTIONS preflight·cross-scan recency severity 완료, Done 참조)
 
 #### 리포트/출력 (01/12/14 문서)
-- [ ] `low_confidence` 분리 노출 + `spec_source.warnings` 리포트 반영 — `→ 의존:` doc/14 seam(`SpecParser.parse→SpecParseResult(endpoints, warnings)`), 현재 파서 경고는 log 만
-- [ ] **(신규, doc/13 후속)** Active/Zombie finding 에 param 후보 노출 (현재 Shadow 만 `params`) — `→ 의존:` doc/13 `ParamCandidates`(완료), 스펙 param 정의 활용
-- [ ] **(신규, doc/12 후속, 선택·낮음)** `scan-status` 요약에 `total_dropped` 비정규화 컬럼(at-a-glance) — 현재 사유별 상세는 `/result` 만
+- [ ] `low_confidence` 분리 노출 + `spec_source.warnings` 리포트 반영 — `→ 의존:` doc/14 seam(`SpecParser.parse→SpecParseResult(endpoints, warnings)`), 현재 파서 경고는 log 만 **(설계 완료 → doc/25 §A, DECISIONS D34)**
+  - [x] `spec/SpecParseResult(endpoints, warnings)` 신설 + `SpecParser.parse` 반환형 변경 + 3 파서 warnings 수집(log.warn→수집)
+  - [x] `SpecRecord`+`@Lob warningsJson`; `SpecStore.upload` 영속; `DiscoveryJobService` active 스펙 warnings 로드 → `model/SpecSource(specVersion,format,warnings)` + `DiscoveryReport.specSource`(non-null,EMPTY)+ETag(안정)
+  - [x] Shadow/Zombie 파생 `@JsonProperty low_confidence`(confidence<0.5 1차값) + `Summary.lowConfidence` 카운트 (별도 섹션 아님)
+  - [x] 테스트 — 파서 warnings 수집·영속·스캔 로드(specSource)/low_confidence 플래그·카운트/ETag(specSource 안정 편승)
+- [ ] **(신규, doc/13 후속)** Active/Zombie finding 에 param 후보 노출 (현재 Shadow 만 `params`) — `→ 의존:` doc/13 `ParamCandidates`(완료), 스펙 param 정의 활용 **(설계 완료 → doc/25 §B, DECISIONS D34)**
+  - [x] `Finding.Active`·`Finding.Zombie` +`ParamCandidates params`(편의 ctor=EMPTY 하위호환)
+  - [x] `Evidence` query params 이름단위 union(매칭 d.params) → `Classifier` 2차 Active/Zombie 에 ev.queryCandidates + spec 템플릿 path param 부여
+  - [x] ETag findings-투영(doc/24)에 params→정렬 이름집합+path 토큰(count/buckets 제외) 확장(Shadow·Active·Zombie 균일)
+  - [x] 테스트 — Active/Zombie params 노출(관측 query+spec path)/EMPTY 하위호환/멀티host union/ETag 이름집합(count 변동 무bump)
+- [ ] **(신규, doc/12 후속, 선택·낮음)** `scan-status` 요약에 `total_dropped` 비정규화 컬럼(at-a-glance) — 현재 사유별 상세는 `/result` 만 **(설계 완료 → doc/25 §C, DECISIONS D34)**
+  - [x] `ScanResult`+`int totalDropped`(persist 에서 droppedNonApi.total+byLimit.total+nonExistent.notFound 합) + `ScanStatusView`+totalDropped (ddl-auto, 기존 0; ETag 무영향)
+  - [x] 테스트 — totalDropped=3종 합·/result 사유별 상세 불변
+- [ ] **(공통, doc/25)** (doc/18 sync, technical_writer) `spec_record.warnings_json`·`scan_result.total_dropped` 컬럼 반영
 
 #### 스펙 파서 / Spec Store (03 문서)
 - [ ] 멀티 스펙 업로드(여러 문서 병합)
