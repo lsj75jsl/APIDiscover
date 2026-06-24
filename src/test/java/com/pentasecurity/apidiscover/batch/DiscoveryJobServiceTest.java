@@ -231,6 +231,42 @@ class DiscoveryJobServiceTest {
     }
 
     @Test
+    void reportJsonExposesTypeDistribution() {
+        when(specStore.activeMeta(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.findById(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.save(any(ScanResult.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // $type=document 2건 → corpus 히스토그램 reportJson 노출 (doc/21 Tier1)
+        ScanResult r = service.analyze(HOST, List.of(
+                lineT("GET", "/p1", 200, "document"), lineT("GET", "/p2", 200, "document")), window);
+        assertThat(r.reportJson).contains("\"typeDistribution\"").contains("\"document\"");
+    }
+
+    @Test
+    void etagBumpsOnNewTypeKeyButNotOnCountChange() {
+        when(specStore.activeMeta(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.findById(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.save(any(ScanResult.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // A: /x document×3 (dominant document → WEB_PAGE, 저득점 drop). 히스토그램 키집합={document}
+        ScanResult a = service.analyze(HOST, List.of(
+                lineT("GET", "/x", 200, "document"), lineT("GET", "/x", 200, "document"),
+                lineT("GET", "/x", 200, "document")), window);
+        // B: document×5 — count 만 변동, 키집합 동일={document}, findings/summary 불변 → ETag 무bump (doc/21 §3)
+        ScanResult b = service.analyze(HOST, List.of(
+                lineT("GET", "/x", 200, "document"), lineT("GET", "/x", 200, "document"),
+                lineT("GET", "/x", 200, "document"), lineT("GET", "/x", 200, "document"),
+                lineT("GET", "/x", 200, "document")), window);
+        // C: document×3 + xhr×1 (dominant 여전히 document) — 신규 $type 키 출현 → 키집합={document,xhr} → ETag bump
+        ScanResult c = service.analyze(HOST, List.of(
+                lineT("GET", "/x", 200, "document"), lineT("GET", "/x", 200, "document"),
+                lineT("GET", "/x", 200, "document"), lineT("GET", "/x", 200, "xhr")), window);
+
+        assertThat(a.version).isEqualTo(b.version);    // count 변동 → 무bump
+        assertThat(a.version).isNotEqualTo(c.version);  // 신규 $type 키 → bump
+    }
+
+    @Test
     void shadowParamCandidatesAppearInReportJson() {
         when(specStore.activeMeta(HOST)).thenReturn(Optional.empty());
         when(scanRepo.findById(HOST)).thenReturn(Optional.empty());
@@ -349,10 +385,15 @@ class DiscoveryJobServiceTest {
 
     /** ^|^ 구분 20필드 로그 한 줄 생성. */
     private static String line(String method, String uri, int status) {
+        return lineT(method, uri, status, "api");
+    }
+
+    /** line() 변형 — $type(필드19) 지정. $type taxonomy/히스토그램 테스트용 (doc/21). */
+    private static String lineT(String method, String uri, int status, String type) {
         return String.join("^|^", List.of(
                 "203.0.113.5", "10.0.0.2", "51514", "2026-06-22T09:00:00+09:00", "MISS",
                 method + " " + uri + " HTTP/1.1", "OK", "0.010", uri, String.valueOf(status),
-                "100", "99", "on", "-", "ua", HOST, HOST, "10.0.0.10", "443", "api"));
+                "100", "99", "on", "-", "ua", HOST, HOST, "10.0.0.10", "443", type));
     }
 
     private static ApiDiscoverProperties props() {

@@ -60,10 +60,10 @@
 ## 6. dev 구현 체크리스트 (TASKS subitem, D26)
 
 - [x] **(research 0.4)** §A 프로토콜로 Loki $type 샘플링 실행(작은 창/limit·부하보호·`limit=1e8` 금지) → 증거표(type×status×method, API/웹/혼합 호스트) 산출. → **§A-결과** 참조(2026-06-24, 총 쿼리 3회). vocab={document,library}, API_TYPES 5값 실관측 0, document 트랩 ≈100%(api 호스트).
-- [ ] **(분석)** 증거표 → §B 규칙 적용 → API_TYPES 확정안 + document 트랩 재확인 결과를 doc/21·DECISIONS 에 기록.
-- [ ] **(Tier0)** `EndpointKindClassifier.API_TYPES` 정제(확정분 반영 또는 무변경+근거 주석). ApiScorer 무변경(responseTypeApi 자동 수혜) 확인.
-- [ ] **(Tier1·권장)** corpus `$type` 히스토그램: `InventoryBuilder` 가 Acc.typeDist 집계(top-N+other) → `model/TypeDistribution`(형제) → `DiscoveryReport` top-level + `ReportBuilder.build` 인자 + `DiscoveryJobService` ETag(**distinct 키 집합만**, count 제외).
-- [ ] 테스트 — API_TYPES 매핑(신규값→API_CANDIDATE·기존 불변) / 히스토그램 집계·top-N·노출 / ETag(신규 키→bump·count 변동→무bump) / 무회귀(확장자 1순위·document 약신호).
+- [x] **(분석)** 증거표 → §B 규칙 적용 → API_TYPES **무변경 확정** + document 트랩 ≈100% 재확인 결과를 doc/21 §A-결과·DECISIONS D30 결론에 기록.
+- [x] **(Tier0)** `EndpointKindClassifier.API_TYPES` **무변경 + 근거 주석**(실관측 0·관례 집합 유지·dormant·자동 전파). ApiScorer 무변경(responseTypeApi 자동 수혜) 확인.
+- [x] **(Tier1·권장)** corpus `$type` 히스토그램: `InventoryBuilder` 가 Acc.typeDist 집계(top-N 20+other) → `model/TypeDistribution`(형제) → `DiscoveryReport` top-level + `ReportBuilder.build` 인자 + `DiscoveryJobService` ETag(**distinct 키 집합만**, count 제외).
+- [x] 테스트 — API_TYPES 매핑 5값 불변 / 히스토그램 집계·top-N·other·노출 / ETag(신규 키→bump·count 변동→무bump) / 무회귀(확장자 1순위·document 약신호).
 
 ## A-결과. 샘플링 증거표 (research 0.4, 2026-06-24 실행)
 

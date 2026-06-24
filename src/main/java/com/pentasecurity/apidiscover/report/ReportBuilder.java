@@ -8,6 +8,7 @@ import com.pentasecurity.apidiscover.model.DroppedNonApi;
 import com.pentasecurity.apidiscover.model.DroppedNonExistent;
 import com.pentasecurity.apidiscover.model.EndpointKindSignal;
 import com.pentasecurity.apidiscover.model.Finding;
+import com.pentasecurity.apidiscover.model.TypeDistribution;
 import java.time.Instant;
 import java.util.List;
 import org.springframework.stereotype.Component;
@@ -19,7 +20,7 @@ public class ReportBuilder {
     public DiscoveryReport build(String host, long specVersion, LogWindow window,
                                  int discoveredCount, List<Finding> findings, DroppedNonApi dropped,
                                  DroppedByLimit droppedByLimit, DroppedNonExistent droppedNonExistent,
-                                 EndpointKindSignal endpointKindSignal) {
+                                 EndpointKindSignal endpointKindSignal, TypeDistribution typeDistribution) {
         int active = 0;
         int shadow = 0;
         int zombie = 0;
@@ -40,7 +41,8 @@ public class ReportBuilder {
         DroppedByLimit byLimit = droppedByLimit != null ? droppedByLimit : DroppedByLimit.NONE;
         DroppedNonExistent nonExistent = droppedNonExistent != null ? droppedNonExistent : DroppedNonExistent.NONE;
         EndpointKindSignal kindSignal = endpointKindSignal != null ? endpointKindSignal : EndpointKindSignal.NONE;
+        TypeDistribution typeDist = typeDistribution != null ? typeDistribution : TypeDistribution.NONE;
         return new DiscoveryReport(host, Instant.now(), window, specVersion, summary, findings,
-                nonApi, byLimit, nonExistent, kindSignal);
+                nonApi, byLimit, nonExistent, kindSignal, typeDist);
     }
 }

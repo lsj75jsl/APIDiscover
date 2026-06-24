@@ -160,7 +160,7 @@ public class DiscoveryJobService {
         DiscoveryReport report = reportBuilder.build(
                 host, specVersion, window, (int) reportedCount, findings,
                 classified.dropped(), inventory.droppedByLimit(), inventory.droppedNonExistent(),
-                inventory.endpointKindSignal());
+                inventory.endpointKindSignal(), inventory.typeDistribution());
 
         return persist(host, report);
     }
@@ -169,10 +169,11 @@ public class DiscoveryJobService {
         String reportJson = toJson(report);
         // version(ETag)은 generatedAt/window 를 제외한 '내용'으로 산정 → 동일 결과는 동일 버전 (doc/07 §8).
         // dropped 메트릭·endpoint_kind 신호 모두 결과 콘텐츠 → 포함(분포 변화 반영, doc/12 §4, doc/13 §4.2, doc/19 §4, doc/20 §5)
+        // $type 분포는 distinct 키집합(정렬, count 제외)만 → 신규 값=드리프트 bump, count 변동=무bump (doc/21 §3 Tier1)
         String version = EtagUtil.of(toJson(List.of(
                 report.specVersion(), report.summary(), report.findings(),
                 report.droppedNonApi(), report.droppedByLimit(), report.droppedNonExistent(),
-                report.endpointKindSignal())));
+                report.endpointKindSignal(), report.typeDistribution().distinctKeys())));
 
         ScanResult r = scanRepo.findById(host).orElseGet(ScanResult::new);
         r.host = host;
