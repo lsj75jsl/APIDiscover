@@ -34,6 +34,7 @@ import com.pentasecurity.apidiscover.normalize.EndpointKindClassifier;
 import com.pentasecurity.apidiscover.normalize.InventoryBuilder;
 import com.pentasecurity.apidiscover.normalize.ParamCandidateExtractor;
 import com.pentasecurity.apidiscover.normalize.PathNormalizer;
+import com.pentasecurity.apidiscover.normalize.RefererSignalExtractor;
 import com.pentasecurity.apidiscover.normalize.SensitiveKeyMatcher;
 import com.pentasecurity.apidiscover.parse.LogLineParser;
 import com.pentasecurity.apidiscover.report.ReportBuilder;
@@ -64,7 +65,8 @@ class DiscoveryJobServiceTest {
             new LogLineParser(NORM),
             new InventoryBuilder(new PathNormalizer(), new EndpointKindClassifier(),
                     new CardinalityNormalizer(NORM),
-                    new ParamCandidateExtractor(new SensitiveKeyMatcher(SensitiveKeyProperties.defaults()), NORM)),
+                    new ParamCandidateExtractor(new SensitiveKeyMatcher(SensitiveKeyProperties.defaults()), NORM),
+                    new RefererSignalExtractor(new PathNormalizer())),
             specStore,
             new EndpointMatcherCache(),
             new Classifier(new ApiScorer()),
@@ -218,6 +220,17 @@ class DiscoveryJobServiceTest {
     }
 
     @Test
+    void reportJsonExposesEndpointKindSignal() {
+        when(specStore.activeMeta(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.findById(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.save(any(ScanResult.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // line() 헬퍼는 referer="-"(null)·정적 미경유 → endpoint_kind referer 신호 DORMANT, reportJson 에 노출 (doc/20 §5)
+        ScanResult r = service.analyze(HOST, List.of(line("GET", "/x", 200)), window);
+        assertThat(r.reportJson).contains("\"endpointKindSignal\"").contains("\"status\":\"DORMANT\"");
+    }
+
+    @Test
     void shadowParamCandidatesAppearInReportJson() {
         when(specStore.activeMeta(HOST)).thenReturn(Optional.empty());
         when(scanRepo.findById(HOST)).thenReturn(Optional.empty());
@@ -246,7 +259,8 @@ class DiscoveryJobServiceTest {
         var capProps = new NormalizationProperties(2, 50, 0.3, 20, 0.7, new int[]{8, 32, 128});
         var cappedInventory = new InventoryBuilder(new PathNormalizer(), new EndpointKindClassifier(),
                 new CardinalityNormalizer(capProps),
-                new ParamCandidateExtractor(new SensitiveKeyMatcher(SensitiveKeyProperties.defaults()), capProps));
+                new ParamCandidateExtractor(new SensitiveKeyMatcher(SensitiveKeyProperties.defaults()), capProps),
+                new RefererSignalExtractor(new PathNormalizer()));
         var cappedService = new DiscoveryJobService(new LogLineParser(NORM), cappedInventory, specStore,
                 new EndpointMatcherCache(), new Classifier(new ApiScorer()), resolver, new ReportBuilder(), scanRepo,
                 mock(DomainConfigRepository.class), mock(WatermarkRepository.class), mock(LokiClient.class),

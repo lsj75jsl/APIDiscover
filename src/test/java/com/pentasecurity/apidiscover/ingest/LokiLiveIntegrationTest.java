@@ -18,6 +18,7 @@ import com.pentasecurity.apidiscover.model.DroppedByLimit;
 import com.pentasecurity.apidiscover.model.DroppedNonApi;
 import com.pentasecurity.apidiscover.model.DroppedNonExistent;
 import com.pentasecurity.apidiscover.model.EndpointKind;
+import com.pentasecurity.apidiscover.model.EndpointKindSignal;
 import com.pentasecurity.apidiscover.model.Finding;
 import com.pentasecurity.apidiscover.model.ParsedRequest;
 import com.pentasecurity.apidiscover.normalize.CardinalityNormalizer;
@@ -25,6 +26,7 @@ import com.pentasecurity.apidiscover.normalize.EndpointKindClassifier;
 import com.pentasecurity.apidiscover.normalize.InventoryBuilder;
 import com.pentasecurity.apidiscover.normalize.ParamCandidateExtractor;
 import com.pentasecurity.apidiscover.normalize.PathNormalizer;
+import com.pentasecurity.apidiscover.normalize.RefererSignalExtractor;
 import com.pentasecurity.apidiscover.normalize.SensitiveKeyMatcher;
 import com.pentasecurity.apidiscover.parse.LogLineParser;
 import com.pentasecurity.apidiscover.report.ReportBuilder;
@@ -82,12 +84,14 @@ class LokiLiveIntegrationTest {
         EndpointMatcher matcher = new EndpointMatcher(List.<CanonicalEndpoint>of());
         InventoryBuilder inventory = new InventoryBuilder(new PathNormalizer(), new EndpointKindClassifier(),
                 new CardinalityNormalizer(norm),
-                new ParamCandidateExtractor(new SensitiveKeyMatcher(SensitiveKeyProperties.defaults()), norm));
+                new ParamCandidateExtractor(new SensitiveKeyMatcher(SensitiveKeyProperties.defaults()), norm),
+                new RefererSignalExtractor(new PathNormalizer()));
         List<DiscoveredEndpoint> discovered = inventory.build(requests, matcher);
         List<Finding> findings = new Classifier(new ApiScorer()).classify(discovered, List.of(), matcher);
         DiscoveryReport report = new ReportBuilder().build(
                 DOMAIN, 0L, window, discovered.size(), findings,
-                new DroppedNonApi(0, 0, 0), new DroppedByLimit(0, 0), DroppedNonExistent.NONE);
+                new DroppedNonApi(0, 0, 0), new DroppedByLimit(0, 0), DroppedNonExistent.NONE,
+                EndpointKindSignal.NONE);
 
         // 검증
         assertThat(requests).as("파싱된 요청이 있어야 함").isNotEmpty();

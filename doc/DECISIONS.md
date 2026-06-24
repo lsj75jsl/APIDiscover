@@ -242,6 +242,16 @@ doc/02 §4·doc/04 §7(:172)의 인벤토리 단계 명시 적용(현재 Classif
 - **역할 분담**: TASKS = 우선순위·큐 단일 기준, 설계문서 체크리스트 = 그 문서 범위의 구현 상태 기록. 둘 다 같은 PR 에서 동기 갱신. '범위 밖/후속/한계' 는 설계문서에서 미완료로 두고 TASKS 후속으로 추적(현행 유지).
 - **D26 와의 관계**: 모순 아닌 보완. D26 = '설계 도출 항목을 TASKS subitem 으로 추가·추적', D28 = '구현 시 설계문서 체크리스트도 동기 체크'. CLAUDE.md '작업 항목 관리' 섹션에 코드화. 코드 변경 없는 문서 작업(branch docs/checklist-sync-and-process).
 
+### D29. endpoint_kind referer 보조 신호 (doc/20)
+$type+확장자만 쓰던 EndpointKindClassifier 에 `$http_referer` 부모-자식(정적 자원의 referer=부모 페이지)을 **보조 양성 신호**로 추가(doc/02 §5.1~§5.4).
+- **PAGE_URLS**: `InventoryBuilder.buildWithLimits` 시작 corpus pre-pass(신규 `RefererSignalExtractor`) — static 요청(확장자/library) referer 의 **path 만 PathNormalizer 정규화**→`Map<template,childCount>`. Acc 무변경(corpus 횡단).
+- **커버리지 게이트(§5.4)**: `static_ratio≥0.05 AND referer_present_ratio≥0.20` → ACTIVE, else **DORMANT**(전 endpoint 현행 UNKNOWN). 실 Loki api 호스트(정적 미경유)는 dormant → 무회귀 핵심.
+- **통합**: $type 결정 우선, **결과 UNKNOWN 일 때만** + active + `pageUrls.get(template)≥2` → WEB_PAGE(conf 0.6). **비대칭 양성**(PAGE_URLS 부재→UNKNOWN 유지·무감점, §5.1). 3-arg classify 신규 + 2-arg 오버로드(dormant 위임) 하위호환.
+- **노출**: `model/EndpointKindSignal(status, staticRatio, refererPresentRatio)` → DiscoveryReport top-level(`.NONE`=dormant) + ETag(ratios round3). pageUrls 비노출.
+- **api_candidate 약가점(§5.3 step4) 미채택**: non-browser UA 는 이미 ApiScorer.nonBrowserUa 중복 + referer **부재**를 양성 근거로 쓰면 §5.1 비대칭(부재=무증거) 충돌. referer **존재→web_page** 양성만.
+- **상호작용**: doc/17 responseTypeApi 충돌 없음(referer 는 UNKNOWN 일 때만, API_CANDIDATE 는 이미 결정·배타). doc/09 web-form drop 정확도↑. Shadow 오탐 감소.
+- **무회귀**: $type 결정·dormant 환경·2-arg 오버로드 전부 현행. 코드 상수 임계(중앙 튜닝 후속 seam).
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.

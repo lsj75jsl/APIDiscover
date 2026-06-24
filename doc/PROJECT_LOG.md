@@ -5,6 +5,23 @@
 
 ---
 
+## 2026-06-24 세션 19 — endpoint_kind referer 보조 신호 (doc/20 §7, DECISIONS D29)
+
+### 한 일
+- **신규**: `model/SignalStatus{ACTIVE,DORMANT}`·`model/RefererSignal`(internal corpus: pageUrls·ratios·`dormant()`·`active()`)·`model/EndpointKindSignal`(노출: status·ratios·`NONE`), `normalize/RefererSignalExtractor`(@Component).
+- **신호 구축(corpus pre-pass)**: `RefererSignalExtractor.build(requests)` — static 요청(확장자/`$type=library`)의 referer→path 추출(scheme/host·query·fragment 제거)→`PathNormalizer.inferTemplate`→PAGE_URLS 빈도. 커버리지 게이트 `static_ratio≥0.05 AND referer_present_ratio≥0.20`(원시 ratio 비교)→ACTIVE, 미달→DORMANT.
+- **분류 통합**: `EndpointKindClassifier` 3-arg `classify(template, typeDist, RefererSignal)` — `$type+확장자` 우선, 결과 `UNKNOWN && active && pageUrls≥2 → WEB_PAGE conf 0.6`(비대칭 양성, 부재→UNKNOWN 무감점). 2-arg 는 `dormant()` 위임 하위호환. `isStaticPath()` public static 노출(DRY).
+- **배선**: `InventoryBuilder.buildWithLimits` corpus pre-pass 1회→classify 3-arg→`InventoryResult` 에 `EndpointKindSignal`. `DiscoveryReport` top-level + `ReportBuilder.build` 인자 + `DiscoveryJobService` ETag 입력(ratios round3, 노출용에만).
+- **무회귀**: `$type` 결정 케이스 referer 분기 미진입, DORMANT 환경(정적 미경유/referer 부재) 전 endpoint 현행 UNKNOWN, 2-arg 오버로드로 기존 EndpointKindClassifierTest 무영향, WEB_PAGE⊕API_CANDIDATE 배타로 doc/17 responseTypeApi 무충돌.
+- **리뷰 2라운드**: ① 구현 6건 → ② P3 2건(게이트 원시 ratio 분리 정합성, 경계 포함성 `>=` 테스트). P1=0/P2=0/P3=0. D26/D28 규칙대로 TASKS subitem 6건·doc/20 §7 [x] 동기.
+- 마무리: GitHub PR 워크플로(push → `gh pr create` → 팀장 머지).
+
+### 결과
+- BUILD SUCCESSFUL, **tests=256 skipped=1(라이브) failures=0**. RefererSignalExtractorTest 6·EndpointKindClassifierTest +4·InventoryBuilderTest +2·DiscoveryJobServiceTest +1.
+
+### 다음
+- 후속(범위 밖): api_candidate 약가점(미채택)·referer 동적 임계 중앙 API.
+
 ## 2026-06-24 세션 18 — 설계문서 체크리스트 완료 백필 + 동기갱신 프로세스 (CLAUDE.md, DECISIONS D28)
 
 ### 한 일
