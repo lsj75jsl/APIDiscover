@@ -38,7 +38,12 @@
 ### P1. 자체 분석 기능 (먼저)
 
 #### 정규화/인벤토리 (02/13 문서)
-- [ ] `$type` 전체 taxonomy 광범위 샘플링으로 확정 (다양한 status/method) — `→ 의존:` doc/17 `responseTypeApi`·EndpointKindClassifier API_TYPES 정제 근거
+- [ ] `$type` 전체 taxonomy 광범위 샘플링으로 확정 (다양한 status/method) **(설계 완료 → doc/21, DECISIONS D30)** — `→ 의존:` doc/17 `responseTypeApi`·EndpointKindClassifier API_TYPES 정제 근거
+  - [x] (research 0.4) doc/21 §A 프로토콜로 Loki $type 샘플링(작은 창/limit·부하보호·`limit=1e8` 금지) → type×status×method 증거표(API/웹/혼합 호스트) **→ 완료 2026-06-24, doc/21 §A-결과. vocab={document,library}, API_TYPES 5값 실관측 0, document 트랩 ≈100%(api 호스트). 총 쿼리 3회**
+  - [ ] (분석) 증거표 → §B 규칙 → API_TYPES 확정안 + document 트랩 재확인, doc/21·DECISIONS 기록
+  - [ ] (Tier0) `EndpointKindClassifier.API_TYPES` 정제(확정분 반영 또는 무변경+근거 주석), ApiScorer 무변경(responseTypeApi 자동 수혜)
+  - [ ] (Tier1·권장) corpus `$type` 히스토그램 — `InventoryBuilder` 집계(top-N+other)→`model/TypeDistribution`→`DiscoveryReport`+`ReportBuilder`+`DiscoveryJobService` ETag(distinct 키집합만)
+  - [ ] 테스트 — API_TYPES 매핑(신규→API_CANDIDATE·기존 불변)/히스토그램 집계·노출/ETag(신규 키 bump·count 무bump)/무회귀(확장자 1순위·document 약신호)
 - [ ] distinct/분위수 대용량 근사 (HLL/t-digest, 규모 대응) — 현재 정확 Set/nearest-rank
 
 #### 분류 (04/16 문서)
