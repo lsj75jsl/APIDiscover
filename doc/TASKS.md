@@ -38,13 +38,7 @@
 ### P1. 자체 분석 기능 (먼저)
 
 #### 분류 (04/16 문서)
-- [ ] **(신규, doc/16 후속)** 절대 cross-scan recency 로 Zombie severity 보강 — 현재 severity 는 단일 스캔 내 span 대용. `→ 의존:` 스캔 이력(과거 lastSeen) 영속(현재 ScanResult 최신 1건만) **(설계 완료 → doc/24, DECISIONS D33)**
-  - [x] `domain/EndpointHistory`(@Id host, @Lob historyJson=`Map<specKey,{firstSeen,lastSeen}>`, updatedAt)+repository (spec 매칭만 기록→spec-bound, ddl-auto 신규 테이블) + `model/EndpointObservation`
-  - [x] `ZombieSeverity.of(Evidence, Instant historicalFirstSeen)` — base(doc/16 불변)+`entrenchmentBonus`(W0.2/GRACE7d/SAT90d 1차값·코드상수). `of(Evidence)` 오버로드(현행 위임=콜드스타트)
-  - [x] `Classifier.classifyWithMetrics` +`priorFirstSeen`(빈 map 오버로드 하위호환)→Zombie severity 에 prior firstSeen; `ClassificationResult` +`observedTimes`(3-arg 편의 ctor, observedSpec 투영)
-  - [x] `DiscoveryJobService.analyze` — EndpointHistory 로드→priorFirstSeen 주입, persist 후 observedTimes merge(min firstSeen/max lastSeen)→save. ETag findings 의 Zombie severity→`band` 투영(churn 버킷화)
-  - [x] 테스트 — 콜드스타트(보너스0=현행·기존 단언 green)/entrenched(lifespan≥SAT→band 상향)/GRACE 미만 무보너스/ETag(재스캔 동일 version·creep 무bump)/spec-only(observedTimes)
-  - [x] (doc/18 sync, technical_writer) 신규 `endpoint_history` 테이블 스키마 반영 (§2.8, 6→7엔티티/7→8테이블)
+> (현재 비어 있음 — OPTIONS preflight·cross-scan recency severity 완료, Done 참조)
 
 #### 리포트/출력 (01/12/14 문서)
 - [ ] `low_confidence` 분리 노출 + `spec_source.warnings` 리포트 반영 — `→ 의존:` doc/14 seam(`SpecParser.parse→SpecParseResult(endpoints, warnings)`), 현재 파서 경고는 log 만
@@ -81,6 +75,14 @@
 ---
 
 ## Done
+
+### cross-scan recency 로 Zombie severity 보강 (2026-06-24, doc/24 / DECISIONS D33, PR #14) — tests=291 green
+- [x] `domain/EndpointHistory`(@Id host, @Lob `Map<specKey,EndpointObservation>`)+repository — spec 매칭만 기록(spec-bound), ddl-auto 신규 테이블, doc/18 §2.8 동기(6→7엔티티/7→8테이블)
+- [x] `ZombieSeverity.of(Evidence, Instant historicalFirstSeen)` = base(doc/16 불변)+entrenchmentBonus(lifespan=lastSeen−이력firstSeen, W0.2/GRACE7d/SAT90d log, <GRACE→0). of(Evidence) 오버로드(콜드스타트=현행)
+- [x] `Classifier` 6-arg classifyWithMetrics(+priorFirstSeen, 5-arg 오버로드)·`ClassificationResult`+observedTimes / `DiscoveryJobService` 이력 로드·주입·merge(min/max)·save
+- [x] ETag: Zombie severity→band 투영(now() 불사용=데이터 ts→재스캔 동일 version, creep 무bump·band 전이만 bump)
+- [x] 테스트 — 콜드스타트(보너스0=현행)/entrenched(band 상향)/GRACE 미만 무보너스/ETag 재스캔 동일·creep 무bump/spec-only/merge
+> 절대 recency=누적 lifespan(entrenchment, 데이터 ts). 보강(additive·base 불변)이라 콜드스타트=현행 무회귀. now() 불사용+band 버킷화로 ETag 시간非의존(304 보존). 한계(doc/24 §3 추적): merge carry-forward prune(선택) defer, spec-bound 로 현규모 무해. 리뷰 P1/P2/P3=0.
 
 ### preflight vs 진짜 OPTIONS 구분 — 판정(B) + 완화 M1/M2/M3 (2026-06-24, doc/23 / DECISIONS D32, PR #13) — tests=285 green
 - [x] (판정 B) 로그에 preflight 구분 신호(Origin/ACRM) 부재 → 진짜 OPTIONS↔preflight 결정 불가, 한계 확정·문서화 (doc/23 §1·§2)
