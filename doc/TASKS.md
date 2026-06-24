@@ -37,14 +37,6 @@
 
 ### P1. 자체 분석 기능 (먼저)
 
-#### 정규화/인벤토리 (02/13 문서)
-- [ ] distinct/분위수 대용량 근사 (HLL/t-digest, 규모 대응) — 현재 정확 Set/nearest-rank **(설계 완료 → doc/22, DECISIONS D31)** — subitem 전건 [x], PR 머지 시 부모 Done(D26)
-  - [x] `Acc` 필드 교체 — `HashSet clients`→`HllSketch`(lgK=12), `ArrayList respTimes`→`KllDoublesSketch`(k=200) (DataSketches 기확보, 신규 의존성 0)
-  - [x] `Acc.add` — `hll.update(ip)`(null skip)·`kll.update((double)ms)`; `mergeFrom` — HLL `Union`·KLL `merge`
-  - [x] `Acc.toEndpoint` — distinctClients=`round(hll.getEstimate())`·p50/p95=`round(kll.getQuantile, INCLUSIVE)`(빈 sketch→0), `Metrics`(long) shape·소비처 불변
-  - [x] 테스트 — 정확도(HLL±3% 결정적·KLL rank 허용)·경계(distinct 0/1/2 HLL-exact→shadowConfidence)·병합(분할 union/merge≈단일)·회귀(기존 normalizer·percentile exact 단언 green 유지)
-  - [x] (확인) ETag 무변경(distinctClients/percentile 비입력)·CardinalityNormalizer 임계(statics.size, 근사 무관) 무변경·sketch 비영속
-
 #### 분류 (04/16 문서)
 - [ ] (한계) preflight vs 진짜 OPTIONS 구분 불가로 스펙 OPTIONS operation Unused 오판 가능
 - [ ] **(신규, doc/16 후속)** 절대 cross-scan recency 로 Zombie severity 보강 — 현재 severity 는 단일 스캔 내 span 대용. `→ 의존:` 스캔 이력(과거 lastSeen) 영속(현재 ScanResult 최신 1건만)
@@ -84,6 +76,14 @@
 ---
 
 ## Done
+
+### distinct/분위수 대용량 근사 — Acc HLL+KLL sketch (2026-06-24, doc/22 / DECISIONS D31, PR #12) — tests=267 green
+- [x] `Acc` 필드 교체 — `HashSet clients`→`HllSketch`(lgK=12), `ArrayList respTimes`→`KllDoublesSketch`(k=200) (DataSketches 6.1.1 기확보, 신규 의존성 0)
+- [x] `Acc.add` — `hll.update(ip)`(null skip)·`kll.update((double)ms)`; `mergeFrom` — HLL `Union`·KLL `merge`
+- [x] `Acc.toEndpoint` — distinctClients=`round(hll.getEstimate())`·p50/p95=`round(kll.getQuantile, INCLUSIVE)`(빈 sketch→0), `Metrics`(long) shape·소비처 불변
+- [x] 테스트 — 정확도(HLL±3% 결정적·KLL rank 허용)·경계(distinct 0/1/2 HLL-exact→shadowConfidence)·병합(분할 union/merge≈단일)·회귀(기존 normalizer·percentile exact 단언 green 유지)
+- [x] (확인) ETag 무변경(distinctClients/percentile 비입력)·CardinalityNormalizer 임계(statics.size, 근사 무관) 무변경·sketch 비영속
+> 변경 Acc.java 한정(surgical). 본질=per-signature 고정크기 메모리 가드(무한 성장 ArrayList 제거). distinctClients '<=1' 경계는 HLL 소-N exact(coupon)·getQuantile INCLUSIVE=nearest-rank 동치라 분류/단언 무파손. 신규 의존성 0(DataSketches 기확보 D8). 리뷰 P1/P2/P3=0.
 
 ### $type taxonomy 샘플링 확정 + corpus $type 히스토그램 (2026-06-24, doc/21 / DECISIONS D30, PR #11) — tests=261 green
 - [x] (research 0.4) doc/21 §A 프로토콜로 Loki $type 샘플링(작은 창/limit·부하보호·`limit=1e8` 금지, 총 3쿼리) → 증거표. **vocab={document,library}, API_TYPES 5값 실관측 0, document 트랩 ≈100%(api 호스트)**
