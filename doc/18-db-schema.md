@@ -120,6 +120,7 @@ INSERT 에는 이 기본값이 적용되지 않는다.
 | `spec_version` | `specVersion` | `long` | BIGINT | | NOT NULL | 도메인별 증가 버전 |
 | `raw_doc` | `rawDoc` | `@Lob byte[]` | BLOB | | nullable | 원본 문서(감사/재파싱용) |
 | `canonical_json` | `canonicalJson` | `@Lob String` | CLOB/TEXT | | nullable | Canonical 엔드포인트 집합 JSON(매칭의 진실원) |
+| `warnings_json` | `warningsJson` | `@Lob String` | CLOB/TEXT | | nullable | 파싱 recoverable 경고 `List<String>` 직렬화. 스캔이 `specSource.warnings` 로 로드(doc/25 §A.2) |
 | `endpoint_count` | `endpointCount` | `int` | INTEGER | | NOT NULL | |
 | `uploaded_at` | `uploadedAt` | `Instant` | TIMESTAMP(6) | | nullable | |
 | `active` | `active` | `boolean` | BOOLEAN | | NOT NULL | 활성 버전 여부 |
@@ -146,6 +147,10 @@ INSERT 에는 이 기본값이 적용되지 않는다.
 | `shadow` | `shadow` | `int` | INTEGER | | NOT NULL | summary |
 | `zombie` | `zombie` | `int` | INTEGER | | NOT NULL | summary |
 | `unused` | `unused` | `int` | INTEGER | | NOT NULL | summary |
+| `total_dropped` | `totalDropped` | `int` `@Column(columnDefinition = "integer default 0")` | INTEGER **DEFAULT 0** | | NOT NULL | dropped 3종 합계(non_api+byLimit+nonExistent) 비정규화. scan-status at-a-glance(doc/25 §C) |
+
+> `total_dropped` 는 본 문서에서 **유일하게 SQL `DEFAULT` 절을 갖는 컬럼**이다(`columnDefinition` 명시). §1.3 의 "필드 기본값 ≠ SQL DEFAULT" 일반 규칙의 예외 —
+> `ddl-auto: update` 가 기존 테이블에 `ALTER TABLE ... ADD COLUMN total_dropped integer default 0` 으로 추가해 **기존 행을 NULL 없이 0 으로 백필**한다(`int` primitive 안전, doc/25 §C).
 
 ### 2.5 `watermark` — 도메인별 증분 수집 watermark
 
@@ -255,8 +260,8 @@ spec_record │   │   │   domain_classification_config(host, PK·1:1)
 |--------|--------|----------|
 | `domain_config` | `DomainConfig` | doc/07 §3.1, doc/05 §2.3(hostnames) |
 | `domain_hostnames` | `DomainConfig.hostnames` (`@ElementCollection`) | doc/05 §2.3 |
-| `spec_record` | `SpecRecord` | doc/03 §7.3 |
-| `scan_result` | `ScanResult` | doc/07 §3.2·§3.3, `reportJson`=doc/01 §4·doc/12 |
+| `spec_record` | `SpecRecord` | doc/03 §7.3, `warnings_json`=doc/25 §A.2·D34 |
+| `scan_result` | `ScanResult` | doc/07 §3.2·§3.3, `reportJson`=doc/01 §4·doc/12, `total_dropped`=doc/25 §C·D34 |
 | `watermark` | `Watermark` | doc/05 §3.1 |
 | `classification_config` | `ClassificationConfig` | doc/10 §1.1 |
 | `domain_classification_config` | `DomainClassificationConfig` | doc/10 §1.2 |

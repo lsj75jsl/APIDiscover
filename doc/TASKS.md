@@ -54,7 +54,7 @@
 - [ ] **(신규, doc/12 후속, 선택·낮음)** `scan-status` 요약에 `total_dropped` 비정규화 컬럼(at-a-glance) — 현재 사유별 상세는 `/result` 만 **(설계 완료 → doc/25 §C, DECISIONS D34)**
   - [x] `ScanResult`+`int totalDropped`(persist 에서 droppedNonApi.total+byLimit.total+nonExistent.notFound 합) + `ScanStatusView`+totalDropped (ddl-auto, 기존 0; ETag 무영향)
   - [x] 테스트 — totalDropped=3종 합·/result 사유별 상세 불변
-- [ ] **(공통, doc/25)** (doc/18 sync, technical_writer) `spec_record.warnings_json`·`scan_result.total_dropped` 컬럼 반영
+- [x] **(공통, doc/25)** (doc/18 sync, technical_writer) `spec_record.warnings_json`·`scan_result.total_dropped` 컬럼 반영 (§2.x 컬럼 추가, 엔티티/테이블 개수 불변)
 
 #### 스펙 파서 / Spec Store (03 문서)
 - [ ] 멀티 스펙 업로드(여러 문서 병합)
