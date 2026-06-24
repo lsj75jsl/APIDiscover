@@ -38,7 +38,11 @@
 ### P1. 자체 분석 기능 (먼저)
 
 #### 분류 (04/16 문서)
-- [ ] (한계) preflight vs 진짜 OPTIONS 구분 불가로 스펙 OPTIONS operation Unused 오판 가능
+- [ ] (한계) preflight vs 진짜 OPTIONS 구분 불가로 스펙 OPTIONS operation Unused 오판 가능 **(분석 완료 → doc/23, DECISIONS D32 — B: 로그 신호 부재로 한계 확정·문서화)**
+  - [x] (판정) 로그 신호 분석 → B 확정(Origin/ACRM 미로깅·약신호 비결정) + 한계 범위·영향 문서화 (doc/23 §1·§2)
+  - [x] (M1·권장·선택) Unused(OPTIONS) inconclusive 주석 — `corsKeys` 재사용, `Finding.Unused`+`preflightAmbiguous`(4-arg 편의 ctor 하위호환), 2차 패스 분기(host-agnostic spec 은 template 매칭) + 테스트 3
+  - [ ] (M2·선택) operator genuine-OPTIONS 힌트(분류설정 경로 선언→관찰 패스 OPTIONS 매칭 허용)
+  - [ ] (M3·후속, 로그포맷 의존) `$http_origin`/`$http_access_control_request_method` 로깅 확보 시 parser+`isPreflight`+1차 패스 한정 → 한계 해소
 - [ ] **(신규, doc/16 후속)** 절대 cross-scan recency 로 Zombie severity 보강 — 현재 severity 는 단일 스캔 내 span 대용. `→ 의존:` 스캔 이력(과거 lastSeen) 영속(현재 ScanResult 최신 1건만)
 
 #### 리포트/출력 (01/12/14 문서)

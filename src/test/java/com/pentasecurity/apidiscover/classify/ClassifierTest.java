@@ -229,6 +229,66 @@ class ClassifierTest {
         assertThat(nonOptions).isEqualTo(specMatched + shadow + res.dropped().total());
     }
 
+    // --- OPTIONS preflight inconclusive (doc/23 M1) ---
+
+    @Test
+    void optionsSpecOpWithObservedOptionsTrafficIsPreflightAmbiguous() {
+        // 스펙 OPTIONS operation + OPTIONS 트래픽 관측(corsKeys hit) → Unused 이나 preflightAmbiguous=true
+        List<CanonicalEndpoint> optSpec = List.of(ce("OPTIONS", "/api/widgets", false));
+        var optMatcher = new EndpointMatcher(optSpec);
+        List<DiscoveredEndpoint> discovered = List.of(
+                de("OPTIONS", "/api/widgets", TemplateSource.INFERRED, EndpointKind.UNKNOWN, 10, "2xx", 5));
+
+        List<Finding> findings = classifier.classify(discovered, optSpec, optMatcher);
+
+        var unused = byClass(findings, Classification.UNUSED);
+        assertThat(unused).extracting(Finding::pathTemplate).containsExactly("/api/widgets");
+        assertThat(((Finding.Unused) unused.get(0)).preflightAmbiguous()).isTrue();
+    }
+
+    @Test
+    void optionsSpecOpWithNoOptionsTrafficIsPlainUnused() {
+        // 스펙 OPTIONS operation + OPTIONS 트래픽 없음 → corsKeys 미hit → plain Unused(preflightAmbiguous=false)
+        List<CanonicalEndpoint> optSpec = List.of(ce("OPTIONS", "/api/widgets", false));
+        var optMatcher = new EndpointMatcher(optSpec);
+        List<DiscoveredEndpoint> discovered = List.of(
+                de("GET", "/other", TemplateSource.INFERRED, EndpointKind.UNKNOWN, 5, "2xx", 2));
+
+        List<Finding> findings = classifier.classify(discovered, optSpec, optMatcher);
+
+        var unused = byClass(findings, Classification.UNUSED);
+        assertThat(unused).extracting(Finding::pathTemplate).containsExactly("/api/widgets");
+        assertThat(((Finding.Unused) unused.get(0)).preflightAmbiguous()).isFalse();
+    }
+
+    @Test
+    void nonOptionsUnusedIsNeverPreflightAmbiguous() {
+        // 비-OPTIONS Unused(/v2/legacy)는 OPTIONS 아니므로 preflightAmbiguous 절대 false (비대칭)
+        List<DiscoveredEndpoint> discovered = List.of(
+                de("GET", "/v2/users/{id}", TemplateSource.SPEC, EndpointKind.UNKNOWN, 100, "2xx", 5));
+        List<Finding> findings = classifier.classify(discovered, spec, matcher);
+
+        Finding legacy = byClass(findings, Classification.UNUSED).stream()
+                .filter(f -> f.pathTemplate().equals("/v2/legacy")).findFirst().orElseThrow();
+        assertThat(((Finding.Unused) legacy).preflightAmbiguous()).isFalse();
+    }
+
+    @Test
+    void concreteHostOptionsSpecMatchesSameHostTrafficOnly() {
+        // optionsTrafficObserved concrete-host(host!=null) exact 분기: 동일 host→ambiguous / 다른 host→false(cross-host 비매칭)
+        List<CanonicalEndpoint> optSpec = List.of(
+                new CanonicalEndpoint("OPTIONS", "/api/widgets", "api.example.com", false, null, "ref"));
+        var optMatcher = new EndpointMatcher(optSpec);
+
+        List<Finding> same = classifier.classify(
+                List.of(deH("api.example.com", "OPTIONS", "/api/widgets", 10, "2xx")), optSpec, optMatcher);
+        assertThat(((Finding.Unused) byClass(same, Classification.UNUSED).get(0)).preflightAmbiguous()).isTrue();
+
+        List<Finding> cross = classifier.classify(
+                List.of(deH("other.example.com", "OPTIONS", "/api/widgets", 10, "2xx")), optSpec, optMatcher);
+        assertThat(((Finding.Unused) byClass(cross, Classification.UNUSED).get(0)).preflightAmbiguous()).isFalse();
+    }
+
     // --- helpers ---
 
     private static List<Finding> byClass(List<Finding> findings, Classification c) {

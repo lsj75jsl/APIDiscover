@@ -272,6 +272,14 @@ doc/08 §9 보류 사유($type taxonomy 불확실·document 트랩)를 실 Loki 
 - **무회귀/검증**: distinctClients `<=1` HLL-exact→shadowConfidence 불변, percentile 미소비, normalizer/severity(hits/2xx/span 정확) 불변. 검증=정확도(허용오차 HLL±3%/KLL rank)·경계(0/1/2 exact)·병합·회귀. 기존 exact-값 단언은 소-N 유지 또는 허용오차 전환.
 - **범위 밖**: sketch 크기 설정화, percentile 리포트 노출(body·비-ETag), distinctClients 캡 exact-set 옵션.
 
+### D32. preflight vs 진짜 OPTIONS 구분 — B 판정(로그 신호 부재, 한계 확정) (doc/23)
+스펙 OPTIONS operation 이 Unused 오판되는 한계의 타당성 판정. **결론 B: 로그에 구분 신호 없음.**
+- **신호 분석**: preflight 결정적 식별자 = 요청 헤더 `Origin`+`Access-Control-Request-Method`. 로그 포맷(doc/02 §1)은 referer 만 캡처, **Origin·ACRM·Authorization 미로깅**. 캡처되는 204/body/UA/referer 는 preflight↔진짜 OPTIONS **무판별**(브라우저 fetch OPTIONS 는 preflight 와 로그상 동일). 약신호 확률판정은 false precision(D15)·비대칭 충돌로 미채택. ⇒ B.
+- **현 동작·영향**: Classifier 1차 패스가 **모든 OPTIONS skip**(cors 신호로만, doc/08) → observedSpec 미진입 → 스펙 OPTIONS operation 항상 Unused. 오판 범위 = 스펙이 OPTIONS 를 명시 정의한 소수 endpoint(진짜 호출 시 false Unused). 비-OPTIONS·cors 보너스·Shadow 는 무왜곡("반대 왜곡" 없음 — OPTIONS 미보고라 inflate 불가).
+- **완화**: M1(권장·린·선택) — 2차 패스 `OPTIONS && !observed && corsKeys.contains(host+template)` → Unused 에 `preflightAmbiguous` 주석(corsKeys 재사용·신규수집 0·비대칭, Active 단정 안 함, Finding.Unused +필드는 doc/16 severity 추가 동형). M2(선택) operator genuine-OPTIONS 힌트(분류설정). 약신호 휴리스틱 미채택.
+- **정의적 해결 seam(M3·후속, 로그포맷 의존)**: nginx log_format 에 `$http_origin`/`$http_access_control_request_method` 추가(org 결정) → parser+`isPreflight`+1차 패스 `if(isPreflight) continue` 한정 → 진짜 OPTIONS Active 판정. M1 inconclusive 자동 승급.
+- **무회귀**: 순수 문서=코드 0. M1 채택 시 Finding.Unused +필드 가산(현행 기본)·ETag 1회(doc/16 선례).
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.

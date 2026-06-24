@@ -146,7 +146,12 @@ public class Classifier {
             } else if (observed) {
                 findings.add(new Finding.Active(s.host(), s.method(), s.pathTemplate(), s.sourceRef()));
             } else {
-                findings.add(new Finding.Unused(s.host(), s.method(), s.pathTemplate(), s.sourceRef()));
+                // !deprecated && !observed → Unused. 단 OPTIONS operation 인데 OPTIONS 트래픽이 관측되면
+                // preflight/진짜 구분 불가(doc/23 §1 판정B) → preflightAmbiguous 저신뢰(진짜 Active 단정 안 함, M1)
+                boolean preflightAmbiguous = "OPTIONS".equalsIgnoreCase(s.method())
+                        && optionsTrafficObserved(corsKeys, s);
+                findings.add(new Finding.Unused(
+                        s.host(), s.method(), s.pathTemplate(), s.sourceRef(), preflightAmbiguous));
             }
         }
         return new ClassificationResult(findings, new DroppedNonApi(excluded, webForm, lowScore));
@@ -198,5 +203,17 @@ public class Classifier {
     private static String hostTemplateKey(String host, String template) {
         String h = (host == null) ? "*" : host.toLowerCase(Locale.ROOT);
         return h + "|" + template;
+    }
+
+    /**
+     * OPTIONS 트래픽이 이 spec OPTIONS operation 의 template 으로 관측됐는지 (corsKeys 재사용, doc/23 M1).
+     * corsKeys 는 discovered concrete host 키라, host-agnostic spec(host=null)은 template 으로 매칭(observed 와 동일하게 host 무관 취급).
+     */
+    private static boolean optionsTrafficObserved(Set<String> corsKeys, CanonicalEndpoint s) {
+        if (s.host() != null) {
+            return corsKeys.contains(hostTemplateKey(s.host(), s.pathTemplate()));
+        }
+        String suffix = "|" + s.pathTemplate();
+        return corsKeys.stream().anyMatch(k -> k.endsWith(suffix));
     }
 }
