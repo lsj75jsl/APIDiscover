@@ -262,6 +262,16 @@ doc/08 §9 보류 사유($type taxonomy 불확실·document 트랩)를 실 Loki 
 - **무회귀**: API_TYPES 데이터 게이트(미확정시 무변경 — 이번 무변경 확정), 확장자 1순위 불변, WEB_PAGE⊕API_CANDIDATE 배타 유지(doc/17), 히스토그램 additive·ScanResult 스키마 무변경. doc/20 referer 무관.
 - **범위 밖**: 설정화(Tier2), api성 $type 부재 시 responseTypeApi 가치 재평가, document→UNKNOWN 강등(데이터 기반 후속).
 
+### D31. distinct/분위수 대용량 근사 — HLL + KLL (doc/22)
+정확 `HashSet`(distinct)·`ArrayList`(분위수) 를 고정크기 sketch 로 교체해 규모 대응(doc/02 §4, D20 후속). **라이브러리 = DataSketches(D8, build.gradle 기확보, 신규 의존성 0)**.
+- **라이브러리**: distinct=`HllSketch`(lgK=12), 분위수=`KllDoublesSketch`(k=200). 브랜치명 "t-digest" 는 분위수 근사 일반 지칭 — 실제는 **이미 들어온 DataSketches KLL**(distinct·분위수 한 라이브러리 통일, t-digest 추가는 D8/린 위배 → 미채택). 자체구현 미채택(검증비용). 크기는 코드 상수(seam=@ConfigurationProperties).
+- **전면 근사(hybrid 미채택)**: 근사가 판정에 주는 경계가 사실상 없음 — ① distinctClients 유일 결정경계 `<=1`(shadowConfidence)는 HLL **소-N exact**(coupon 모드)라 무오차, ② percentile 은 결정 미사용·미노출, ③ **CardinalityNormalizer `distinct`(승격 임계 distinct≥20)는 `statics.size()`(distinct 세그먼트 값 수=Acc 멤버 수)이지 distinctClients 가 아님** → 근사 무관(과제 전제 정정). hybrid 모드전환 복잡도 한계효용 0.
+- **블라스트 반경 = `Acc.java` 한정**: 필드(HashSet→HllSketch, ArrayList→KllDoublesSketch)·`add`(update)·`mergeFrom`(HLL Union/KLL merge)·`toEndpoint`(getEstimate/getQuantile→round→long). **`DiscoveredEndpoint.Metrics`(long shape)·Classifier·Normalizer·리포트·영속 전부 불변**(surgical).
+- **병합/직렬화**: HLL union=합집합 distinct·KLL merge=결합분포(mergeFrom 의미 보존). sketch 는 **스캔 transient·비영속**(long 추출 후 reportJson 영속) → 직렬화 복잡도 없음. sketch 고정크기 = per-signature 메모리 가드 내장(doc/13 철학, 무한성장 제거 — 본 작업 본질).
+- **ETag churn 0 + percentile ETag 금지(불변식)**: distinctClients·percentile 둘 다 ETag 입력 아님 → 근사 전환 churn 0. KLL compaction 비결정 가능 → percentile 은 향후에도 ETag 입력 금지(노출 시 body 진단용만).
+- **무회귀/검증**: distinctClients `<=1` HLL-exact→shadowConfidence 불변, percentile 미소비, normalizer/severity(hits/2xx/span 정확) 불변. 검증=정확도(허용오차 HLL±3%/KLL rank)·경계(0/1/2 exact)·병합·회귀. 기존 exact-값 단언은 소-N 유지 또는 허용오차 전환.
+- **범위 밖**: sketch 크기 설정화, percentile 리포트 노출(body·비-ETag), distinctClients 캡 exact-set 옵션.
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.

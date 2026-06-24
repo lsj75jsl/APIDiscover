@@ -9,16 +9,16 @@ import com.pentasecurity.apidiscover.model.QueryParamObs;
 import com.pentasecurity.apidiscover.model.TemplateSource;
 import com.pentasecurity.apidiscover.model.ValueLenBucket;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
+import org.apache.datasketches.hll.HllSketch;
+import org.apache.datasketches.hll.Union;
+import org.apache.datasketches.kll.KllDoublesSketch;
+import org.apache.datasketches.quantilescommon.QuantileSearchCriteria;
 
 /** 시그니처(method+host+template) 단위 메트릭/쿼리 관측 누적기. package-private(정규화 계층 내부). */
 final class Acc {
@@ -26,6 +26,10 @@ final class Acc {
     private static final String[] SDK_UA = {
             "okhttp", "python-requests", "axios", "java/", "go-http", "curl", "wget",
             "postman", "apache-httpclient", "node-fetch", "dart", "ktor", "feign", "httpie"};
+
+    // 근사 자료구조 크기(1차값, 코드 상수). 튜닝 seam = NormalizationProperties @ConfigurationProperties(D12 정적 우선, doc/22 §1).
+    private static final int HLL_LG_K = 12;  // distinct client IP — RSE≈1.6%, 소-N exact(<=1 경계 무오차)
+    private static final int KLL_K = 200;    // 응답시간 분위수 — rank err≈1.65%
 
     private final String method;
     private final String host;
@@ -37,8 +41,8 @@ final class Acc {
     private Instant lastSeen;
     private final long[] statusBuckets = new long[4]; // 0:2xx 1:3xx 2:4xx 3:5xx
     private long status404; // 404 전용(통합 4xx 와 별도 — 401/403 보호, doc/19 §1)
-    private final Set<String> clients = new HashSet<>();
-    private final List<Long> respTimes = new ArrayList<>();
+    private HllSketch clientHll = new HllSketch(HLL_LG_K);   // distinct client IP 근사(merge 시 재할당)
+    private final KllDoublesSketch respKll = KllDoublesSketch.newHeapInstance(KLL_K); // 응답시간 분위수 근사
     private final Map<String, Long> typeDist = new HashMap<>();
     private boolean hadQuery;
     private long sdkUaCount;
@@ -107,7 +111,7 @@ final class Acc {
             status404++;
         }
         if (r.clientIp() != null) {
-            clients.add(r.clientIp());
+            clientHll.update(r.clientIp());
         }
         List<QueryParamObs> qps = r.queryParams();
         if (qps != null && !qps.isEmpty()) {
@@ -121,7 +125,7 @@ final class Acc {
         if (isSdkUserAgent(r.userAgent())) {
             sdkUaCount++;
         }
-        respTimes.add(r.respTimeMs());
+        respKll.update((double) r.respTimeMs());
     }
 
     /** 다른 Acc 를 흡수(통계 {var} 승격 시 형제 재병합). 병합 결과 source=INFERRED. */
@@ -137,8 +141,11 @@ final class Acc {
             statusBuckets[i] += o.statusBuckets[i];
         }
         this.status404 += o.status404;
-        clients.addAll(o.clients);
-        respTimes.addAll(o.respTimes);
+        Union union = new Union(HLL_LG_K); // HLL 합집합(중복 client 제거 — HashSet.addAll 의미 보존)
+        union.update(this.clientHll);
+        union.update(o.clientHll);
+        this.clientHll = union.getResult();
+        respKll.merge(o.respKll); // KLL 분포 결합(ArrayList.addAll 의미의 근사)
         o.typeDist.forEach((k, v) -> typeDist.merge(k, v, Long::sum));
         hadQuery |= o.hadQuery;
         sdkUaCount += o.sdkUaCount;
@@ -157,12 +164,10 @@ final class Acc {
         statusDist.put("4xx", statusBuckets[2]);
         statusDist.put("5xx", statusBuckets[3]);
 
-        List<Long> sorted = new ArrayList<>(respTimes);
-        Collections.sort(sorted);
-        // TODO(doc/02 §4): 대용량은 distinctClients=HLL, 분위수=KLL 근사로 교체
+        // 근사: distinctClients=HLL, p50/p95=KLL (doc/22). Metrics long shape·소비처 불변.
         var metrics = new DiscoveredEndpoint.Metrics(
                 hits, firstSeen, lastSeen, statusDist,
-                clients.size(), percentile(sorted, 50), percentile(sorted, 95));
+                Math.round(clientHll.getEstimate()), quantileMs(0.5), quantileMs(0.95));
 
         String signature = method + " " + host + " " + template;
         boolean nonBrowserUa = sdkUaCount * 2 >= hits; // 다수가 SDK/CLI
@@ -184,13 +189,9 @@ final class Acc {
         return false;
     }
 
-    private static long percentile(List<Long> sorted, double p) {
-        if (sorted.isEmpty()) {
-            return 0L;
-        }
-        int idx = (int) Math.ceil(p / 100.0 * sorted.size()) - 1;
-        idx = Math.max(0, Math.min(sorted.size() - 1, idx));
-        return sorted.get(idx);
+    /** KLL 분위수(ms, 반올림). 빈 sketch → 0. INCLUSIVE = nearest-rank 와 동일 의미(소-N exact). */
+    private long quantileMs(double rank) {
+        return respKll.isEmpty() ? 0L : Math.round(respKll.getQuantile(rank, QuantileSearchCriteria.INCLUSIVE));
     }
 
     /** query param 관측 집계: presence count + 값 길이 버킷 집합. */
