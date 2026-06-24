@@ -38,7 +38,12 @@
 ### P1. 자체 분석 기능 (먼저)
 
 #### 정규화/인벤토리 (02/13 문서)
-- [ ] distinct/분위수 대용량 근사 (HLL/t-digest, 규모 대응) — 현재 정확 Set/nearest-rank
+- [ ] distinct/분위수 대용량 근사 (HLL/t-digest, 규모 대응) — 현재 정확 Set/nearest-rank **(설계 완료 → doc/22, DECISIONS D31)** — subitem 전건 [x], PR 머지 시 부모 Done(D26)
+  - [x] `Acc` 필드 교체 — `HashSet clients`→`HllSketch`(lgK=12), `ArrayList respTimes`→`KllDoublesSketch`(k=200) (DataSketches 기확보, 신규 의존성 0)
+  - [x] `Acc.add` — `hll.update(ip)`(null skip)·`kll.update((double)ms)`; `mergeFrom` — HLL `Union`·KLL `merge`
+  - [x] `Acc.toEndpoint` — distinctClients=`round(hll.getEstimate())`·p50/p95=`round(kll.getQuantile, INCLUSIVE)`(빈 sketch→0), `Metrics`(long) shape·소비처 불변
+  - [x] 테스트 — 정확도(HLL±3% 결정적·KLL rank 허용)·경계(distinct 0/1/2 HLL-exact→shadowConfidence)·병합(분할 union/merge≈단일)·회귀(기존 normalizer·percentile exact 단언 green 유지)
+  - [x] (확인) ETag 무변경(distinctClients/percentile 비입력)·CardinalityNormalizer 임계(statics.size, 근사 무관) 무변경·sketch 비영속
 
 #### 분류 (04/16 문서)
 - [ ] (한계) preflight vs 진짜 OPTIONS 구분 불가로 스펙 OPTIONS operation Unused 오판 가능
