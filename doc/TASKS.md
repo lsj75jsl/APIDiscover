@@ -38,13 +38,6 @@
 ### P1. 자체 분석 기능 (먼저)
 
 #### 정규화/인벤토리 (02/13 문서)
-- [ ] endpoint_kind referer 보조 신호 (현재 `$type`+확장자만 사용) **(설계 완료 → doc/20, DECISIONS D29)** — subitem 전건 [x], PR 머지 시 부모 Done(D26)
-  - [x] `model/RefererSignal`(SignalStatus·pageUrls·ratios·`dormant()`) + `model/EndpointKindSignal`(노출 status·ratios·`NONE`) + `enum SignalStatus{ACTIVE,DORMANT}`
-  - [x] `normalize/RefererSignalExtractor`(@Component) — static referer path 정규화→PAGE_URLS freq + static_ratio/referer_present_ratio + 게이트(static≥0.05 AND referer≥0.20, else dormant)
-  - [x] `EndpointKindClassifier` — 3-arg classify(+RefererSignal) UNKNOWN+active+PAGE_URLS≥2→WEB_PAGE(conf 0.6, 비대칭 양성), 2-arg 오버로드(dormant 위임) 하위호환, `isStaticPath()` public
-  - [x] `InventoryBuilder.buildWithLimits` — corpus pre-pass(RefererSignalExtractor)→classify 3-arg→`InventoryResult` 에 EndpointKindSignal
-  - [x] `model/DiscoveryReport` top-level `endpointKindSignal`(non-null) + `ReportBuilder.build` 인자 + `DiscoveryJobService.analyze` ETag(ratios round3)
-  - [x] 테스트 — PAGE_URLS 구축 / web_page 가점(UNKNOWN+PAGE_URLS≥2) / 비대칭(부재→UNKNOWN·무감점) / dormant 게이트 / $type 우선 / 2-arg 오버로드 하위호환 / 노출·ETag
 - [ ] `$type` 전체 taxonomy 광범위 샘플링으로 확정 (다양한 status/method) — `→ 의존:` doc/17 `responseTypeApi`·EndpointKindClassifier API_TYPES 정제 근거
 - [ ] distinct/분위수 대용량 근사 (HLL/t-digest, 규모 대응) — 현재 정확 Set/nearest-rank
 
@@ -87,6 +80,15 @@
 ---
 
 ## Done
+
+### endpoint_kind referer 보조 신호 (2026-06-24, doc/20 / DECISIONS D29, PR #10) — tests=256 green
+- [x] `model/RefererSignal`(SignalStatus·pageUrls·ratios·`dormant()`) + `model/EndpointKindSignal`(노출 status·ratios·`NONE`) + `enum SignalStatus{ACTIVE,DORMANT}`
+- [x] `normalize/RefererSignalExtractor`(@Component) — static referer path 정규화→PAGE_URLS freq + static_ratio/referer_present_ratio + 게이트(원시 ratio 비교, static≥0.05 AND referer≥0.20, else dormant)
+- [x] `EndpointKindClassifier` — 3-arg classify(+RefererSignal) UNKNOWN+active+PAGE_URLS≥2→WEB_PAGE(conf 0.6, 비대칭 양성), 2-arg 오버로드(dormant 위임) 하위호환, `isStaticPath()` public
+- [x] `InventoryBuilder.buildWithLimits` — corpus pre-pass(RefererSignalExtractor)→classify 3-arg→`InventoryResult` 에 EndpointKindSignal
+- [x] `model/DiscoveryReport` top-level `endpointKindSignal`(non-null) + `ReportBuilder.build` 인자 + `DiscoveryJobService.analyze` ETag(ratios round3, 게이트는 원시값)
+- [x] 테스트 — PAGE_URLS 구축 / web_page 가점(UNKNOWN+PAGE_URLS≥2) / 비대칭(부재→UNKNOWN·무감점) / dormant 게이트 / 게이트 경계 포함성(`>=`) / $type 우선 / 2-arg 오버로드 하위호환 / 노출·ETag
+> 비대칭 양성(referer 부재=무증거, 감점 없음) + dormant 게이트(실 Loki 정적 미경유 환경 무회귀). $type 우선·WEB_PAGE⊕API_CANDIDATE 배타로 doc/17 responseTypeApi 무충돌. 리뷰 P1/P2/P3=0(P3 2건 수정 후 재리뷰 클린).
 
 ### 실재성 404-only 필터 (인벤토리 단계) (2026-06-24, doc/19 / DECISIONS D27) — tests=243 green
 - [x] `Acc` — `status404` 카운터(add/mergeFrom) + `isNonExistent()`(hits>0 && status404==hits) — 404 100% 만, 401/403 보존
