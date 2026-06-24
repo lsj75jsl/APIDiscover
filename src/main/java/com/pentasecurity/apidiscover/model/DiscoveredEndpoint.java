@@ -25,6 +25,13 @@ public record DiscoveredEndpoint(
             Map<String, Long> statusDist,   // "2xx","3xx","4xx","5xx" -> count
             long distinctClients,           // 근사(HLL)
             long p50RespMs,
-            long p95RespMs
-    ) {}
+            long p95RespMs,
+            long acrmPresentCount           // CORS preflight 결정신호 acrm 관측 수 (doc/23 §9 M3), 기본 0
+    ) {
+        /** 하위호환 7-arg — acrmPresentCount 기본 0 (M3 dormant, 기존 호출부 무변경). */
+        public Metrics(long hits, Instant firstSeen, Instant lastSeen, Map<String, Long> statusDist,
+                       long distinctClients, long p50RespMs, long p95RespMs) {
+            this(hits, firstSeen, lastSeen, statusDist, distinctClients, p50RespMs, p95RespMs, 0L);
+        }
+    }
 }

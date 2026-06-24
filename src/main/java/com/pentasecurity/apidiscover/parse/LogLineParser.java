@@ -2,6 +2,7 @@
 package com.pentasecurity.apidiscover.parse;
 
 import com.pentasecurity.apidiscover.config.NormalizationProperties;
+import com.pentasecurity.apidiscover.config.ParseProperties;
 import com.pentasecurity.apidiscover.model.ParsedRequest;
 import com.pentasecurity.apidiscover.model.QueryParamObs;
 import com.pentasecurity.apidiscover.model.ValueLenBucket;
@@ -20,9 +21,11 @@ import org.springframework.stereotype.Component;
 public class LogLineParser {
 
     private final int[] valueLenBucketBounds;
+    private final int acrmFieldIndex; // -1=미사용(acrm 안 읽음 → preflight 게이트 DORMANT, doc/23 §9.2)
 
-    public LogLineParser(NormalizationProperties props) {
+    public LogLineParser(NormalizationProperties props, ParseProperties parseProps) {
         this.valueLenBucketBounds = props.valueLenBucketBounds();
+        this.acrmFieldIndex = parseProps.acrmFieldIndex();
     }
 
     /** 로그 필드 구분자. */
@@ -84,10 +87,13 @@ public class LogLineParser {
             // type/requestId 는 실로그(24필드)에만 존재 — 없으면 null
             String type = (f.length > F_TYPE) ? nullIfDash(f[F_TYPE]) : null;
             String requestId = (f.length > F_REQUEST_ID) ? nullIfDash(f[F_REQUEST_ID]) : null;
+            // acrm: 설정 인덱스로 "있으면 읽는"(기본 -1=미사용). 부재 → null → preflight 게이트 DORMANT (doc/23 §9.2)
+            String acrm = (acrmFieldIndex >= 0 && f.length > acrmFieldIndex)
+                    ? nullIfDash(f[acrmFieldIndex]) : null;
 
             return Optional.of(new ParsedRequest(
                     method, rawPath, queryParams, status, host, clientIp, userAgent,
-                    ts, respTimeMs, bodyBytes, https, referer, type, requestId));
+                    ts, respTimeMs, bodyBytes, https, referer, type, requestId, acrm));
         } catch (RuntimeException e) {
             // 숫자/시간 파싱 실패 등 — 손상된 라인은 폐기 (doc/02 §2)
             return Optional.empty();

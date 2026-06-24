@@ -9,6 +9,7 @@ import com.pentasecurity.apidiscover.model.DroppedByLimit;
 import com.pentasecurity.apidiscover.model.DroppedNonApi;
 import com.pentasecurity.apidiscover.model.DroppedNonExistent;
 import com.pentasecurity.apidiscover.model.EndpointKindSignal;
+import com.pentasecurity.apidiscover.model.PreflightSignal;
 import com.pentasecurity.apidiscover.model.SignalStatus;
 import com.pentasecurity.apidiscover.model.TypeDistribution;
 import com.pentasecurity.apidiscover.model.Finding;
@@ -36,7 +37,8 @@ class ReportBuilderTest {
         var typeDist = new TypeDistribution(List.of(new TypeDistribution.Entry("document", 10L)), 2);
         DiscoveryReport report = builder.build("api.example.com", 7L, window, 4, findings,
                 new DroppedNonApi(2, 1, 3), new DroppedByLimit(4, 5), new DroppedNonExistent(8),
-                new EndpointKindSignal(SignalStatus.ACTIVE, 0.1, 0.5), typeDist);
+                new EndpointKindSignal(SignalStatus.ACTIVE, 0.1, 0.5), typeDist,
+                new PreflightSignal(SignalStatus.ACTIVE, 3));
 
         assertThat(report.host()).isEqualTo("api.example.com");
         assertThat(report.specVersion()).isEqualTo(7L);
@@ -61,12 +63,13 @@ class ReportBuilderTest {
                 .isEqualTo(new EndpointKindSignal(SignalStatus.ACTIVE, 0.1, 0.5)); // doc/20
         assertThat(report.typeDistribution()).isEqualTo(typeDist); // doc/21
         assertThat(report.typeDistribution().distinctKeys()).containsExactly("document"); // ETag 키(count 제외)
+        assertThat(report.preflightSignal()).isEqualTo(new PreflightSignal(SignalStatus.ACTIVE, 3)); // doc/23
     }
 
     @Test
     void handlesEmptyFindings() {
         DiscoveryReport report = builder.build("h", 1L,
-                new LogWindow(Instant.EPOCH, Instant.EPOCH), 0, List.of(), null, null, null, null, null);
+                new LogWindow(Instant.EPOCH, Instant.EPOCH), 0, List.of(), null, null, null, null, null, null);
 
         assertThat(report.findings()).isEmpty();
         assertThat(report.summary().shadow()).isZero();
@@ -77,5 +80,6 @@ class ReportBuilderTest {
         assertThat(report.droppedNonExistent()).isEqualTo(DroppedNonExistent.NONE);
         assertThat(report.endpointKindSignal()).isEqualTo(EndpointKindSignal.NONE); // doc/20
         assertThat(report.typeDistribution()).isEqualTo(TypeDistribution.NONE); // doc/21
+        assertThat(report.preflightSignal()).isEqualTo(PreflightSignal.NONE); // doc/23 (null→NONE)
     }
 }

@@ -8,6 +8,7 @@ import com.pentasecurity.apidiscover.model.DroppedNonApi;
 import com.pentasecurity.apidiscover.model.DroppedNonExistent;
 import com.pentasecurity.apidiscover.model.EndpointKindSignal;
 import com.pentasecurity.apidiscover.model.Finding;
+import com.pentasecurity.apidiscover.model.PreflightSignal;
 import com.pentasecurity.apidiscover.model.TypeDistribution;
 import java.time.Instant;
 import java.util.List;
@@ -20,7 +21,8 @@ public class ReportBuilder {
     public DiscoveryReport build(String host, long specVersion, LogWindow window,
                                  int discoveredCount, List<Finding> findings, DroppedNonApi dropped,
                                  DroppedByLimit droppedByLimit, DroppedNonExistent droppedNonExistent,
-                                 EndpointKindSignal endpointKindSignal, TypeDistribution typeDistribution) {
+                                 EndpointKindSignal endpointKindSignal, TypeDistribution typeDistribution,
+                                 PreflightSignal preflightSignal) {
         int active = 0;
         int shadow = 0;
         int zombie = 0;
@@ -42,7 +44,8 @@ public class ReportBuilder {
         DroppedNonExistent nonExistent = droppedNonExistent != null ? droppedNonExistent : DroppedNonExistent.NONE;
         EndpointKindSignal kindSignal = endpointKindSignal != null ? endpointKindSignal : EndpointKindSignal.NONE;
         TypeDistribution typeDist = typeDistribution != null ? typeDistribution : TypeDistribution.NONE;
+        PreflightSignal preflight = preflightSignal != null ? preflightSignal : PreflightSignal.NONE;
         return new DiscoveryReport(host, Instant.now(), window, specVersion, summary, findings,
-                nonApi, byLimit, nonExistent, kindSignal, typeDist);
+                nonApi, byLimit, nonExistent, kindSignal, typeDist, preflight);
     }
 }

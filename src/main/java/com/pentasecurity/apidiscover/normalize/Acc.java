@@ -41,6 +41,7 @@ final class Acc {
     private Instant lastSeen;
     private final long[] statusBuckets = new long[4]; // 0:2xx 1:3xx 2:4xx 3:5xx
     private long status404; // 404 전용(통합 4xx 와 별도 — 401/403 보호, doc/19 §1)
+    private long acrmPresentCount; // acrm(Access-Control-Request-Method) 관측 수 = CORS preflight (doc/23 §9 M3)
     private HllSketch clientHll = new HllSketch(HLL_LG_K);   // distinct client IP 근사(merge 시 재할당)
     private final KllDoublesSketch respKll = KllDoublesSketch.newHeapInstance(KLL_K); // 응답시간 분위수 근사
     private final Map<String, Long> typeDist = new HashMap<>();
@@ -110,6 +111,9 @@ final class Acc {
         if (r.status() == 404) {
             status404++;
         }
+        if (r.acrm() != null) {
+            acrmPresentCount++;
+        }
         if (r.clientIp() != null) {
             clientHll.update(r.clientIp());
         }
@@ -141,6 +145,7 @@ final class Acc {
             statusBuckets[i] += o.statusBuckets[i];
         }
         this.status404 += o.status404;
+        this.acrmPresentCount += o.acrmPresentCount;
         Union union = new Union(HLL_LG_K); // HLL 합집합(중복 client 제거 — HashSet.addAll 의미 보존)
         union.update(this.clientHll);
         union.update(o.clientHll);
@@ -164,10 +169,10 @@ final class Acc {
         statusDist.put("4xx", statusBuckets[2]);
         statusDist.put("5xx", statusBuckets[3]);
 
-        // 근사: distinctClients=HLL, p50/p95=KLL (doc/22). Metrics long shape·소비처 불변.
+        // 근사: distinctClients=HLL, p50/p95=KLL (doc/22). acrmPresentCount=preflight 게이트 입력(doc/23 §9). Metrics long shape.
         var metrics = new DiscoveredEndpoint.Metrics(
                 hits, firstSeen, lastSeen, statusDist,
-                Math.round(clientHll.getEstimate()), quantileMs(0.5), quantileMs(0.95));
+                Math.round(clientHll.getEstimate()), quantileMs(0.5), quantileMs(0.95), acrmPresentCount);
 
         String signature = method + " " + host + " " + template;
         boolean nonBrowserUa = sdkUaCount * 2 >= hits; // 다수가 SDK/CLI

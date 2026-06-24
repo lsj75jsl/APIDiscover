@@ -13,6 +13,7 @@ import com.pentasecurity.apidiscover.classify.Classifier;
 import com.pentasecurity.apidiscover.classify.EffectiveClassificationResolver;
 import com.pentasecurity.apidiscover.config.ApiDiscoverProperties;
 import com.pentasecurity.apidiscover.config.NormalizationProperties;
+import com.pentasecurity.apidiscover.config.ParseProperties;
 import com.pentasecurity.apidiscover.config.SensitiveKeyProperties;
 import com.pentasecurity.apidiscover.domain.ClassificationConfig;
 import com.pentasecurity.apidiscover.domain.ClassificationConfigRepository;
@@ -62,7 +63,7 @@ class DiscoveryJobServiceTest {
             new EffectiveClassificationResolver(globalClsRepo, domainClsRepo, objectMapper);
 
     private final DiscoveryJobService service = new DiscoveryJobService(
-            new LogLineParser(NORM),
+            new LogLineParser(NORM, ParseProperties.defaults()),
             new InventoryBuilder(new PathNormalizer(), new EndpointKindClassifier(),
                     new CardinalityNormalizer(NORM),
                     new ParamCandidateExtractor(new SensitiveKeyMatcher(SensitiveKeyProperties.defaults()), NORM),
@@ -231,6 +232,36 @@ class DiscoveryJobServiceTest {
     }
 
     @Test
+    void preflightSignalDormantByDefaultAndEtagBumpsToActive() {
+        when(specStore.activeMeta(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.findById(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.save(any(ScanResult.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // 동일 트래픽(OPTIONS preflight + GET), 파서만 다름 — findings 동일, preflightSignal status 만 차이
+        List<String> lines = List.of(
+                lineAcrm("OPTIONS", "/api/x", 204, "GET"), lineAcrm("GET", "/api/x", 200, "-"));
+
+        // 기본 파서(idx=-1) → acrm 무시 → DORMANT (무회귀)
+        ScanResult dormant = service.analyze(HOST, lines, window);
+        assertThat(dormant.reportJson).contains("\"preflightSignal\"").contains("\"status\":\"DORMANT\"");
+
+        // acrm 파서(idx=20) → acrm 읽음 → ACTIVE
+        var acrmService = new DiscoveryJobService(new LogLineParser(NORM, new ParseProperties(20)),
+                new InventoryBuilder(new PathNormalizer(), new EndpointKindClassifier(),
+                        new CardinalityNormalizer(NORM),
+                        new ParamCandidateExtractor(new SensitiveKeyMatcher(SensitiveKeyProperties.defaults()), NORM),
+                        new RefererSignalExtractor(new PathNormalizer())),
+                specStore, new EndpointMatcherCache(), new Classifier(new ApiScorer()), resolver,
+                new ReportBuilder(), scanRepo, mock(DomainConfigRepository.class), mock(WatermarkRepository.class),
+                mock(LokiClient.class), mock(LokiQueryBuilder.class), objectMapper, props());
+        ScanResult active = acrmService.analyze(HOST, lines, window);
+        assertThat(active.reportJson).contains("\"status\":\"ACTIVE\"");
+
+        // status 전환(DORMANT→ACTIVE)이 ETag 에 반영 (doc/23 §9.5)
+        assertThat(dormant.version).isNotEqualTo(active.version);
+    }
+
+    @Test
     void reportJsonExposesTypeDistribution() {
         when(specStore.activeMeta(HOST)).thenReturn(Optional.empty());
         when(scanRepo.findById(HOST)).thenReturn(Optional.empty());
@@ -297,7 +328,7 @@ class DiscoveryJobServiceTest {
                 new CardinalityNormalizer(capProps),
                 new ParamCandidateExtractor(new SensitiveKeyMatcher(SensitiveKeyProperties.defaults()), capProps),
                 new RefererSignalExtractor(new PathNormalizer()));
-        var cappedService = new DiscoveryJobService(new LogLineParser(NORM), cappedInventory, specStore,
+        var cappedService = new DiscoveryJobService(new LogLineParser(NORM, ParseProperties.defaults()), cappedInventory, specStore,
                 new EndpointMatcherCache(), new Classifier(new ApiScorer()), resolver, new ReportBuilder(), scanRepo,
                 mock(DomainConfigRepository.class), mock(WatermarkRepository.class), mock(LokiClient.class),
                 mock(LokiQueryBuilder.class), objectMapper, props());
@@ -394,6 +425,11 @@ class DiscoveryJobServiceTest {
                 "203.0.113.5", "10.0.0.2", "51514", "2026-06-22T09:00:00+09:00", "MISS",
                 method + " " + uri + " HTTP/1.1", "OK", "0.010", uri, String.valueOf(status),
                 "100", "99", "on", "-", "ua", HOST, HOST, "10.0.0.10", "443", type));
+    }
+
+    /** line() + acrm 필드(idx20). acrm 파서(ParseProperties(20))와 함께 M3 테스트용 (doc/23 §9). */
+    private static String lineAcrm(String method, String uri, int status, String acrm) {
+        return lineT(method, uri, status, "api") + "^|^" + acrm;
     }
 
     private static ApiDiscoverProperties props() {
