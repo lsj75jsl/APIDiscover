@@ -80,7 +80,7 @@ public class CombinedDiscoveryService {
 
         EffectiveClassification eff = classificationResolver.resolve(host);
         // base-path-strip (doc/27 §3) — null=off=현행. 결합 뷰도 동일 at-match 재시도.
-        String stripPrefix = domainRepo.findById(host).map(c -> c.basePathStrip).orElse(null);
+        String stripPrefix = domainRepo.findById(host).map(c -> c.getBasePathStrip()).orElse(null);
         List<Finding> findings = classifier.classify(discovered, spec, matcher, eff.scorer(), eff.hints(), stripPrefix);
 
         SpecMergeStrategy mode = modeOf(host);
@@ -94,17 +94,17 @@ public class CombinedDiscoveryService {
 
     /** discovered_endpoint 행 → DiscoveredEndpoint 재구성. 분석 상세(distinctClients/p50/p95/acrm)는 카탈로그 미보유→0(doc/26 §2). */
     private DiscoveredEndpoint toDiscovered(DiscoveredEndpointRecord r) {
-        Map<String, Long> statusDist = parseStatusDist(r.statusDistJson);
-        ParamCandidates params = parseParams(r.paramsJson);
+        Map<String, Long> statusDist = parseStatusDist(r.getStatusDistJson());
+        ParamCandidates params = parseParams(r.getParamsJson());
         var metrics = new DiscoveredEndpoint.Metrics(
-                r.hits, r.firstSeen, r.lastSeen, statusDist, 0L, 0L, 0L, 0L);
-        TemplateSource ts = (r.templateSource != null)
-                ? TemplateSource.valueOf(r.templateSource) : TemplateSource.INFERRED;
-        EndpointKind kind = (r.endpointKind != null)
-                ? EndpointKind.valueOf(r.endpointKind) : EndpointKind.UNKNOWN;
+                r.getHits(), r.getFirstSeen(), r.getLastSeen(), statusDist, 0L, 0L, 0L, 0L);
+        TemplateSource ts = (r.getTemplateSource() != null)
+                ? TemplateSource.valueOf(r.getTemplateSource()) : TemplateSource.INFERRED;
+        EndpointKind kind = (r.getEndpointKind() != null)
+                ? EndpointKind.valueOf(r.getEndpointKind()) : EndpointKind.UNKNOWN;
         return new DiscoveredEndpoint(
-                r.method + " " + r.host + " " + r.pathTemplate, r.method, r.host, r.pathTemplate,
-                ts, kind, r.kindConfidence, r.hadQuery, r.nonBrowserUa, metrics, params);
+                r.getMethod() + " " + r.getHost() + " " + r.getPathTemplate(), r.getMethod(), r.getHost(), r.getPathTemplate(),
+                ts, kind, r.getKindConfidence(), r.isHadQuery(), r.isNonBrowserUa(), metrics, params);
     }
 
     private Map<String, Long> parseStatusDist(String json) {
@@ -133,7 +133,7 @@ public class CombinedDiscoveryService {
 
     private SpecMergeStrategy modeOf(String host) {
         return domainRepo.findById(host)
-                .map(c -> c.specMergeStrategy)
+                .map(c -> c.getSpecMergeStrategy())
                 .filter(Objects::nonNull)
                 .orElse(SpecMergeStrategy.MERGE);
     }

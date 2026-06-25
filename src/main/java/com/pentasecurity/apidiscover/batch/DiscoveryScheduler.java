@@ -30,10 +30,10 @@ public class DiscoveryScheduler {
     public void scanEnabledDomains() {
         for (DomainConfig domain : domains.findByEnabledIsTrue()) {
             try {
-                jobService.runScan(domain.host);
+                jobService.runScan(domain.getHost());
             } catch (RuntimeException e) {
                 // 도메인 격리: 한 도메인 실패가 다른 도메인을 막지 않게 (doc/05 §6)
-                log.warn("scan failed for host={}", domain.host, e);
+                log.warn("scan failed for host={}", domain.getHost(), e);
             }
         }
     }

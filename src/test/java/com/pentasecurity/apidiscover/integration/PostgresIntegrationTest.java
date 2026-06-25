@@ -119,52 +119,52 @@ class PostgresIntegrationTest {
         String big = bigJson(); // 수십 KB — LOB 스트리밍/auto-commit 이슈 노출
 
         ClassificationConfig g = new ClassificationConfig();
-        g.id = 1L;
-        g.customWeightsJson = big;
-        g.matcherJson = big;
+        g.setId(1L);
+        g.setCustomWeightsJson(big);
+        g.setMatcherJson(big);
         globalRepo.save(g);
         ClassificationConfig gl = globalRepo.findById(1L).orElseThrow();
-        assertThat(gl.customWeightsJson).isEqualTo(big);
-        assertThat(gl.matcherJson).isEqualTo(big);
+        assertThat(gl.getCustomWeightsJson()).isEqualTo(big);
+        assertThat(gl.getMatcherJson()).isEqualTo(big);
 
         DomainClassificationConfig o = new DomainClassificationConfig();
-        o.host = "rt.example.com";
-        o.customWeightsJson = big;
-        o.matcherJson = big;
+        o.setHost("rt.example.com");
+        o.setCustomWeightsJson(big);
+        o.setMatcherJson(big);
         overrideRepo.save(o);
         DomainClassificationConfig ol = overrideRepo.findById("rt.example.com").orElseThrow();
-        assertThat(ol.customWeightsJson).isEqualTo(big);
-        assertThat(ol.matcherJson).isEqualTo(big);
+        assertThat(ol.getCustomWeightsJson()).isEqualTo(big);
+        assertThat(ol.getMatcherJson()).isEqualTo(big);
 
         ScanResult s = new ScanResult();
-        s.host = "rt.example.com";
-        s.reportJson = big;
+        s.setHost("rt.example.com");
+        s.setReportJson(big);
         scanRepo.save(s);
-        assertThat(scanRepo.findById("rt.example.com").orElseThrow().reportJson).isEqualTo(big);
+        assertThat(scanRepo.findById("rt.example.com").orElseThrow().getReportJson()).isEqualTo(big);
 
         SpecRecord spec = new SpecRecord();
-        spec.host = "rt.example.com";
-        spec.specName = "default";
-        spec.format = SpecFormat.OPENAPI;
-        spec.canonicalJson = big;
-        spec.warningsJson = big;
-        spec.rawDoc = big.getBytes(StandardCharsets.UTF_8); // raw_doc(byte[]) round-trip 동시 검증(§6.2)
+        spec.setHost("rt.example.com");
+        spec.setSpecName("default");
+        spec.setFormat(SpecFormat.OPENAPI);
+        spec.setCanonicalJson(big);
+        spec.setWarningsJson(big);
+        spec.setRawDoc(big.getBytes(StandardCharsets.UTF_8)); // raw_doc(byte[]) round-trip 동시 검증(§6.2)
         SpecRecord sps = specRepo.save(spec);
-        SpecRecord spl = specRepo.findById(sps.id).orElseThrow();
-        assertThat(spl.canonicalJson).isEqualTo(big);
-        assertThat(spl.warningsJson).isEqualTo(big);
-        assertThat(spl.rawDoc).isEqualTo(big.getBytes(StandardCharsets.UTF_8));
+        SpecRecord spl = specRepo.findById(sps.getId()).orElseThrow();
+        assertThat(spl.getCanonicalJson()).isEqualTo(big);
+        assertThat(spl.getWarningsJson()).isEqualTo(big);
+        assertThat(spl.getRawDoc()).isEqualTo(big.getBytes(StandardCharsets.UTF_8));
 
         DiscoveredEndpointRecord d = new DiscoveredEndpointRecord();
-        d.host = "rt.example.com";
-        d.method = "GET";
-        d.pathTemplate = "/rt/{id}";
-        d.statusDistJson = big;
-        d.paramsJson = big;
+        d.setHost("rt.example.com");
+        d.setMethod("GET");
+        d.setPathTemplate("/rt/{id}");
+        d.setStatusDistJson(big);
+        d.setParamsJson(big);
         DiscoveredEndpointRecord ds = discoveredRepo.save(d);
-        DiscoveredEndpointRecord dl = discoveredRepo.findById(ds.id).orElseThrow();
-        assertThat(dl.statusDistJson).isEqualTo(big);
-        assertThat(dl.paramsJson).isEqualTo(big);
+        DiscoveredEndpointRecord dl = discoveredRepo.findById(ds.getId()).orElseThrow();
+        assertThat(dl.getStatusDistJson()).isEqualTo(big);
+        assertThat(dl.getParamsJson()).isEqualTo(big);
     }
 
     /** raw_doc(@Lob byte[]) 는 String 과 매핑 다름(§6.2) — round-trip 은 위에서, 실 타입은 정보성 기록(text 단언 금지). */
@@ -184,19 +184,19 @@ class PostgresIntegrationTest {
         String host = "disc.example.com";
         registerDomain(host);
         DiscoveredEndpointRecord d = new DiscoveredEndpointRecord();
-        d.host = host;
-        d.method = "POST";
-        d.pathTemplate = "/api/orders/{id}"; // api_seg + write → ApiScorer ADMIT → Shadow
-        d.templateSource = "INFERRED";
-        d.endpointKind = "API_CANDIDATE";
-        d.kindConfidence = 0.95;
-        d.firstSeen = Instant.EPOCH;
-        d.lastSeen = Instant.EPOCH;
-        d.lastScanAt = Instant.EPOCH;
-        d.hits = 100;
-        d.statusDistJson = "{\"2xx\":100}";
-        d.hadQuery = true;
-        d.nonBrowserUa = true;
+        d.setHost(host);
+        d.setMethod("POST");
+        d.setPathTemplate("/api/orders/{id}"); // api_seg + write → ApiScorer ADMIT → Shadow
+        d.setTemplateSource("INFERRED");
+        d.setEndpointKind("API_CANDIDATE");
+        d.setKindConfidence(0.95);
+        d.setFirstSeen(Instant.EPOCH);
+        d.setLastSeen(Instant.EPOCH);
+        d.setLastScanAt(Instant.EPOCH);
+        d.setHits(100);
+        d.setStatusDistJson("{\"2xx\":100}");
+        d.setHadQuery(true);
+        d.setNonBrowserUa(true);
         discoveredRepo.save(d);
 
         mvc.perform(get("/api/v1/domains/{host}/discovery", host))
@@ -212,9 +212,9 @@ class PostgresIntegrationTest {
     void resultConditionalGetReturns304OnMatchingEtag() throws Exception {
         String host = "etag.example.com";
         ScanResult r = new ScanResult();
-        r.host = host;
-        r.version = "v-abc123";
-        r.reportJson = "{\"summary\":\"ok\"}";
+        r.setHost(host);
+        r.setVersion("v-abc123");
+        r.setReportJson("{\"summary\":\"ok\"}");
         scanRepo.save(r);
 
         MvcResult first = mvc.perform(get("/api/v1/domains/{host}/result", host))
@@ -232,10 +232,10 @@ class PostgresIntegrationTest {
 
     private void registerDomain(String host) {
         DomainConfig dc = new DomainConfig();
-        dc.host = host;
-        dc.enabled = true;
-        dc.createdAt = Instant.EPOCH;
-        dc.updatedAt = Instant.EPOCH;
+        dc.setHost(host);
+        dc.setEnabled(true);
+        dc.setCreatedAt(Instant.EPOCH);
+        dc.setUpdatedAt(Instant.EPOCH);
         domainRepo.save(dc);
     }
 

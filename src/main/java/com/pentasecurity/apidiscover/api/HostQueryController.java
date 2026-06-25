@@ -36,7 +36,7 @@ public class HostQueryController {
     /** 이 엣지 hostname 이 서빙하는 domain 목록 (host↔domain 역방향 조회). */
     @GetMapping("/domains")
     public List<String> domains(@PathVariable String hostname) {
-        return domainRepo.findByHostname(hostname).stream().map(d -> d.host).toList();
+        return domainRepo.findByHostname(hostname).stream().map(d -> d.getHost()).toList();
     }
 
     /**
@@ -53,7 +53,7 @@ public class HostQueryController {
                 : jobService.defaultWindow();
 
         ScanResult r = jobService.runOnDemand(hostname, domain, window);
-        return new ScanStatusView(r.host, r.state, r.lastScanAt, r.version,
-                new SummaryView(r.discovered, r.active, r.shadow, r.zombie, r.unused), r.totalDropped);
+        return new ScanStatusView(r.getHost(), r.getState(), r.getLastScanAt(), r.getVersion(),
+                new SummaryView(r.getDiscovered(), r.getActive(), r.getShadow(), r.getZombie(), r.getUnused()), r.getTotalDropped());
     }
 }

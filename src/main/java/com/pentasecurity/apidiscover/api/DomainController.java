@@ -50,10 +50,10 @@ public class DomainController {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "domain already exists");
         }
         DomainConfig d = new DomainConfig();
-        d.host = req.host();
+        d.setHost(req.host());
         apply(d, req);
-        d.createdAt = Instant.now();
-        d.updatedAt = d.createdAt;
+        d.setCreatedAt(Instant.now());
+        d.setUpdatedAt(d.getCreatedAt());
         repo.save(d);
         return ResponseEntity.status(HttpStatus.CREATED).body(toView(d));
     }
@@ -67,7 +67,7 @@ public class DomainController {
     public DomainView update(@PathVariable String host, @RequestBody DomainUpsert req) {
         DomainConfig d = find(host);
         apply(d, req);
-        d.updatedAt = Instant.now();
+        d.setUpdatedAt(Instant.now());
         repo.save(d);
         return toView(d);
     }
@@ -87,24 +87,24 @@ public class DomainController {
     }
 
     private void apply(DomainConfig d, DomainUpsert req) {
-        d.enabled = req.enabled();
-        d.hostnames = req.hostnames() != null ? new ArrayList<>(req.hostnames()) : new ArrayList<>();
-        d.intervalOverride = req.intervalOverride();
+        d.setEnabled(req.enabled());
+        d.setHostnames(req.hostnames() != null ? new ArrayList<>(req.hostnames()) : new ArrayList<>());
+        d.setIntervalOverride(req.intervalOverride());
         // null → MERGE 유지(현행 무회귀, doc/26 §5). 미지정 PUT 이 모드를 지우지 않음.
         if (req.specMergeStrategy() != null) {
-            d.specMergeStrategy = req.specMergeStrategy();
+            d.setSpecMergeStrategy(req.specMergeStrategy());
         }
         // base-path-strip prefix (doc/27 §3). null=off — intervalOverride 와 동형(직접 대입).
-        d.basePathStrip = req.basePathStrip();
+        d.setBasePathStrip(req.basePathStrip());
     }
 
     private DomainView toView(DomainConfig d) {
-        SpecMetaView spec = specStore.activeMeta(d.host).map(DomainController::toSpecView).orElse(null);
-        SpecMergeStrategy mode = d.specMergeStrategy != null ? d.specMergeStrategy : SpecMergeStrategy.MERGE;
-        return new DomainView(d.host, d.enabled, d.hostnames, d.intervalOverride, mode, d.basePathStrip, spec);
+        SpecMetaView spec = specStore.activeMeta(d.getHost()).map(DomainController::toSpecView).orElse(null);
+        SpecMergeStrategy mode = d.getSpecMergeStrategy() != null ? d.getSpecMergeStrategy() : SpecMergeStrategy.MERGE;
+        return new DomainView(d.getHost(), d.isEnabled(), d.getHostnames(), d.getIntervalOverride(), mode, d.getBasePathStrip(), spec);
     }
 
     private static SpecMetaView toSpecView(SpecRecord r) {
-        return new SpecMetaView(r.format, r.specVersion, r.endpointCount, r.uploadedAt);
+        return new SpecMetaView(r.getFormat(), r.getSpecVersion(), r.getEndpointCount(), r.getUploadedAt());
     }
 }

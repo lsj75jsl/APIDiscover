@@ -48,7 +48,14 @@
 > 후속(P4·선택): `/discovered`·`/spec` 원 카탈로그 list REST 중앙 노출 — 결합 뷰 `/discovery` 로 자체조회 충족, 중앙 노출은 외부연동(P4) 시.
 
 ### P2. 품질/테스트
-- [ ] 엔티티 캡슐화 (현재 스캐폴딩상 public 필드)
+- [ ] 엔티티 캡슐화 (현재 스캐폴딩상 public 필드) **(설계 완료 → doc/29 / DECISIONS D41, 단일 PR·엔티티 단위 스테이지)** — *구현 완료(브랜치 feature/entity-encapsulation, build green 332/실패0/skip1, 머지 시 Done).*
+  - [x] (스테이지) `Watermark`(2) 캡슐화 → build green (패턴 확립)
+  - [x] (스테이지) `ClassificationConfig`(6)·`DomainClassificationConfig`(6) 캡슐화 → build green
+  - [x] (스테이지) `DomainConfig`(8, `@ElementCollection hostnames` 애너테이션 필드 고정) → build green
+  - [x] (스테이지) `SpecRecord`(11, `@Lob byte[] rawDoc` 보존)·`ScanResult`(14, `columnDefinition` 보존) → build green
+  - [x] (스테이지) `DiscoveredEndpointRecord`(16, 테스트 최다 참조) → build green
+  - [x] (공통) 애너테이션 **필드 유지**(getter 이동 금지)·boolean `isX()`·필드당 접근자 1쌍·`@GeneratedValue` id setter 미노출(SpecRecord·DiscoveredEndpointRecord)·equals/hashCode 무신설·각 엔티티 NOTE 주석 갱신
+  - [x] (회귀) 332 green·`PostgresIntegrationTest` podman 13건 실행 green(skip0)·기대값/단언 변경 0(대입 구문 형태만). doc/18 무영향(스키마 불변). 단 SpecStoreTest stateful mock 1곳은 생성 id setter 제거(D41)로 가짜 id 부여 라인만 제거(identity add-once 유지, id 미단언)
 
 ### P3. 운영/인프라 (자체 운영)
 - [ ] Loki 도메인 목록 추출 (수집 중 access log 에서 API 도메인 열거 — DomainConfig 부트스트랩/디스커버리 용)

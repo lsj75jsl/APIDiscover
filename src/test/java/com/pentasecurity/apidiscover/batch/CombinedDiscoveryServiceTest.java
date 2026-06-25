@@ -124,35 +124,35 @@ class CombinedDiscoveryServiceTest {
 
     private static DiscoveredEndpointRecord rec(String method, String template) {
         var r = new DiscoveredEndpointRecord();
-        r.host = HOST;
-        r.method = method;
-        r.pathTemplate = template;
-        r.firstSeen = Instant.EPOCH;
-        r.lastSeen = Instant.EPOCH;
-        r.hits = 10;
-        r.statusDistJson = "{\"2xx\":10}";
-        r.hadQuery = true;
-        r.nonBrowserUa = true;
-        r.templateSource = "INFERRED";
-        r.endpointKind = "API_CANDIDATE";
-        r.kindConfidence = 0.9;
+        r.setHost(HOST);
+        r.setMethod(method);
+        r.setPathTemplate(template);
+        r.setFirstSeen(Instant.EPOCH);
+        r.setLastSeen(Instant.EPOCH);
+        r.setHits(10);
+        r.setStatusDistJson("{\"2xx\":10}");
+        r.setHadQuery(true);
+        r.setNonBrowserUa(true);
+        r.setTemplateSource("INFERRED");
+        r.setEndpointKind("API_CANDIDATE");
+        r.setKindConfidence(0.9);
         return r;
     }
 
     private static SpecRecord specRec(String specName, long version) {
         var r = new SpecRecord();
-        r.host = HOST;
-        r.specName = specName;
-        r.format = SpecFormat.OPENAPI;
-        r.specVersion = version;
-        r.active = true;
+        r.setHost(HOST);
+        r.setSpecName(specName);
+        r.setFormat(SpecFormat.OPENAPI);
+        r.setSpecVersion(version);
+        r.setActive(true);
         return r;
     }
 
     private static DomainConfig domain(SpecMergeStrategy mode) {
         var d = new DomainConfig();
-        d.host = HOST;
-        d.specMergeStrategy = mode;
+        d.setHost(HOST);
+        d.setSpecMergeStrategy(mode);
         return d;
     }
 }

@@ -27,11 +27,11 @@ class ClassificationConfigSeederTest {
         ArgumentCaptor<ClassificationConfig> cap = ArgumentCaptor.forClass(ClassificationConfig.class);
         verify(repo).save(cap.capture());
         ClassificationConfig saved = cap.getValue();
-        assertThat(saved.id).isEqualTo(1L);
-        assertThat(saved.profile).isEqualTo(ClassificationProfile.MIDDLE); // 무회귀(override 없음)
-        assertThat(saved.thresholdOverride).isNull();
-        assertThat(saved.customWeightsJson).isNull();
-        assertThat(saved.matcherJson).isNull();
+        assertThat(saved.getId()).isEqualTo(1L);
+        assertThat(saved.getProfile()).isEqualTo(ClassificationProfile.MIDDLE); // 무회귀(override 없음)
+        assertThat(saved.getThresholdOverride()).isNull();
+        assertThat(saved.getCustomWeightsJson()).isNull();
+        assertThat(saved.getMatcherJson()).isNull();
     }
 
     @Test

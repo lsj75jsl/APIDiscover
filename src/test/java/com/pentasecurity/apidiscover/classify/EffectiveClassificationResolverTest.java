@@ -250,22 +250,22 @@ class EffectiveClassificationResolverTest {
     private static ClassificationConfig globalCfg(ClassificationProfile profile, Double threshold,
                                                   String customWeightsJson, String matcherJson) {
         var c = new ClassificationConfig();
-        c.id = 1L;
-        c.profile = profile;
-        c.thresholdOverride = threshold;
-        c.customWeightsJson = customWeightsJson;
-        c.matcherJson = matcherJson;
+        c.setId(1L);
+        c.setProfile(profile);
+        c.setThresholdOverride(threshold);
+        c.setCustomWeightsJson(customWeightsJson);
+        c.setMatcherJson(matcherJson);
         return c;
     }
 
     private static DomainClassificationConfig domainCfg(ClassificationProfile profile, Double threshold,
                                                         String customWeightsJson, String matcherJson) {
         var d = new DomainClassificationConfig();
-        d.host = HOST;
-        d.profile = profile;
-        d.thresholdOverride = threshold;
-        d.customWeightsJson = customWeightsJson;
-        d.matcherJson = matcherJson;
+        d.setHost(HOST);
+        d.setProfile(profile);
+        d.setThresholdOverride(threshold);
+        d.setCustomWeightsJson(customWeightsJson);
+        d.setMatcherJson(matcherJson);
         return d;
     }
 

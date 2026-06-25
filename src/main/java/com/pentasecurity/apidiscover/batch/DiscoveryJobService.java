@@ -106,7 +106,7 @@ public class DiscoveryJobService {
      */
     public void runScan(String host) {
         DomainConfig cfg = domainRepo.findById(host).orElse(null);
-        if (cfg == null || !cfg.enabled) {
+        if (cfg == null || !cfg.isEnabled()) {
             log.info("skip scan: host={} not found or disabled", host);
             return;
         }
@@ -173,12 +173,12 @@ public class DiscoveryJobService {
         Map<String, DiscoveredEndpointRecord> priorDiscovered = loadDiscovered(host, window);
         Map<String, Instant> priorFirstSeen = new HashMap<>();
         priorDiscovered.forEach((sig, rec) -> {
-            if (rec.firstSeen != null) {
-                priorFirstSeen.put(sig, rec.firstSeen);
+            if (rec.getFirstSeen() != null) {
+                priorFirstSeen.put(sig, rec.getFirstSeen());
             }
         });
         // base-path-strip prefix (doc/27 §3). null=off=현행. 매처가 as-is 우선·미매칭 시 prefix 재부착 재시도.
-        String stripPrefix = domainRepo.findById(host).map(c -> c.basePathStrip).orElse(null);
+        String stripPrefix = domainRepo.findById(host).map(c -> c.getBasePathStrip()).orElse(null);
         // findings + non_api dropped 메트릭 동시 산출 (doc/12 §1, doc/24·26·27)
         ClassificationResult classified = classifier.classifyWithMetrics(
                 discovered, spec, matcher, eff.scorer(), eff.hints(), priorFirstSeen, stripPrefix);
@@ -234,24 +234,24 @@ public class DiscoveryJobService {
                     continue;
                 }
                 rec = new DiscoveredEndpointRecord();
-                rec.host = host;
-                rec.method = d.method();
-                rec.pathTemplate = d.pathTemplate();
+                rec.setHost(host);
+                rec.setMethod(d.method());
+                rec.setPathTemplate(d.pathTemplate());
                 count++;
             }
             DiscoveredEndpoint.Metrics m = d.metrics();
-            rec.firstSeen = earliest(rec.firstSeen, (m != null) ? m.firstSeen() : null);
-            rec.lastSeen = latest(rec.lastSeen, (m != null) ? m.lastSeen() : null);
-            rec.lastScanAt = scanEnd;
-            rec.hits = (m != null) ? m.hits() : 0L;
-            rec.statusDistJson = toJson((m != null && m.statusDist() != null) ? m.statusDist() : Map.of());
-            rec.hadQuery = d.hadQuery();
-            rec.nonBrowserUa = d.nonBrowserUa();
-            rec.paramsJson = toJson(d.params());
-            rec.templateSource = (d.templateSource() != null) ? d.templateSource().name() : null;
-            rec.endpointKind = (d.endpointKind() != null) ? d.endpointKind().name() : null;
-            rec.kindConfidence = d.kindConfidence();
-            rec.version = deriveVersion(d, matcher);
+            rec.setFirstSeen(earliest(rec.getFirstSeen(), (m != null) ? m.firstSeen() : null));
+            rec.setLastSeen(latest(rec.getLastSeen(), (m != null) ? m.lastSeen() : null));
+            rec.setLastScanAt(scanEnd);
+            rec.setHits((m != null) ? m.hits() : 0L);
+            rec.setStatusDistJson(toJson((m != null && m.statusDist() != null) ? m.statusDist() : Map.of()));
+            rec.setHadQuery(d.hadQuery());
+            rec.setNonBrowserUa(d.nonBrowserUa());
+            rec.setParamsJson(toJson(d.params()));
+            rec.setTemplateSource((d.templateSource() != null) ? d.templateSource().name() : null);
+            rec.setEndpointKind((d.endpointKind() != null) ? d.endpointKind().name() : null);
+            rec.setKindConfidence(d.kindConfidence());
+            rec.setVersion(deriveVersion(d, matcher));
             discoveredRepo.save(rec);
         }
         if (dropped > 0) {
@@ -272,7 +272,7 @@ public class DiscoveryJobService {
 
     /** 검출 record → DiscoveredEndpoint.signature 동일 포맷 키 "{METHOD} {host} {template}" (priorFirstSeen 키). */
     private static String signatureOf(DiscoveredEndpointRecord rec) {
-        return rec.method + " " + rec.host + " " + rec.pathTemplate;
+        return rec.getMethod() + " " + rec.getHost() + " " + rec.getPathTemplate();
     }
 
     private static Instant earliest(Instant a, Instant b) {
@@ -305,24 +305,24 @@ public class DiscoveryJobService {
                 report.preflightSignal().status(), specSourceEtagView(report.specSource()))));
 
         ScanResult r = scanRepo.findById(host).orElseGet(ScanResult::new);
-        r.host = host;
-        r.state = "idle";
-        r.lastScanAt = report.generatedAt();
-        r.version = version;
-        r.specVersion = report.specVersion();
-        r.windowFrom = report.logWindow() != null ? report.logWindow().from() : null;
-        r.windowTo = report.logWindow() != null ? report.logWindow().to() : null;
-        r.reportJson = reportJson;
+        r.setHost(host);
+        r.setState("idle");
+        r.setLastScanAt(report.generatedAt());
+        r.setVersion(version);
+        r.setSpecVersion(report.specVersion());
+        r.setWindowFrom(report.logWindow() != null ? report.logWindow().from() : null);
+        r.setWindowTo(report.logWindow() != null ? report.logWindow().to() : null);
+        r.setReportJson(reportJson);
 
         DiscoveryReport.Summary s = report.summary();
-        r.discovered = s.discovered();
-        r.active = s.active();
-        r.shadow = s.shadow();
-        r.zombie = s.zombie();
-        r.unused = s.unused();
+        r.setDiscovered(s.discovered());
+        r.setActive(s.active());
+        r.setShadow(s.shadow());
+        r.setZombie(s.zombie());
+        r.setUnused(s.unused());
         // scan-status at-a-glance 비정규화 합계(사유별 상세는 /result 만, doc/25 §C). ETag 무영향.
-        r.totalDropped = report.droppedNonApi().total() + report.droppedByLimit().total()
-                + report.droppedNonExistent().notFound();
+        r.setTotalDropped(report.droppedNonApi().total() + report.droppedByLimit().total()
+                + report.droppedNonExistent().notFound());
         return scanRepo.save(r);
     }
 
@@ -387,7 +387,7 @@ public class DiscoveryJobService {
 
     /** watermark 기반 증분 윈도우 (doc/05 §3). 신규 구간 없으면 empty. */
     Optional<LogWindow> nextWindow(String host) {
-        Instant lastEnd = watermarkRepo.findById(host).map(w -> w.lastEnd).orElse(null);
+        Instant lastEnd = watermarkRepo.findById(host).map(w -> w.getLastEnd()).orElse(null);
         return windowFor(Instant.now(), lastEnd,
                 props.schedule().ingestLag(), props.schedule().initialBackfill());
     }
@@ -405,8 +405,8 @@ public class DiscoveryJobService {
 
     private void advanceWatermark(String host, Instant end) {
         Watermark w = watermarkRepo.findById(host).orElseGet(Watermark::new);
-        w.host = host;
-        w.lastEnd = end;
+        w.setHost(host);
+        w.setLastEnd(end);
         watermarkRepo.save(w);
     }
 
@@ -426,11 +426,11 @@ public class DiscoveryJobService {
     /** 도메인의 엣지 서버(hostname 라벨)별로 Loki 조회. 부하 보호는 LokiClient 내부(doc/05 §2.4). */
     private List<String> collect(DomainConfig cfg, LogWindow window) {
         List<String> lines = new ArrayList<>();
-        if (cfg.hostnames == null || cfg.hostnames.isEmpty()) {
-            lines.addAll(lokiClient.queryRange(queryBuilder.build(cfg.host), window));
+        if (cfg.getHostnames() == null || cfg.getHostnames().isEmpty()) {
+            lines.addAll(lokiClient.queryRange(queryBuilder.build(cfg.getHost()), window));
         } else {
-            for (String edge : cfg.hostnames) {
-                lines.addAll(lokiClient.queryRange(queryBuilder.build(edge, cfg.host), window));
+            for (String edge : cfg.getHostnames()) {
+                lines.addAll(lokiClient.queryRange(queryBuilder.build(edge, cfg.getHost()), window));
             }
         }
         return lines;

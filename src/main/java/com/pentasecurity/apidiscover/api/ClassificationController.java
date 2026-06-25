@@ -76,12 +76,12 @@ public class ClassificationController {
         }
         validate(req);
         ClassificationConfig c = globalRepo.findById(GLOBAL_ID).orElseGet(ClassificationConfig::new);
-        c.id = GLOBAL_ID;
-        c.profile = req.profile();
-        c.thresholdOverride = req.thresholdOverride();
-        c.customWeightsJson = toJsonOrNull(req.customWeights());
-        c.matcherJson = toJsonOrNull(req.matcher());
-        c.updatedAt = Instant.now();
+        c.setId(GLOBAL_ID);
+        c.setProfile(req.profile());
+        c.setThresholdOverride(req.thresholdOverride());
+        c.setCustomWeightsJson(toJsonOrNull(req.customWeights()));
+        c.setMatcherJson(toJsonOrNull(req.matcher()));
+        c.setUpdatedAt(Instant.now());
         globalRepo.save(c);
         resolver.invalidateAll(); // 전역 변경은 모든 host effective 에 영향
         return toGlobalView(c);
@@ -101,12 +101,12 @@ public class ClassificationController {
         requireDomain(host);
         validate(req); // profile 은 도메인에서 nullable(상속) — required 검사 없음
         DomainClassificationConfig d = overrideRepo.findById(host).orElseGet(DomainClassificationConfig::new);
-        d.host = host;
-        d.profile = req.profile();
-        d.thresholdOverride = req.thresholdOverride();
-        d.customWeightsJson = toJsonOrNull(req.customWeights());
-        d.matcherJson = toJsonOrNull(req.matcher());
-        d.updatedAt = Instant.now();
+        d.setHost(host);
+        d.setProfile(req.profile());
+        d.setThresholdOverride(req.thresholdOverride());
+        d.setCustomWeightsJson(toJsonOrNull(req.customWeights()));
+        d.setMatcherJson(toJsonOrNull(req.matcher()));
+        d.setUpdatedAt(Instant.now());
         overrideRepo.save(d);
         resolver.invalidate(host);
         return toDomainView(host);
@@ -153,16 +153,16 @@ public class ClassificationController {
             // 전역 분류는 개념상 항상 존재(부재=MIDDLE default), 404 아님 (doc/11 §4)
             return new GlobalClassificationView(ClassificationProfile.MIDDLE, null, null, null, null);
         }
-        return new GlobalClassificationView(c.profile, c.thresholdOverride,
-                readWeights(c.customWeightsJson), readMatcher(c.matcherJson), c.updatedAt);
+        return new GlobalClassificationView(c.getProfile(), c.getThresholdOverride(),
+                readWeights(c.getCustomWeightsJson()), readMatcher(c.getMatcherJson()), c.getUpdatedAt());
     }
 
     private DomainClassificationView toDomainView(String host) {
         DomainClassificationConfig o = overrideRepo.findById(host).orElse(null);
         OverrideView override = (o == null)
                 ? new OverrideView(null, null, null, null, null) // 행 부재 → 모든 필드 null (doc/11 §4)
-                : new OverrideView(o.profile, o.thresholdOverride,
-                        readWeights(o.customWeightsJson), readMatcher(o.matcherJson), o.updatedAt);
+                : new OverrideView(o.getProfile(), o.getThresholdOverride(),
+                        readWeights(o.getCustomWeightsJson()), readMatcher(o.getMatcherJson()), o.getUpdatedAt());
         EffectiveClassification eff = resolver.resolve(host); // 항상 산출 가능(전역 기반 병합)
         EffectiveView effective = new EffectiveView(eff.profile(), eff.weights(), eff.matcher());
         return new DomainClassificationView(host, override, effective);

@@ -34,8 +34,8 @@ public class ScanController {
     @GetMapping("/scan-status")
     public ScanStatusView status(@PathVariable String host) {
         ScanResult r = find(host);
-        return new ScanStatusView(r.host, r.state, r.lastScanAt, r.version,
-                new SummaryView(r.discovered, r.active, r.shadow, r.zombie, r.unused), r.totalDropped);
+        return new ScanStatusView(r.getHost(), r.getState(), r.getLastScanAt(), r.getVersion(),
+                new SummaryView(r.getDiscovered(), r.getActive(), r.getShadow(), r.getZombie(), r.getUnused()), r.getTotalDropped());
     }
 
     /** 결과 — 조건부 GET. If-None-Match 가 현재 version 과 같으면 304(doc/07 §3.3). */
@@ -44,17 +44,17 @@ public class ScanController {
             @PathVariable String host,
             @RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch) {
         ScanResult r = find(host);
-        if (r.reportJson == null || r.version == null) {
+        if (r.getReportJson() == null || r.getVersion() == null) {
             return ResponseEntity.noContent().build(); // 아직 완료된 스캔 없음
         }
-        String etag = "\"" + r.version + "\"";
+        String etag = "\"" + r.getVersion() + "\"";
         if (etag.equals(ifNoneMatch)) {
             return ResponseEntity.status(HttpStatus.NOT_MODIFIED).eTag(etag).build();
         }
         return ResponseEntity.ok()
                 .eTag(etag)
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(r.reportJson);
+                .body(r.getReportJson());
     }
 
     /** 온디맨드 재검사 트리거. */

@@ -23,9 +23,9 @@ public class ClassificationConfigSeeder implements CommandLineRunner {
     public void run(String... args) {
         if (repo.findById(1L).isEmpty()) {
             ClassificationConfig c = new ClassificationConfig();
-            c.id = 1L;
-            c.profile = ClassificationProfile.MIDDLE; // override 없음 = 현행(MIDDLE/0.70/NONE)
-            c.updatedAt = Instant.now();
+            c.setId(1L);
+            c.setProfile(ClassificationProfile.MIDDLE); // override 없음 = 현행(MIDDLE/0.70/NONE)
+            c.setUpdatedAt(Instant.now());
             repo.save(c);
         }
     }

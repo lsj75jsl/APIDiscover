@@ -362,6 +362,14 @@ H2 단위테스트가 못 잡는 **실 PG 매핑/동작**을 검증(L52 `@Lob St
   - **수정 방식 선택 근거**: `@JdbcTypeCode(SqlTypes.LONGVARCHAR)` → PG `varchar(32600)`(유한, 대용량 초과)·`LONG32VARCHAR` → 바인딩 시 PG 드라이버 `Unknown Types value`(seeder insert 부팅 실패) 둘 다 부적합. `@Column(columnDefinition="text")` 만 text·정상 바인딩·H2/PG 양립 충족.
   - **검증**: PG 통합테스트 13건 실행·green(skip 0), 총 332 실패 0(skip 1=LokiLive), bogus `DOCKER_HOST` 로 클래스 auto-skip(무회귀 게이팅 확인). doc/18 스키마(@Lob String 컬럼 정의) text 반영은 technical_writer 후속.
 
+### D41. 엔티티 캡슐화 — public 필드 → private + 접근자 (doc/29) — 채택(구현·머지 완료)
+스캐폴딩 7 `@Entity`(약 63 public 필드)를 캡슐화. **행동·매핑·직렬화 불변 절대조건**(332 테스트 green). P2 마무리.
+- **접근자(권장)**: **수기/IDE 생성 getter·setter**(신규 의존 0, 전역지침 §2·§3, 기존 컨벤션 일치). 보일러플레이트는 IDE "Encapsulate Fields" 로 상쇄. **Lombok 미채택** — 정리 리팩터 부산물로 컴파일 의존+애너테이션 프로세서+전 엔티티 컨벤션 전환을 끌어들이지 않음(원하면 별도 심의, D41 범위 밖).
+- **JPA 접근타입 보존(★)**: 애너테이션을 **필드에 그대로 유지**(getter 이동 금지) → field access 유지 → 매핑/DDL/ddl-auto/컬럼타입 불변. 특수 매핑(`@ElementCollection hostnames`·`@Lob byte[] rawDoc`·text 9필드 `columnDefinition`·`@GeneratedValue`·`@Enumerated`·필드 초기화자) 필드 고정. getter 이동=property access 전환=리스크라 금지.
+- **직렬화/ETag 무관(조사결과)**: 엔티티는 **Jackson 직접 직렬화 경로 없음** — 엔티티 Jackson 애너테이션 0, 전 컨트롤러가 DTO/뷰/모델 반환(엔티티 직접 반환 0), 모델/DTO 가 엔티티 미포함, `EtagUtil.of(String)` 입력은 `DiscoveryReport`/canonical **모델** 직렬화물. → 접근자 네이밍/순서가 JSON 계약·ETag 불변경. 원칙: 값 그대로 반환·boolean `isX()`·필드당 1쌍·파생 getter 금지.
+- **setter 범위**: 전 필드 getter / `@GeneratedValue` 자동생성 id 2개(SpecRecord·DiscoveredEndpointRecord) 제외 전 필드 setter(자동생성 id=앱 미기록·field access → 불변 신호). 진짜 불변(생성자 강제·setter 제거)은 더 큰 재설계로 범위 밖. equals/hashCode 무신설(동작 변화·범위 밖).
+- **진행**: 엔티티 1개씩 스테이지 + 단계별 `build` green(리뷰·bisect·롤백), 단일 PR. 순서=블래스트 반경 오름차순(Watermark→config 쌍→DomainConfig→SpecRecord→ScanResult→DiscoveredEndpointRecord). churn 대부분은 테스트(~9파일, public 필드 직접 대입), IDE Encapsulate Fields 가 호출측까지 변환.
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.
