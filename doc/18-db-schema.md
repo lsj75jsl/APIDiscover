@@ -85,6 +85,7 @@ INSERT 에는 이 기본값이 적용되지 않는다.
 | `host` | `host` | `@Id String` | VARCHAR(255) | ✔ | NOT NULL | 도메인 식별자(PK) |
 | `enabled` | `enabled` | `boolean` | BOOLEAN | | NOT NULL | 필드 기본값 `true`(SQL DEFAULT 아님) |
 | `interval_override` | `intervalOverride` | `String` | VARCHAR(255) | | nullable | ISO-8601 Duration 문자열(예 `PT1H`) 또는 null=전역 기본 |
+| `spec_merge_strategy` | `specMergeStrategy` | `@Enumerated(STRING) SpecMergeStrategy` | VARCHAR(255) | | nullable | 값: `MERGE`/`SEPARATE`/`VERSION_GROUPED`. 필드 기본값 `MERGE`. 기존 행 null → 읽을 때 `MERGE` 로 해석(`SpecStore`, doc/26 §5) |
 | `created_at` | `createdAt` | `Instant` | TIMESTAMP(6) | | nullable | |
 | `updated_at` | `updatedAt` | `Instant` | TIMESTAMP(6) | | nullable | |
 
@@ -116,6 +117,7 @@ INSERT 에는 이 기본값이 적용되지 않는다.
 |------|------|----------|----------|----|----------|------|
 | `id` | `id` | `@Id @GeneratedValue(IDENTITY) Long` | BIGINT (auto-increment / IDENTITY) | ✔ | NOT NULL | DB 자동 채번 |
 | `host` | `host` | `String` | VARCHAR(255) | | nullable | 논리 FK → `domain_config.host` |
+| `spec_name` | `specName` | `String` | VARCHAR(255) | | nullable | host 내 문서 식별(멀티 스펙). null → `"default"` 로 해석. `specName` 별 최신 active = host active set (doc/26 §3) |
 | `format` | `format` | `@Enumerated(STRING) SpecFormat` | VARCHAR(255) | | nullable | 값: `OPENAPI` / `POSTMAN` / `CSV` |
 | `spec_version` | `specVersion` | `long` | BIGINT | | NOT NULL | 도메인별 증가 버전 |
 | `raw_doc` | `rawDoc` | `@Lob byte[]` | BLOB | | nullable | 원본 문서(감사/재파싱용) |
@@ -192,21 +194,44 @@ H2/PG 이식성이 떨어져 채택하지 않았다(엔티티 주석·doc/10 §1
 | `matcher_json` | `matcherJson` | `@Lob String` | CLOB/TEXT | | nullable | `MatcherConfig`(도메인 override, `includeWebForms` nullable) |
 | `updated_at` | `updatedAt` | `Instant` | TIMESTAMP(6) | | nullable | |
 
-### 2.8 `endpoint_history` — 도메인별 spec endpoint 누적 관측 이력
+### 2.8 `discovered_endpoint` — 검출 SoT(누적 검출 인벤토리 + recency)
 
-엔티티 `EndpointHistory` (`@Table(name = "endpoint_history")`). 설계 출처 doc/24 §3 (cross-scan recency Zombie severity 보강, DECISIONS D33).
+엔티티 `DiscoveredEndpointRecord` (`@Table(name = "discovered_endpoint")`). 설계 출처 doc/26 §2 (멀티스펙 통합, DECISIONS D35·D36).
+도메인별 누적 검출 endpoint 카탈로그(검출 단일 진실원)이며, 과거 `endpoint_history` 의 recency(firstSeen/lastSeen)를 흡수했다(아래 흡수 주석).
 
 | 컬럼 | 필드 | JPA 타입 | SQL 타입 | PK | nullable | 비고 |
 |------|------|----------|----------|----|----------|------|
-| `host` | `host` | `@Id String` | VARCHAR(255) | ✔ | NOT NULL | 도메인(PK). 도메인당 1행, in-place 갱신 |
-| `history_json` | `historyJson` | `@Lob String` | CLOB/TEXT | | nullable | `Map<specKey, EndpointObservation>` JSON. specKey=`"METHOD|host|template"`(host=null→`*`) |
-| `updated_at` | `updatedAt` | `Instant` | TIMESTAMP(6) | | nullable | |
+| `id` | `id` | `@Id @GeneratedValue(IDENTITY) Long` | BIGINT (auto-increment / IDENTITY) | ✔ | NOT NULL | DB 자동 채번(`spec_record` 스타일 일치) |
+| `host` | `host` | `String` | VARCHAR(255) | | nullable | 도메인 조회 키(**indexed**). 논리 FK → `domain_config.host` |
+| `method` | `method` | `String` | VARCHAR(255) | | nullable | unique 키 일부 |
+| `path_template` | `pathTemplate` | `String` | VARCHAR(255) | | nullable | unique 키 일부 |
+| `template_source` | `templateSource` | `String` | VARCHAR(255) | | nullable | `SPEC`/`INFERRED` (doc/01 `TemplateSource`, `@Enumerated` 아닌 plain String) |
+| `endpoint_kind` | `endpointKind` | `String` | VARCHAR(255) | | nullable | `WEB_PAGE`/`STATIC`/`API_CANDIDATE`/`UNKNOWN` (doc/04 `EndpointKind`, plain String) |
+| `kind_confidence` | `kindConfidence` | `double` | DOUBLE / double precision | | NOT NULL | endpoint_kind 신뢰도 |
+| `version` | `version` | `String` | VARCHAR(255) | | nullable | 버전 태그. path `^v\d+$` 또는 매칭 spec.version 도출, 없으면 null. **indexed (host,version)** (doc/26 §4) |
+| `first_seen` | `firstSeen` | `Instant` | TIMESTAMP(6) | | nullable | 누적 recency = min(기존,현재). severity entrenchment 입력(doc/24, EndpointHistory 흡수) |
+| `last_seen` | `lastSeen` | `Instant` | TIMESTAMP(6) | | nullable | 누적 recency = max. retention prune 기준 |
+| `last_scan_at` | `lastScanAt` | `Instant` | TIMESTAMP(6) | | nullable | 최신 스캔 윈도우 끝(데이터 ts, `now()` 미사용) |
+| `hits` | `hits` | `long` | BIGINT | | NOT NULL | 최신 윈도우 스냅샷 |
+| `status_dist_json` | `statusDistJson` | `@Lob String` | CLOB/TEXT | | nullable | 최신 윈도우 status 분포 JSON 스냅샷 |
+| `had_query` | `hadQuery` | `boolean` | BOOLEAN | | NOT NULL | ApiScorer 신호 스냅샷 |
+| `non_browser_ua` | `nonBrowserUa` | `boolean` | BOOLEAN | | NOT NULL | ApiScorer 신호 스냅샷 |
+| `params_json` | `paramsJson` | `@Lob String` | CLOB/TEXT | | nullable | `ParamCandidates`(doc/13) 스냅샷 |
 
-- `EndpointObservation`(`model/EndpointObservation.java`)은 `record(Instant firstSeen, Instant lastSeen)` 로, **테이블이 아니라** `history_json` Map 의 값으로 직렬화되는 단위다(Jackson 왕복). 별도 컬럼·테이블 없음.
-- **per-host 1행 + spec 매칭 endpoint 만 기록(spec-bound)**: Zombie/severity 가 spec endpoint 한정이라 spec 크기로 자연 bound(수십~수백). Shadow/inferred·스캐너 noise 는 미기록해 무한 누적을 막는다(doc/24 §3).
-- **`@Lob String` JSON 채택**(정규화 테이블 아님): JSONB 미사용·H2/PG 이식 컨벤션(§1.2, doc/10 §2·D17)·per-host 접근 패턴(`ScanResult.findById` 와 동일). 정규화(엔드포인트당 행)는 규모 확대 시 대안이다(doc/24 §6).
-- **`ddl-auto: update` 로 신규 생성** — 기존 6엔티티/7테이블 및 데이터에 무영향. 콜드스타트(행 없음)=빈 이력=현행 동작(doc/24 §4).
-- 리포지토리: `EndpointHistoryRepository extends JpaRepository<EndpointHistory, String>`.
+**제약/인덱스** (본 문서에서 **유일하게 명시적 `@UniqueConstraint`·`@Index` 를 선언하는 테이블** — 나머지는 PK 또는 `@ElementCollection` 기본 매핑만).
+
+- PK: `id`(합성, IDENTITY). 자연키 대신 합성 키 — `spec_record` 와 동일 스타일.
+- **UNIQUE(`host`, `method`, `path_template`)** — 누적 upsert 키. `@UniqueConstraint(columnNames={"host","method","path_template"})`.
+- **INDEX(`host`)**, **INDEX(`host`, `version`)** — host 카탈로그 조회·host 내 버전 그룹 조회.
+
+기타.
+
+- **누적 upsert(스캔마다)**: `firstSeen=min`·`lastSeen=max`·`lastScanAt`=window end·스냅샷 메트릭(hits/status/params) 최신 윈도우값·version 재계산(doc/26 §2).
+- **카디널리티 가드**: 인벤토리 cap(host당 template 5000, doc/13) upsert 전 적용 + **retention prune**(`lastSeen < now−180d` 삭제, `deleteByHostAndLastSeenBefore`). 검출은 Shadow/inferred 포함이라 cap+prune 필수(스캐너 noise 누적 방지).
+- **메트릭 분담(린)**: 카탈로그=identity+kind+version+recency+기본 활동(hits/status/params). p50/p95·distinctClients 등 **분석 상세는 `scan_result.report_json`(per-scan) 유지**(카탈로그 비대화 방지, doc/26 §2).
+- **EndpointHistory 흡수(D36)**: 과거 §2.8 `endpoint_history`(doc/24 D33, `historyJson` Map)는 본 테이블로 흡수되어 **엔티티/테이블 제거**됨. `(host, specKey, firstSeen, lastSeen)` → `(host, method, path_template, first_seen, last_seen)`. severity recency 는 매칭 template 의 `first_seen` 조회. `model/EndpointObservation` 도 함께 제거. 권장 마이그레이션=재구축(firstSeen 신규 누적, 콜드스타트=현행 severity 무회귀, doc/26 §8). 단 `ddl-auto: update` 는 테이블을 자동 DROP 하지 않으므로(§1.1) 잔존 `endpoint_history` 물리 테이블은 운영에서 수동 제거.
+- **`ddl-auto: update` 로 신규 생성** — 기존 테이블/데이터 무영향(doc/26 §8).
+- 리포지토리: `DiscoveredEndpointRepository extends JpaRepository<DiscoveredEndpointRecord, Long>` — `findByHost`·`findByHostAndVersion`·`findByHostAndMethodAndPathTemplate`(upsert)·`deleteByHostAndLastSeenBefore`(prune).
 
 ---
 
@@ -233,7 +258,7 @@ H2/PG 이식성이 떨어져 채택하지 않았다(엔티티 주석·doc/10 §1
         ▲   ▲   ▲   ▲   ▲                        │
         │   │   │   │   │                        │
 spec_record │   │   │   domain_classification_config(host, PK·1:1)
- (host 컬럼)│   │   endpoint_history(host, PK·1:1)
+ (host 컬럼)│   │   discovered_endpoint(host idx, 1:N)
             │   watermark(host, PK)
             scan_result(host, PK)
 ```
@@ -244,7 +269,7 @@ spec_record │   │   │   domain_classification_config(host, PK·1:1)
 | `domain_config` ↔ `scan_result` | 1 : 1 (도메인당 최신 1건) | `host`(양쪽 PK) | 논리 FK |
 | `domain_config` ↔ `watermark` | 1 : 1 | `host`(양쪽 PK) | 논리 FK |
 | `domain_config` ↔ `domain_classification_config` | 1 : 1 (희소) | `host`(양쪽 PK) | 논리 FK |
-| `domain_config` ↔ `endpoint_history` | 1 : 1 (spec-bound, 도메인당 1행) | `host`(양쪽 PK) | 논리 FK |
+| `domain_config` ↔ `discovered_endpoint` | 1 : N (host당 검출 endpoint 행 다수) | `host`(자식 indexed, 부모 PK) | 논리 FK |
 | `classification_config` | 전역 단일 행(싱글톤) | 고정 PK=1 | 도메인 무관, 전역 기본값. 도메인 override 와 앱 레벨 병합(doc/10 §3) |
 
 > 역방향 조회: 한 엣지 서버(hostname)가 서빙하는 도메인은 `DomainConfigRepository.findByHostname` 이 `domain_hostnames`
@@ -258,14 +283,14 @@ spec_record │   │   │   domain_classification_config(host, PK·1:1)
 
 | 테이블 | 엔티티 | 설계 출처 |
 |--------|--------|----------|
-| `domain_config` | `DomainConfig` | doc/07 §3.1, doc/05 §2.3(hostnames) |
+| `domain_config` | `DomainConfig` | doc/07 §3.1, doc/05 §2.3(hostnames), `spec_merge_strategy`=doc/26 §5·D35 |
 | `domain_hostnames` | `DomainConfig.hostnames` (`@ElementCollection`) | doc/05 §2.3 |
-| `spec_record` | `SpecRecord` | doc/03 §7.3, `warnings_json`=doc/25 §A.2·D34 |
+| `spec_record` | `SpecRecord` | doc/03 §7.3, `warnings_json`=doc/25 §A.2·D34, `spec_name`=doc/26 §3·D35 |
 | `scan_result` | `ScanResult` | doc/07 §3.2·§3.3, `reportJson`=doc/01 §4·doc/12, `total_dropped`=doc/25 §C·D34 |
 | `watermark` | `Watermark` | doc/05 §3.1 |
 | `classification_config` | `ClassificationConfig` | doc/10 §1.1 |
 | `domain_classification_config` | `DomainClassificationConfig` | doc/10 §1.2 |
-| `endpoint_history` | `EndpointHistory` (값=`model/EndpointObservation`) | doc/24 §3, DECISIONS D33 |
+| `discovered_endpoint` | `DiscoveredEndpointRecord` | doc/26 §2·§4·§7, DECISIONS D35·D36 (구 `endpoint_history`/doc/24 D33 흡수·제거) |
 | (전반 영속 컨벤션) | — | doc/06(스택), doc/10 §2·§4, DECISIONS D11·D17 |
 
 ---
@@ -274,8 +299,8 @@ spec_record │   │   │   domain_classification_config(host, PK·1:1)
 
 엔티티 애너테이션만으로 확정할 수 없어 실 DB 생성 DDL 확인이 필요한 항목이다.
 
-- `@Lob String`(`canonicalJson`/`reportJson`/`customWeightsJson`/`matcherJson`)의 PostgreSQL 실제 타입 — 명시 매핑이 없으면
-  기본 `oid`(§1.3 함정)이며 `text` 가 아니다. TASKS 의 "@Lob String JSON 컬럼 PostgreSQL TEXT 매핑 실검증" 미완 항목과 동일.
+- 모든 `@Lob String` 컬럼(`canonical_json`/`report_json`/`custom_weights_json`/`matcher_json`/`warnings_json`/`status_dist_json`/`params_json`)의
+  PostgreSQL 실제 타입 — 명시 매핑이 없으면 기본 `oid`(§1.3 함정)이며 `text` 가 아니다. TASKS 의 "@Lob String JSON 컬럼 PostgreSQL TEXT 매핑 실검증" 미완 항목과 동일.
 - `@Lob byte[]`(`spec_record.raw_doc`)의 PostgreSQL 실제 타입(`bytea` vs 대용량 객체 `oid`).
 - `domain_hostnames` 의 PK/UNIQUE 제약 정확한 형태(Hibernate 버전 의존).
 - prod(PostgreSQL) 프로파일 yml — 현재 리포에는 H2 `application.yml` 만 존재. PG 접속값은 운영 환경에서 주입되는 전제.

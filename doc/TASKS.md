@@ -57,7 +57,7 @@
     - [ ] (선택) `/discovered`·`/spec` 원 카탈로그 list — 결합 뷰 `/discovery` 로 충족, 원 카탈로그 REST·중앙 노출 P4 생략(D25)
   - **공통**
     - [x] 테스트 — discovered_endpoint upsert/recency/cap·prune / 모드 case×mode·결정성·합성버전 / 단일=현행 무회귀 / EndpointHistory 이관(severity 콜드스타트=현행) / host 결합·버전그룹 / ETag 결정적(시간非의존) — tests=310
-    - [ ] (doc/18 sync, technical_writer) `discovered_endpoint`·`spec_record.spec_name`·`endpoint_history` 제거 반영
+    - [x] (doc/18 sync, technical_writer) `discovered_endpoint`(§2.8)·`spec_record.spec_name`·`domain_config.spec_merge_strategy`·`endpoint_history` 제거 반영 (7엔티티/8테이블 유지)
 
 ### P2. 품질/테스트
 - [ ] 엔티티 캡슐화 (현재 스캐폴딩상 public 필드)
