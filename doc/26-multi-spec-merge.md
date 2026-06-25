@@ -126,9 +126,9 @@ class DiscoveredEndpointRecord {
 - [x] `DiscoveryJobService` — 스캔 discovered → discovered_endpoint 누적 upsert(firstSeen min/lastSeen max/최신 윈도우 스냅샷). severity recency 를 discovered_endpoint.firstSeen 로 전환(Evidence entrenchedFirstSeen, signature 키), **EndpointHistory 엔티티/repository/observedTimes/EndpointObservation 제거**(재구축 이관=콜드스타트 현행 무회귀).
 - [x] `spec_record` +`specName`(null→"default", 스키마/컬럼만 — 멀티문서 upsert 는 2단계) + `discovered_endpoint.version` 도출(path `^v\d+$` 세그먼트 → 매칭 spec.version → null).
 
-**2단계 멀티스펙+모드(B)**
-- [ ] `DomainConfig.specMergeStrategy`(MERGE/SEPARATE/VERSION_GROUPED, 기본 MERGE)+DomainController DTO. `SpecStore` 모드 분기(MERGE upsert/SEPARATE 형제 비활성/VERSION_GROUPED active 공존).
-- [ ] `SpecCanonicalizer` 결정적 merge(union pre-sort→dedupe+deprecated OR, latest-wins 비-deprecated). 합성 spec 버전(해시)→matcherCache/report/SpecSource.
+**2단계 멀티스펙+모드(B)** → 완료 2026-06-25 (커밋 보류·리뷰 대기)
+- [x] `model/SpecMergeStrategy`(MERGE/SEPARATE/VERSION_GROUPED) + `DomainConfig.specMergeStrategy`(기본 MERGE, ddl-auto null→읽을 때 MERGE) + `DomainController`/`DomainDtos` DTO 가산(엔드포인트 0). `SpecStore` 모드 분기 — `upload(host,name,content)`: SEPARATE=host 전체 비활성(교체), MERGE/VERSION_GROUPED=같은 specName 만 비활성(형제 유지). `upload(host,content)`=default 위임(현행 무회귀). null specName(기존행)=default 해석.
+- [x] `SpecCanonicalizer.merge(List<VersionedCanonical>)` 결정적 — dedupe(method,host,template)+deprecated OR+비-deprecated latest-upload-wins(최신 specVersion, tie sourceRef). group+max+OR 교환법칙→순서 무관. 단일 문서=canonicalize 동치(무회귀). `loadActiveCanonical`=∪ active docs merge. 합성 spec 버전=`SpecStore.syntheticVersion`(merged canonical CRC32)→`DiscoveryJobService` report.specVersion/SpecSource/matcherCache 키(동일 콘텐츠=동일 버전). 멀티문서 SpecSource format/warnings union·documents[] 은 3단계.
 
 **3단계 결합·버전그룹(C/D)**
 - [ ] host 결합 Discovery 뷰 — Classifier(discovered_endpoint ∪ active spec) 불변, 결합 목록 + VERSION_GROUPED 그룹 구조. `SpecSource`+documents(doc/25 확장).

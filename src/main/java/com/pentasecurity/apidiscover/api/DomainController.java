@@ -7,6 +7,7 @@ import com.pentasecurity.apidiscover.api.dto.DomainDtos.SpecMetaView;
 import com.pentasecurity.apidiscover.domain.DomainConfig;
 import com.pentasecurity.apidiscover.domain.DomainConfigRepository;
 import com.pentasecurity.apidiscover.domain.SpecRecord;
+import com.pentasecurity.apidiscover.model.SpecMergeStrategy;
 import com.pentasecurity.apidiscover.spec.SpecStore;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -89,11 +90,16 @@ public class DomainController {
         d.enabled = req.enabled();
         d.hostnames = req.hostnames() != null ? new ArrayList<>(req.hostnames()) : new ArrayList<>();
         d.intervalOverride = req.intervalOverride();
+        // null → MERGE 유지(현행 무회귀, doc/26 §5). 미지정 PUT 이 모드를 지우지 않음.
+        if (req.specMergeStrategy() != null) {
+            d.specMergeStrategy = req.specMergeStrategy();
+        }
     }
 
     private DomainView toView(DomainConfig d) {
         SpecMetaView spec = specStore.activeMeta(d.host).map(DomainController::toSpecView).orElse(null);
-        return new DomainView(d.host, d.enabled, d.hostnames, d.intervalOverride, spec);
+        SpecMergeStrategy mode = d.specMergeStrategy != null ? d.specMergeStrategy : SpecMergeStrategy.MERGE;
+        return new DomainView(d.host, d.enabled, d.hostnames, d.intervalOverride, mode, spec);
     }
 
     private static SpecMetaView toSpecView(SpecRecord r) {

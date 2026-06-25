@@ -1,6 +1,7 @@
 // 중앙 서버 연동 REST DTO 묶음 (doc/07 §3)
 package com.pentasecurity.apidiscover.api.dto;
 
+import com.pentasecurity.apidiscover.model.SpecMergeStrategy;
 import com.pentasecurity.apidiscover.spec.SpecFormat;
 import java.time.Instant;
 import java.util.List;
@@ -12,10 +13,11 @@ public final class DomainDtos {
 
     /** 도메인 등록/수정 요청. */
     public record DomainUpsert(
-            String host,                 // POST 시 사용(PUT 은 path 우선)
+            String host,                          // POST 시 사용(PUT 은 path 우선)
             boolean enabled,
-            List<String> hostnames,      // 엣지 서버(Loki hostname 라벨)
-            String intervalOverride      // ISO-8601 Duration 또는 null
+            List<String> hostnames,               // 엣지 서버(Loki hostname 라벨)
+            String intervalOverride,              // ISO-8601 Duration 또는 null
+            SpecMergeStrategy specMergeStrategy   // null → MERGE(현행, doc/26 §5)
     ) {}
 
     /** 도메인 조회 응답. */
@@ -24,7 +26,8 @@ public final class DomainDtos {
             boolean enabled,
             List<String> hostnames,
             String intervalOverride,
-            SpecMetaView spec            // 활성 스펙 메타(없으면 null)
+            SpecMergeStrategy specMergeStrategy,  // 병합 전략(doc/26 §5)
+            SpecMetaView spec                     // 활성 스펙 메타(없으면 null)
     ) {}
 
     /** 스펙 메타 (doc/07 §3.1). */

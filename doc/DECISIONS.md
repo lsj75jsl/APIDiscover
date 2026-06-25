@@ -321,7 +321,10 @@ doc/14(D21) 후속. 한 도메인의 여러 스펙 문서를 하나의 canonical
 - **무회귀/마이그레이션(E)**: 기본 MERGE+단일=현행. ddl-auto 신규 테이블(기존 무영향). EndpointHistory→discovered_endpoint **재구축 이관 권장**(콜드스타트=현행 severity, doc/24 폴백). ETag 결정적·시간非의존(lastSeen 은 카탈로그 표시만, ETag 비포함; severity→band·params→이름집합 투영 doc/24/25 유지).
 - **단계화**: 1)데이터모델(A/C) 2)멀티스펙+모드(B,D35) 3)결합·버전그룹(C/D). 권장 요약 doc/26 §9.
 - doc/18 sync(discovered_endpoint·spec_name·endpoint_history 제거)=technical_writer 후속.
-- **진행(2026-06-25)**: 사용자 확정(3모드·EndpointHistory 흡수·한 PR 전체, 단계별 커밋 누적). **1단계(데이터모델 A/C) 구현 완료**(브랜치 `feature/multi-spec-merge`, build 그린 tests=297, 커밋·리뷰 대기) — `discovered_endpoint` 엔티티/repo, 누적 upsert+cap(5000)/retention(180d) prune, version 도출(path `^v\d+$`→spec.version), `spec_record.specName` 컬럼, **EndpointHistory→discovered_endpoint.firstSeen 흡수**(severity recency=검출 signature 키, endpoint_history/observedTimes/EndpointObservation 제거, 콜드스타트=현행 무회귀). 2·3단계는 리뷰 후 별도 지시.
+- **진행(2026-06-25)**: 사용자 확정(3모드·EndpointHistory 흡수·한 PR 전체, 단계별 커밋 누적). 브랜치 `feature/multi-spec-merge`, 단계별 커밋·리뷰 대기.
+  - **1단계(데이터모델 A/C) 완료**(build 그린 tests=297→P3 보강 298) — `discovered_endpoint` 엔티티/repo, 누적 upsert+cap(5000)/retention(180d) prune, version 도출(path `^v\d+$`→spec.version), `spec_record.specName` 컬럼, **EndpointHistory→discovered_endpoint.firstSeen 흡수**(severity recency=검출 signature 키, endpoint_history/observedTimes/EndpointObservation 제거, 콜드스타트=현행 무회귀).
+  - **2단계(멀티스펙+모드 B, D35) 완료**(build 그린 tests=305) — `model/SpecMergeStrategy`+`DomainConfig.specMergeStrategy`(기본 MERGE, null→MERGE)+DTO 가산. `SpecStore` 모드 분기(`upload(host,name,content)`: SEPARATE=전체 교체/MERGE·VG=같은 specName 만·형제 유지; default 위임=현행). `SpecCanonicalizer.merge` 결정적(dedupe+deprecated OR+비-deprecated latest-specVersion-wins·tie sourceRef·순서 무관, 단일=canonicalize 동치). 합성 spec 버전=merged canonical CRC32→report/SpecSource/matcherCache(동일 콘텐츠=동일 버전). **한계**: 멀티문서 SpecSource format/warnings union·documents[]·SpecController name REST·버전그룹 뷰=3단계.
+  - 3단계는 리뷰 후 별도 지시.
 
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.

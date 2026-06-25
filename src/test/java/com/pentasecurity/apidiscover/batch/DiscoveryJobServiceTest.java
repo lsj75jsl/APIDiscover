@@ -169,7 +169,8 @@ class DiscoveryJobServiceTest {
 
         assertThat(result.active).isEqualTo(1);
         assertThat(result.shadow).isZero();
-        assertThat(result.specVersion).isEqualTo(5L);
+        // specVersion = merged canonical 콘텐츠 합성 해시(doc/26 §8) — per-record 5L 아님. 스펙 존재→non-zero.
+        assertThat(result.specVersion).isNotZero();
     }
 
     @Test

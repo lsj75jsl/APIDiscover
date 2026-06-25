@@ -151,10 +151,13 @@ public class DiscoveryJobService {
         Optional<SpecRecord> active = specStore.activeMeta(host);
         List<CanonicalEndpoint> spec = active.isPresent()
                 ? specStore.loadActiveCanonical(host) : List.of();
-        long specVersion = active.map(r -> r.specVersion).orElse(0L);
-        // 스펙 출처/파싱 경고(업로드 시 영속, 재파싱 없음) → 리포트 specSource (doc/25 §A.2)
+        // 합성 spec 버전 = merged canonical 콘텐츠 해시(doc/26 §8) — per-record specVersion 대신.
+        // 동일 콘텐츠=동일 버전 → matcherCache 안정·ETag 결정적. 무스펙=0.
+        long specVersion = spec.isEmpty() ? 0L : SpecStore.syntheticVersion(spec, objectMapper);
+        // 스펙 출처/파싱 경고(업로드 시 영속, 재파싱 없음) → 리포트 specSource (doc/25 §A.2).
+        // 멀티문서 format/warnings union·documents[] 은 3단계(SpecSource 확장); 여기선 합성버전+latest active 메타.
         SpecSource specSource = active
-                .map(r -> new SpecSource(r.specVersion, r.format, parseWarnings(r.warningsJson)))
+                .map(r -> new SpecSource(specVersion, r.format, parseWarnings(r.warningsJson)))
                 .orElse(SpecSource.EMPTY);
         // (host, specVersion) 캐시 — 동일 버전 재스캔 시 matcher 재생성 제거. 없으면 supplier 로 빌드 (doc/15 §3)
         EndpointMatcher matcher = matcherCache.get(host, specVersion, () -> new EndpointMatcher(spec));
