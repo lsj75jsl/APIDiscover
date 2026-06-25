@@ -51,6 +51,9 @@
 - [ ] 엔티티 캡슐화 (현재 스캐폴딩상 public 필드)
 
 ### P3. 운영/인프라 (자체 운영)
+- [ ] Loki 도메인 목록 추출 (수집 중 access log 에서 API 도메인 열거 — DomainConfig 부트스트랩/디스커버리 용)
+      — **조사결과(2026-06-25)**: 도메인은 **Loki 라벨이 아님**(라벨 = `job`·`hostname`). 실제 API 도메인(Host 헤더)은 **로그 라인 내용**에 있어 `LogLineParser` F_HOST 필드로 파싱된다 → 라벨 조회로 공짜 추출 불가.
+      경량 추출안: 소량 윈도우(off-peak)·`page-limit` 내 로그 스캔 + host 필드 파싱·dedupe(LokiClient 부하보호 준수), 또는 `count by (host)` 서버측 집계로 전송량 축소. 엣지 `hostname` 라벨 목록(서버 인스턴스, 도메인과 다름)은 `/loki/api/v1/label/hostname/values` 로 경량 조회 가능.
 - [ ] off-peak 시간대 제한
 - [ ] 부하/운영 메트릭 (쿼리수·바이트·429) Actuator/Micrometer 노출 + 알람 — doc/12 `DroppedNonApi`·doc/13 `DroppedByLimit` 카운트 재사용 가능
 - [ ] Spring Batch JobRepository 실연결 (현재 `@Scheduled`만, `batch.job.enabled=false`)
