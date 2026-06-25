@@ -22,16 +22,17 @@
 | DBMS | H2 in-memory | PostgreSQL | `build.gradle.kts` 41행 `org.postgresql:postgresql` runtimeOnly |
 | 접속 | `jdbc:h2:mem:apidiscover;DB_CLOSE_DELAY=-1` (application.yml) | 운영 프로파일에서 주입(확인 필요 — prod 프로파일 yml 은 현재 리포에 없음, 런타임 주입 전제) | — |
 
-이식성을 위해 **벤더 전용 JSON 타입(PostgreSQL JSONB)을 쓰지 않는다.** JSON 데이터는 모두 `@Lob String`(CLOB/TEXT)으로
-저장하고 애플리케이션이 Jackson 으로 직렬화/역직렬화한다(근거 doc/10 §2·§4, DECISIONS D17). 이로써 H2/PG 가 동일하게 동작한다.
+이식성을 위해 **벤더 전용 JSON 타입(PostgreSQL JSONB)을 쓰지 않는다.** JSON 데이터는 모두 `String` 필드에 `@Column(columnDefinition = "text")` 를
+명시해 저장하고(H2/PG 모두 `text`) 애플리케이션이 Jackson 으로 직렬화/역직렬화한다(근거 doc/10 §2·§4, DECISIONS D17). 이로써 H2/PG 가 동일하게 동작한다.
+(초기에는 `@Lob String` 이었으나 PG 에서 `oid` 로 매핑돼 실결함이 발생했고, PR #20/D40(doc/28)에서 9컬럼을 `text` 명시 매핑으로 전환해 해소했다 — §1.3 함정·§5 참조.)
 
 > 참고: DECISIONS **D11** 은 PostgreSQL 채택 사유로 "JSONB"를 들지만, 실제 스키마는 이식성 때문에 JSONB 컬럼 타입을 쓰지 않는다.
 > JSONB 는 향후 활용 여지일 뿐 현재 매핑에는 등장하지 않는다.
 
 사용 중인 JPA 매핑 컨벤션은 다음과 같다.
 
-- `@Lob String` → 큰 JSON 문자열. CLOB/TEXT 로 매핑.
-- `@Lob byte[]` → 원본 바이너리(BLOB).
+- `String` + `@Column(columnDefinition = "text")` → 큰 JSON 문자열. H2/PG 모두 `text`(과거 `@Lob String` 은 PG `oid` 결함 → D40 에서 전환, §1.3).
+- `@Lob byte[]` → 원본 바이너리(BLOB / PG `oid`). `spec_record.raw_doc` 한정.
 - `@Enumerated(EnumType.STRING)` → enum 을 이름 문자열(VARCHAR)로 저장. 숫자 ordinal 미사용(순서 변경 안전).
 - `@ElementCollection` + `@CollectionTable` → 컬렉션 필드를 **자식 테이블로 분리**.
 - public 필드(스캐폴딩 단순화, 캡슐화는 후속 TODO — 엔티티 주석 참조).
@@ -43,8 +44,8 @@
 | Java / JPA | H2 SQL | PostgreSQL SQL | nullable 기본 |
 |------------|--------|----------------|---------------|
 | `String` (length 미지정) | `VARCHAR(255)` | `varchar(255)` | nullable |
-| `@Lob String` | `CLOB` | **기본 `oid`(large object) — 함정**, `text` 는 명시 매핑 필요(아래 주석 참조) | nullable |
-| `@Lob byte[]` | `BLOB` | `bytea`/`oid` (확인 필요 — PG LOB 매핑 실검증 필요) | nullable |
+| `String` + `@Column(columnDefinition="text")` (JSON) | `text` | `text` (PR #20/D40 실측 확정) | nullable |
+| `@Lob byte[]` | `BLOB` | `oid` (PR #20/D40 실측 확정 — `spec_record.raw_doc` 한정, 범위 밖·그대로 유지) | nullable |
 | `Instant` | `TIMESTAMP(6)` | `timestamp(6)` | nullable (UTC 저장) |
 | `long` (primitive) | `BIGINT` | `bigint` | **NOT NULL** |
 | `Long` (wrapper) | `BIGINT` | `bigint` | nullable |
@@ -57,11 +58,13 @@
 원시 타입(`long`/`int`/`boolean`)은 NOT NULL, 래퍼/객체 타입(`String`/`Long`/`Double`/`Instant`/enum/`byte[]`)은 nullable.
 `@Id` 컬럼은 PK 이므로 묵시적 NOT NULL.
 
-**`@Lob String` 의 PostgreSQL 매핑 함정**: Hibernate 6 는 `@Lob String` 을 CLOB 으로 보고 **PostgreSQL 에서 기본 `oid`(large
+**`@Lob String` 의 PostgreSQL 매핑 함정 (확인·해소됨)**: Hibernate 6 는 `@Lob String` 을 CLOB 으로 보고 **PostgreSQL 에서 기본 `oid`(large
 object, `pg_largeobject` 사용)** 로 매핑한다 — 흔히 기대하는 `text` 가 아니다. `oid` 는 일반 SELECT 로 본문이 안 보이고
 백업/삭제 시 LOB 정리가 별도로 필요해 운영상 불리하다. 회피하려면 컬럼에 `@Column(columnDefinition = "text")` 또는
-`@JdbcTypeCode(SqlTypes.LONGVARCHAR)` 를 명시해 `text` 로 강제한다. 현재 엔티티들은 어느 쪽도 지정하지 않았으므로 PG 에서는
-`oid` 가 되며, `text` 를 원하면 위 매핑을 추가해야 한다(실검증 §5).
+`@JdbcTypeCode(SqlTypes.LONGVARCHAR)` 를 명시해 `text` 로 강제한다. **PR #20(D40, doc/28)에서 실 PostgreSQL(Testcontainers)로 실측한 결과
+이 함정이 사실로 확인됐다** — 9개 `@Lob String` 컬럼이 전부 `oid` 로 매핑됐고, 비트랜잭션 경로(`CombinedDiscoveryService.forHost`→`/discovery`)에서
+`Unable to access lob stream`(auto-commit LOB) 실 운영결함까지 발생했다. 이에 5엔티티 9개 String 필드를 `@Column(columnDefinition = "text")` 로 변경해
+PG 실제 타입 `text`(`information_schema.data_type='text'` 단언 통과)·정상 `setString` 바인딩으로 **해소**했다(H2 호환). 따라서 현재 9컬럼은 모두 `text` 다(§5).
 
 **필드 기본값 주의**: `enabled = true`, `state = "idle"`, `profile = MIDDLE`, `id = 1L` 등은 **Java 필드 초기화자**이지
 SQL `DEFAULT` 절이 아니다(`columnDefinition` 미지정). JPA 로 영속할 때 객체에 채워진 값이 INSERT 되며, JPA 를 우회한 직접 SQL
@@ -121,9 +124,9 @@ INSERT 에는 이 기본값이 적용되지 않는다.
 | `spec_name` | `specName` | `String` | VARCHAR(255) | | nullable | host 내 문서 식별(멀티 스펙). null → `"default"` 로 해석. `specName` 별 최신 active = host active set (doc/26 §3) |
 | `format` | `format` | `@Enumerated(STRING) SpecFormat` | VARCHAR(255) | | nullable | 값: `OPENAPI` / `POSTMAN` / `CSV` |
 | `spec_version` | `specVersion` | `long` | BIGINT | | NOT NULL | 도메인별 증가 버전 |
-| `raw_doc` | `rawDoc` | `@Lob byte[]` | BLOB | | nullable | 원본 문서(감사/재파싱용) |
-| `canonical_json` | `canonicalJson` | `@Lob String` | CLOB/TEXT | | nullable | Canonical 엔드포인트 집합 JSON(매칭의 진실원) |
-| `warnings_json` | `warningsJson` | `@Lob String` | CLOB/TEXT | | nullable | 파싱 recoverable 경고 `List<String>` 직렬화. 스캔이 `specSource.warnings` 로 로드(doc/25 §A.2) |
+| `raw_doc` | `rawDoc` | `@Lob byte[]` | BLOB (PG `oid`) | | nullable | 원본 문서(감사/재파싱용). PG 실측 타입 `oid` 확정(범위 밖, 그대로 유지·round-trip 검증, PR #20/D40) |
+| `canonical_json` | `canonicalJson` | `@Column(columnDefinition="text") String` | text | | nullable | Canonical 엔드포인트 집합 JSON(매칭의 진실원). PG `text`(D40) |
+| `warnings_json` | `warningsJson` | `@Column(columnDefinition="text") String` | text | | nullable | 파싱 recoverable 경고 `List<String>` 직렬화. 스캔이 `specSource.warnings` 로 로드(doc/25 §A.2). PG `text`(D40) |
 | `endpoint_count` | `endpointCount` | `int` | INTEGER | | NOT NULL | |
 | `uploaded_at` | `uploadedAt` | `Instant` | TIMESTAMP(6) | | nullable | |
 | `active` | `active` | `boolean` | BOOLEAN | | NOT NULL | 활성 버전 여부 |
@@ -144,7 +147,7 @@ INSERT 에는 이 기본값이 적용되지 않는다.
 | `spec_version` | `specVersion` | `long` | BIGINT | | NOT NULL | |
 | `window_from` | `windowFrom` | `Instant` | TIMESTAMP(6) | | nullable | |
 | `window_to` | `windowTo` | `Instant` | TIMESTAMP(6) | | nullable | |
-| `report_json` | `reportJson` | `@Lob String` | CLOB/TEXT | | nullable | 전체 `DiscoveryReport` JSON(doc/01 §4, doc/12) |
+| `report_json` | `reportJson` | `@Column(columnDefinition="text") String` | text | | nullable | 전체 `DiscoveryReport` JSON(doc/01 §4, doc/12). PG `text`(D40) |
 | `discovered` | `discovered` | `int` | INTEGER | | NOT NULL | summary |
 | `active` | `active` | `int` | INTEGER | | NOT NULL | summary |
 | `shadow` | `shadow` | `int` | INTEGER | | NOT NULL | summary |
@@ -173,8 +176,8 @@ INSERT 에는 이 기본값이 적용되지 않는다.
 | `id` | `id` | `@Id Long` | BIGINT | ✔ | NOT NULL | **고정 PK=1**(`@GeneratedValue` 없음, 앱이 직접 1L 할당) |
 | `profile` | `profile` | `@Enumerated(STRING) ClassificationProfile` | VARCHAR(255) | | nullable | 값: `HIGH`/`MIDDLE`/`LOW`/`CUSTOM`. 필드 기본값 `MIDDLE` |
 | `threshold_override` | `thresholdOverride` | `Double` | DOUBLE / double precision | | nullable | 모든 프로파일에서 임계 override 가능(doc/10 §3) |
-| `custom_weights_json` | `customWeightsJson` | `@Lob String` | CLOB/TEXT | | nullable | `Map<String,Double>` 직렬화(CUSTOM 한정 가중치 override) |
-| `matcher_json` | `matcherJson` | `@Lob String` | CLOB/TEXT | | nullable | `MatcherConfig`(전역) 직렬화 |
+| `custom_weights_json` | `customWeightsJson` | `@Column(columnDefinition="text") String` | text | | nullable | `Map<String,Double>` 직렬화(CUSTOM 한정 가중치 override). PG `text`(D40) |
+| `matcher_json` | `matcherJson` | `@Column(columnDefinition="text") String` | text | | nullable | `MatcherConfig`(전역) 직렬화. PG `text`(D40) |
 | `updated_at` | `updatedAt` | `Instant` | TIMESTAMP(6) | | nullable | |
 
 **단일 행 보장**: PK 를 `1L` 로 고정하고 resolver/seeder 가 `findById(1L)` upsert 로 단 한 행만 유지한다. DB 레벨 CHECK 제약은
@@ -191,8 +194,8 @@ H2/PG 이식성이 떨어져 채택하지 않았다(엔티티 주석·doc/10 §1
 | `host` | `host` | `@Id String` | VARCHAR(255) | ✔ | NOT NULL | `DomainConfig.host` 와 1:1(PK), 논리 FK |
 | `profile` | `profile` | `@Enumerated(STRING) ClassificationProfile` | VARCHAR(255) | | nullable | null=전역 프로파일 상속. 값: `HIGH`/`MIDDLE`/`LOW`/`CUSTOM` |
 | `threshold_override` | `thresholdOverride` | `Double` | DOUBLE / double precision | | nullable | null=전역/preset 임계 상속 |
-| `custom_weights_json` | `customWeightsJson` | `@Lob String` | CLOB/TEXT | | nullable | `Map<String,Double>`(CUSTOM 한정) |
-| `matcher_json` | `matcherJson` | `@Lob String` | CLOB/TEXT | | nullable | `MatcherConfig`(도메인 override, `includeWebForms` nullable) |
+| `custom_weights_json` | `customWeightsJson` | `@Column(columnDefinition="text") String` | text | | nullable | `Map<String,Double>`(CUSTOM 한정). PG `text`(D40) |
+| `matcher_json` | `matcherJson` | `@Column(columnDefinition="text") String` | text | | nullable | `MatcherConfig`(도메인 override, `includeWebForms` nullable). PG `text`(D40) |
 | `updated_at` | `updatedAt` | `Instant` | TIMESTAMP(6) | | nullable | |
 
 ### 2.8 `discovered_endpoint` — 검출 SoT(누적 검출 인벤토리 + recency)
@@ -214,10 +217,10 @@ H2/PG 이식성이 떨어져 채택하지 않았다(엔티티 주석·doc/10 §1
 | `last_seen` | `lastSeen` | `Instant` | TIMESTAMP(6) | | nullable | 누적 recency = max. retention prune 기준 |
 | `last_scan_at` | `lastScanAt` | `Instant` | TIMESTAMP(6) | | nullable | 최신 스캔 윈도우 끝(데이터 ts, `now()` 미사용) |
 | `hits` | `hits` | `long` | BIGINT | | NOT NULL | 최신 윈도우 스냅샷 |
-| `status_dist_json` | `statusDistJson` | `@Lob String` | CLOB/TEXT | | nullable | 최신 윈도우 status 분포 JSON 스냅샷 |
+| `status_dist_json` | `statusDistJson` | `@Column(columnDefinition="text") String` | text | | nullable | 최신 윈도우 status 분포 JSON 스냅샷. PG `text`(D40) |
 | `had_query` | `hadQuery` | `boolean` | BOOLEAN | | NOT NULL | ApiScorer 신호 스냅샷 |
 | `non_browser_ua` | `nonBrowserUa` | `boolean` | BOOLEAN | | NOT NULL | ApiScorer 신호 스냅샷 |
-| `params_json` | `paramsJson` | `@Lob String` | CLOB/TEXT | | nullable | `ParamCandidates`(doc/13) 스냅샷 |
+| `params_json` | `paramsJson` | `@Column(columnDefinition="text") String` | text | | nullable | `ParamCandidates`(doc/13) 스냅샷. PG `text`(D40) |
 
 **제약/인덱스** (본 문서에서 **유일하게 명시적 `@UniqueConstraint`·`@Index` 를 선언하는 테이블** — 나머지는 PK 또는 `@ElementCollection` 기본 매핑만).
 
@@ -300,9 +303,9 @@ spec_record │   │   │   domain_classification_config(host, PK·1:1)
 
 엔티티 애너테이션만으로 확정할 수 없어 실 DB 생성 DDL 확인이 필요한 항목이다.
 
-- 모든 `@Lob String` 컬럼(`canonical_json`/`report_json`/`custom_weights_json`/`matcher_json`/`warnings_json`/`status_dist_json`/`params_json`)의
-  PostgreSQL 실제 타입 — 명시 매핑이 없으면 기본 `oid`(§1.3 함정)이며 `text` 가 아니다. TASKS 의 "@Lob String JSON 컬럼 PostgreSQL TEXT 매핑 실검증" 미완 항목과 동일.
-- `@Lob byte[]`(`spec_record.raw_doc`)의 PostgreSQL 실제 타입(`bytea` vs 대용량 객체 `oid`).
+- ✅ **검증 완료(PR #20/D40, doc/28)** — 9개 JSON 컬럼(`canonical_json`/`report_json`/`custom_weights_json`/`matcher_json`/`warnings_json`/`status_dist_json`/`params_json`):
+  실 PostgreSQL(Testcontainers) 실측에서 초기 `@Lob String` 이 `oid` 로 매핑돼 실결함(auto-commit LOB)이 확인됐고, `@Column(columnDefinition = "text")` 로 전환해 **PG 타입 `text` 확정**(`information_schema.data_type='text'` 단언 통과). TASKS 의 "@Lob String JSON 컬럼 PostgreSQL TEXT 매핑 실검증" 항목 Done.
+- ✅ **검증 완료(PR #20/D40)** — `@Lob byte[]`(`spec_record.raw_doc`)의 PG 실제 타입은 **`oid` 확정**(범위 밖, 그대로 유지·round-trip 만 검증).
 - `domain_hostnames` 의 PK/UNIQUE 제약 정확한 형태(Hibernate 버전 의존).
 - prod(PostgreSQL) 프로파일 yml — 현재 리포에는 H2 `application.yml` 만 존재. PG 접속값은 운영 환경에서 주입되는 전제.
 
