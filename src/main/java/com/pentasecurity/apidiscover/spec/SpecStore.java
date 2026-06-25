@@ -10,6 +10,7 @@ import com.pentasecurity.apidiscover.domain.SpecRecordRepository;
 import com.pentasecurity.apidiscover.match.EndpointMatcherCache;
 import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
 import com.pentasecurity.apidiscover.model.SpecMergeStrategy;
+import com.pentasecurity.apidiscover.report.EtagUtil;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -17,7 +18,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.zip.CRC32;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -126,12 +126,13 @@ public class SpecStore {
         return SpecCanonicalizer.merge(docs);
     }
 
-    /** merged canonical 콘텐츠 결정적 해시(CRC32) → 합성 spec 버전. 동일 콘텐츠=동일 버전(doc/26 §8). */
+    /**
+     * merged canonical 콘텐츠 결정적 해시 → 합성 spec 버전(long). 동일 콘텐츠=동일 버전, 문서순서 무관(doc/26 §8).
+     * 해시는 ETag 와 동일 SHA-256(앞 16 hex=64bit)을 사용 — 코드베이스 일관·CRC32(32bit)보다 충돌 강건(doc/07 §8).
+     */
     public static long syntheticVersion(List<CanonicalEndpoint> canonical, ObjectMapper om) {
         try {
-            CRC32 crc = new CRC32();
-            crc.update(om.writeValueAsBytes(canonical));
-            return crc.getValue();
+            return Long.parseUnsignedLong(EtagUtil.of(om.writeValueAsString(canonical)), 16);
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("failed to hash canonical for synthetic version", e);
         }

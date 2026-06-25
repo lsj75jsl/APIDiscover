@@ -51,7 +51,7 @@
     - [x] `discovered_endpoint.version`(path `^v\d+$`→매칭 spec 도출) + `spec_record`+`specName`(null→default, 스키마/컬럼만; 멀티문서 upsert 2단계)
   - **2단계 — 멀티 스펙 + 모드(B)** → 구현 완료 2026-06-25, build 그린(tests=305), 브랜치 `feature/multi-spec-merge` 커밋(누적)·리뷰 대기
     - [x] `model/SpecMergeStrategy`+`DomainConfig.specMergeStrategy`(기본 MERGE, null→MERGE)+DomainController/DomainDtos DTO 가산. `SpecStore` 모드 분기(MERGE/VG=같은 specName 만 비활성·형제 유지/SEPARATE=전체 교체), `upload(host,name,content)`+default 위임
-    - [x] `SpecCanonicalizer.merge` 결정적(dedupe+deprecated OR+비-deprecated latest-specVersion-wins·tie sourceRef·순서 무관)+합성 spec 버전(merged canonical CRC32 해시)→matcherCache/report/SpecSource. 멀티문서 SpecSource +documents·warnings union 은 3단계
+    - [x] `SpecCanonicalizer.merge` 결정적(dedupe+deprecated OR+비-deprecated latest-specVersion-wins·tie sourceRef·순서 무관)+합성 spec 버전(merged canonical SHA-256 해시, EtagUtil 일관·64bit)→matcherCache/report/SpecSource. 멀티문서 SpecSource +documents·warnings union 은 3단계
   - **3단계 — 결합·버전그룹(C/D)**
     - [ ] host 결합 Discovery 뷰 — Classifier(discovered_endpoint ∪ active spec) 불변(두 출처 분리), 결합 목록 + VERSION_GROUPED 버전 그룹 구조. 분류 범위=per-scan 유지(무회귀)+누적 카탈로그 결합 뷰 신설
     - [ ] (선택) `/discovered`·`/spec` host 조회 엔드포인트

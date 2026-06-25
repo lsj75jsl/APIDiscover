@@ -11,7 +11,7 @@
 - **병합 전략 설정**: `model/SpecMergeStrategy{MERGE,SEPARATE,VERSION_GROUPED}` + `DomainConfig.specMergeStrategy`(@Enumerated STRING, 기본 MERGE, ddl-auto null→읽을 때 MERGE) + `DomainDtos.DomainUpsert/DomainView` 가산 필드 + `DomainController.apply/toView`(null→MERGE 유지, 미지정 PUT 이 모드 안 지움).
 - **SpecStore 모드 분기**: `upload(host,name,content)` 신설(+`upload(host,content)`=default 위임=현행 무회귀). 모드별 기존 active 비활성화 — SEPARATE=host 전체 교체, MERGE/VERSION_GROUPED=같은 specName 만(형제 문서 유지). null specName(기존행)=default 정규화. `DomainConfigRepository` 주입(mode 조회).
 - **결정적 merge**: `SpecCanonicalizer.merge(List<VersionedCanonical>)` — (method,host,template) dedupe + deprecated OR + 비-deprecated latest-upload-wins(최신 specVersion, tie sourceRef 큰 값). group+max+OR 교환법칙→업로드/문서 순서 무관 동일 SET. 단일 문서=canonicalize 동치(무회귀). `loadActiveCanonical`=∪ active docs merge(findByHostAndActiveIsTrue).
-- **합성 spec 버전**: `SpecStore.syntheticVersion(canonical, om)`=merged canonical CRC32. `DiscoveryJobService` 가 per-record specVersion 대신 합성버전을 report.specVersion/SpecSource/matcherCache 키로 사용 — 동일 콘텐츠=동일 버전(안정), 콘텐츠 변화 시만 bump. 무스펙=0.
+- **합성 spec 버전**: `SpecStore.syntheticVersion(canonical, om)`=merged canonical SHA-256 해시(EtagUtil 앞 16hex=64bit→long, ETag 와 동일 알고리즘·코드베이스 일관). `DiscoveryJobService` 가 per-record specVersion 대신 합성버전을 report.specVersion/SpecSource/matcherCache 키로 사용 — 동일 콘텐츠=동일 버전(안정), 콘텐츠 변화 시만 bump. 무스펙=0. (P3-1: CRC32→SHA-256 통일.)
 
 ### 결과
 - build BUILD SUCCESSFUL, **tests=305 failures=0 skipped=1**(+7: 모드 3종·재업로드 교체·merge 순서무관/deprecated OR·합성버전 안정). 기존 SpecStore/JobService default 경로 무변경(단일=현행). @SpringBootTest 컨텍스트 정상(SpecStore +DomainConfigRepository 주입).
