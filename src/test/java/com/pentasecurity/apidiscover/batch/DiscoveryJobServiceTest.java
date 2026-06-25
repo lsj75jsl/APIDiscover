@@ -3,6 +3,7 @@ package com.pentasecurity.apidiscover.batch;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -80,6 +81,13 @@ class DiscoveryJobServiceTest {
             store.add(r);
             return r;
         });
+        // retention prune — stale(lastSeen < cutoff) 삭제(불변식2). cutoff 는 service 가 window.to()−180d 로 산정.
+        doAnswer(inv -> {
+            String host = inv.getArgument(0);
+            Instant cutoff = inv.getArgument(1);
+            store.removeIf(e -> e.host.equals(host) && e.lastSeen != null && e.lastSeen.isBefore(cutoff));
+            return null;
+        }).when(repo).deleteByHostAndLastSeenBefore(any(), any());
         return repo;
     }
 
@@ -308,6 +316,28 @@ class DiscoveryJobServiceTest {
     }
 
     @Test
+    void retentionPrunesStaleDiscoveredByWindowBoundaryNotNowAndIsIdempotent() {
+        // doc/26 §2 불변식: stale(lastSeen < window.to()−180d) 삭제 / active(> cutoff) 보존. cutoff 는 데이터 윈도우 기준(now() 비의존).
+        when(specStore.activeMeta(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.findById(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.save(any(ScanResult.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // window.to()=2020-01-01 → cutoff = to−180d ≈ 2019-07-05. now()=2026 라면 둘 다 prune 됐을 것
+        // → /recent(2019-12, > cutoff) 보존이 cutoff=window.to()−180d(=데이터 경계, now() 비의존) 임을 증명.
+        Instant to = Instant.parse("2020-01-01T00:00:00Z");
+        LogWindow w = new LogWindow(to.minusSeconds(3600), to);
+        discStore.add(seedDiscovered("GET", "/stale", Instant.parse("2019-01-01T00:00:00Z")));  // < cutoff → prune
+        discStore.add(seedDiscovered("GET", "/recent", Instant.parse("2019-12-01T00:00:00Z"))); // > cutoff → 보존
+
+        service.analyze(HOST, List.of(), w); // 무트래픽 — prune 만 검증(upsert 무영향)
+        assertThat(discStore).extracting(r -> r.pathTemplate).containsExactly("/recent"); // stale 삭제·recent 보존
+
+        // 동일 윈도우 재스캔: recent 여전히 > cutoff → 보존, 중복 없음(idempotent)
+        service.analyze(HOST, List.of(), w);
+        assertThat(discStore).extracting(r -> r.pathTemplate).containsExactly("/recent");
+    }
+
+    @Test
     void reportExposesSpecSourceWarningsAndLowConfidenceFlag() {
         // §A: 업로드 시 영속된 warnings → specSource 로 로드(재파싱 없음), low_confidence 플래그 노출
         SpecRecord rec = new SpecRecord();
@@ -529,6 +559,17 @@ class DiscoveryJobServiceTest {
     }
 
     // --- helpers ---
+
+    /** discStore 사전 적재용 검출 record(prune 경계 테스트). firstSeen=lastSeen 동일. */
+    private static DiscoveredEndpointRecord seedDiscovered(String method, String template, Instant lastSeen) {
+        DiscoveredEndpointRecord r = new DiscoveredEndpointRecord();
+        r.host = HOST;
+        r.method = method;
+        r.pathTemplate = template;
+        r.firstSeen = lastSeen;
+        r.lastSeen = lastSeen;
+        return r;
+    }
 
     private static ParsedRequest pr(String requestId) {
         return new ParsedRequest("GET", "/x", List.of(), 200, HOST, "ip", "ua",
