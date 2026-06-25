@@ -51,10 +51,6 @@
 - [ ] 엔티티 캡슐화 (현재 스캐폴딩상 public 필드)
 - [ ] `@Lob String` JSON 컬럼 PostgreSQL TEXT 매핑 실검증(canonical/report/classification 공통)
 - [ ] 통합 테스트 (Testcontainers: 실제 PostgreSQL/JPA, REST API e2e, 조건부 GET 304) — `→ 의존:` 위 PostgreSQL 매핑 검증과 함께
-- [ ] **(D37 F2 후속)** catch-all `{var+}` dead code 제거 **(설계 완료 → DECISIONS D39, doc/04 §1.1 — 구현 완료 2026-06-25, build 그린 tests=319 불변, 브랜치 `feature/catch-all-deadcode-cleanup` 커밋 보류·리뷰 대기)**
-  - [x] `EndpointMatcher` `isCatchAll` 분기(compile `.+`)+헬퍼 삭제 — `{var+}`→`isVariable` `[^/]+` 일관(동작 불변: 도달 가능 시 `.+`≡`[^/]+`, 타 사용처·테스트 0 grep 확인)
-  - [x] doc/04 §1.1 catch-all '미지원' 갱신(파서 미생성+segCount 버킷팅 충돌, 진짜 지원=버킷팅 재설계 별도 기능)
-  - [x] 회귀 — 기존 `EndpointMatcherTest` green(catch-all 도달 불가라 결과 동일), tests=319 불변
 
 ### P3. 운영/인프라 (자체 운영)
 - [ ] off-peak 시간대 제한
@@ -77,6 +73,12 @@
 ---
 
 ## Done
+
+### catch-all {var+} dead code 제거 (2026-06-25, DECISIONS D39, PR #19) — tests=319 불변
+- [x] `EndpointMatcher` `isCatchAll` 분기(compile `.+`)+헬퍼 삭제 — `{var+}`→`isVariable` `[^/]+` 일관
+- [x] doc/04 §1.1 catch-all '미지원' 갱신(파서 미생성+segCount 버킷팅 충돌=vestigial, 진짜 지원=버킷팅 재설계 별도 기능)
+- [x] 회귀 — `EndpointMatcherTest` 무변경 green(catch-all 도달 불가라 결과 동일)
+> D37 F2 해소. 무회귀: 파서 미생성(분기 dead)·segCount 버킷팅이 다중 세그먼트 .+ 차단·도달케이스 .+≡[^/]+. F1·F2 양 플래그 모두 해소. 리뷰 P1/P2/P3=0.
 
 ### base-path-strip 옵션 — false Shadow/Unused 방지 (2026-06-25, doc/27 / DECISIONS D38, PR #18) — tests=319 green
 - [x] `DomainConfig.basePathStrip`(String nullable, 기본 null=off) + `DomainController`/`DomainDtos` DTO 가산 (ddl-auto)
