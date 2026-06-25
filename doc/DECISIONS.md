@@ -327,6 +327,13 @@ doc/14(D21) 후속. 한 도메인의 여러 스펙 문서를 하나의 canonical
   - **3단계(결합·버전그룹 C/D, D36) 완료**(build 그린 tests=310) — `CombinedDiscoveryService`(누적 discovered_endpoint 재구성 ∪ active spec → Classifier 불변 5-arg → 결합 findings)+`model/CombinedDiscovery`+`GET /api/v1/domains/{host}/discovery`. VERSION_GROUPED=version 라벨(`VersionTag` path `^v\d+$` ∪ spec version) 그룹·그 외 flat. 분류 범위=per-scan 유지(무회귀)+누적 카탈로그 뷰 신설(둘 다). `SpecSource`+documents/format-union/warnings-union(`SpecStore.specSourceFrom`, 2단계 이월 완료). 한계: 카탈로그 distinctClients/p50·p95/acrm 미보유→결합 뷰 confidence 근사(분류 무영향), 원 카탈로그 list REST=결합 뷰로 충족·P4 생략.
   - **구현 1~3단계 완료**. 잔여: doc/18 sync(technical_writer) + 최종 리뷰 + 1 PR 머지(D28).
 
+### D37. 매칭 엣지 케이스(doc/04 §7) 회귀 테스트 — 갭 분석 + 2 플래그
+doc/04 §7 9 케이스를 회귀로 잠금(순수 테스트, 프로덕션 무변경). 갭 분석: 대부분 기존 테스트가 이미 잠금(doc/16/19/20 PR) → **매처 계층 소수 갭 + 2 코드 플래그**만 신규.
+- **문서 위치(판단)**: 신규 doc 대신 **doc/04 §7.1 '회귀 테스트 매핑' 보강**(케이스↔불변식↔테스트↔상태 co-location, 가벼움).
+- **테스트 위치(판단)**: 신규 클래스 대신 **기존 클래스 확장**(EndpointMatcherTest/ClassifierTest) + `// doc/04 §7 case N` 태그(추적성·중복 회피).
+- **신규 테스트(미커버 갭)**: ① 동일 path 양 method 정의 → 각자 distinct 매칭(현 mismatch 만) ② INFERRED 단독 → shadowConfidence −0.1 격리(현 번들) ③ specificity front-segment 우선·동률(현 `/users/me` 1건). 나머지(host-agnostic·404-only·version-zombie·undocumented_web_page·dormant)=기존 커버 → 중복 회피.
+- **플래그(현행 미구현/버그 — 테스트로 고정 금지)**: **F1** base-path-strip(doc/03 §2.2·§7 명시) **미구현** — OpenApiSpecParser 가 basePath 를 템플릿에 join → 프록시 strip 관측은 불일치 → false Shadow. **F2** catch-all `{var+}` 분기가 매처에 있으나 파서 미생성(도달 불가) + segCount 버킷팅이 `.+` 다중세그먼트 차단(도달 시 오동작). → 둘 다 TASKS 후속(F1=한계/옵션, F2=dead code 정리 vs 의도), 회귀 테스트 아님.
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.

@@ -115,6 +115,18 @@ class ClassifierTest {
         assertThat(shadow.confidence()).isEqualTo(1.0);
     }
 
+    // doc/04 §7 case5 — 통계 보정 INFERRED 템플릿 → shadowConfidence −0.1 격리(§4.1).
+    // healthyShadowKeepsHighConfidence(SPEC=1.0)가 control. 동일 신호에서 source 만 INFERRED 로 바꿔
+    // 다른 감점/가점(4xx·hits<5·단일클라·API_CANDIDATE) 0 → INFERRED 단독 기여 = 1.0−0.1=0.9 를 잠근다.
+    @Test
+    void inferredOnlyShadowLosesExactlyPointOneConfidence() {
+        DiscoveredEndpoint inferred =
+                de("POST", "/api/reports", TemplateSource.INFERRED, EndpointKind.UNKNOWN, 500, "2xx", 20);
+        Finding.Shadow shadow = (Finding.Shadow) byClass(
+                classifier.classify(List.of(inferred), spec, matcher), Classification.SHADOW).get(0);
+        assertThat(shadow.confidence()).isEqualTo(0.9);
+    }
+
     // --- explicit-hint 매처 게이트 (doc/09) ---
 
     private static final ApiHintMatcher NO_WEBFORMS = new ApiHintMatcher(

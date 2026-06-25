@@ -74,4 +74,36 @@ class EndpointMatcherTest {
                 .map(CanonicalEndpoint::pathTemplate)
                 .contains("/health");
     }
+
+    // doc/04 §7 case3 — 동일 path, 다른 method → method 포함 시그니처로 각자 distinct 매칭.
+    // 기존 methodMustMatch 는 미정의 method 의 mismatch 만 검증 → 양 method 정의 시 정확 분리 매칭을 잠근다.
+    @Test
+    void sameTemplateDistinctMethodsMatchSeparately() {
+        var m = new EndpointMatcher(List.of(
+                ep("GET", "/orders/{id}", null),
+                ep("POST", "/orders/{id}", null)));
+        // 동일 템플릿이라 method() 로 구분 — 각 관측 method 가 자기 operation 에만 매칭
+        assertThat(m.match("GET", "any", "/orders/9")).map(CanonicalEndpoint::method).contains("GET");
+        assertThat(m.match("POST", "any", "/orders/9")).map(CanonicalEndpoint::method).contains("POST");
+    }
+
+    // doc/04 §7 case4 — specificity 앞 세그먼트 우선(§2.4) + 동률 결정성.
+    // 기존 staticSegmentWinsOverVariable 은 마지막 세그먼트 정적 1건만 → front-segment 우선·동률 동작을 잠근다.
+    @Test
+    void specificityFrontSegmentPriorityAndTie() {
+        // (a) 앞 세그먼트 우선: staticCount 동률(1=1)이라도 앞 세그먼트 정적(/api)이 변수를 이긴다.
+        var frontSeg = new EndpointMatcher(List.of(
+                ep("GET", "/{tenant}/config", null), // specificity [0,1]
+                ep("GET", "/api/{key}", null)));      // specificity [1,0]
+        // /api/config 가 둘 다 매칭하지만 앞 세그먼트 정적 우선 → /api/{key} (staticCount 만으로는 동률이라 갈리지 않음)
+        assertThat(frontSeg.match("GET", "any", "/api/config"))
+                .map(CanonicalEndpoint::pathTemplate).contains("/api/{key}");
+
+        // (b) 동률(동일 specificity): 더 구체적인 후보 부재 → 먼저 정의된 것이 결정적으로 승리(무crash)
+        var tie = new EndpointMatcher(List.of(
+                ep("GET", "/a/{x}", null),
+                ep("GET", "/a/{y}", null))); // 둘 다 [1,0]
+        assertThat(tie.match("GET", "any", "/a/1"))
+                .map(CanonicalEndpoint::pathTemplate).contains("/a/{x}");
+    }
 }

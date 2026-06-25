@@ -5,6 +5,23 @@
 
 ---
 
+## 2026-06-25 세션 24 — 매칭 엣지 케이스 회귀 테스트 (doc/04 §7.1, D37)
+
+### 한 일
+- **순수 테스트 3건 추가**(프로덕션 무변경, 기존 클래스 확장 + `// doc/04 §7 caseN` 태그):
+  - case3 `EndpointMatcherTest.sameTemplateDistinctMethodsMatchSeparately` — 동일 템플릿(/orders/{id}) GET·POST 정의 → 각 관측 method 가 자기 operation 에만 distinct 매칭(기존 methodMustMatch 는 mismatch 만).
+  - case4 `EndpointMatcherTest.specificityFrontSegmentPriorityAndTie` — (a) 앞 세그먼트 우선: `/api/{key}`[1,0] vs `/{tenant}/config`[0,1] 가 `/api/config` 둘 다 매칭·staticCount 동률(1=1)이나 앞 세그먼트 정적 우선→`/api/{key}` (staticCount-only 면 안 갈림). (b) 동률: 동일 specificity 두 변수 템플릿→먼저 정의된 것 결정적 승리(무crash).
+  - case5 `ClassifierTest.inferredOnlyShadowLosesExactlyPointOneConfidence` — INFERRED 단독 −0.1 격리. control=healthyShadow(SPEC=1.0), 동일 신호 source 만 INFERRED→0.9(다른 감점/가점 0).
+- **doc/04 §7.1 표 갱신**: case3/4/5 상태 🔶→✅ + 신규 테스트명 기입. 기존 커버 5케이스(1·6·7·8·9)는 잠그는 테스트 명시만(중복 테스트 추가 안 함). TASKS subitem(표·신규 3건·확인) [x].
+- F1(base-path-strip 미구현)·F2(catch-all `{var+}` dead code)는 회귀로 고정 안 함(현행 미구현/버그) — TASKS 후속 [ ] 유지. 작성 중 신규 코드-문서 불일치 미발견(F1/F2 외).
+
+### 결과
+- build BUILD SUCCESSFUL, **tests=314 failures=0 skipped=1**(+3). 프로덕션 코드 무변경(테스트·문서만).
+- **커밋 보류**(리뷰 후). 브랜치 `feature/matching-edge-regression-tests`(현 main=멀티스펙 PR#16 머지 위).
+
+### 다음 단계
+- 리뷰 후 커밋·PR. F1/F2 는 별도 후속(P2).
+
 ## 2026-06-25 세션 23 — 멀티스펙 3단계: 결합 Discovery 뷰 + 버전 그룹 (doc/26 §4/§6/§7, D35/D36)
 
 ### 한 일
