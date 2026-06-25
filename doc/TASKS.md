@@ -51,7 +51,10 @@
 > (현재 비어 있음 — 매칭 회귀테스트·F1/F2·@Lob→text 실검증·Testcontainers·엔티티 캡슐화 완료, Done 참조. Docker 의존 항목은 host podman 으로 해소.)
 
 ### P3. 운영/인프라 (자체 운영)
-- [ ] **(배포 후속, doc/32 §6)** 테스트서버 실배포 검증 — `podman play kube adc.yaml` 기동·`/discovery`·CLI CSV 실생성·LAN Loki(192.168.8.100) 도달·실 `label_format` coalesce(`-Dloki.live`) — 운영 Loki off-peak 주의로 매니저/사용자 테스트서버 수행
+- [ ] **(배포 후속)** 테스트서버(192.168.8.197, podman) 실배포 — **기동·Loki 수집 검증 완료**(PR #24/D44: Restarts0·health UP·디스커버리 vector=35872 inserted=200, CLI 기동 OK, doc/manual/deploy-verify-guide.html). 잔여:
+  - [ ] `max-domains-per-run` 캡 결정 — 관측 ~13,920 도메인 중 상위 200만 등록(캡=DB 업서트량만 제한·Loki 부하 아님, 상향 저위험). 전수 원하면 값 상향(사용자 결정)
+  - [ ] 엔드포인트 스캔(`PT1H`)·CLI CSV **내용** 검증 — 다음 스캔 사이클이 `discovered_endpoint` 적재 후(200 도메인 스캔=운영 Loki 부하, off-peak 권장)
+  - [ ] (선택) 서버 pod 를 최종 머지 이미지로 재배포(현재 coalesce 이미지로 수집 중, 기능 동일)
 - [ ] off-peak 시간대 제한
 - [ ] 부하/운영 메트릭 (쿼리수·바이트·429) Actuator/Micrometer 노출 + 알람 — doc/12 `DroppedNonApi`·doc/13 `DroppedByLimit` 카운트 재사용 가능
 - [ ] Spring Batch JobRepository 실연결 (현재 `@Scheduled`만, `batch.job.enabled=false`)
