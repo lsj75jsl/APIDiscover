@@ -1,0 +1,107 @@
+<!-- 테스트서버(podman) 실배포 검증 가이드 — doc/32 런북의 실행·검증 절차 HTML화(실배포 D44 반영) -->
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>APIDiscover 테스트서버 배포 검증 가이드</title>
+<style>
+  :root { --fg:#1f2328; --muted:#57606a; --line:#d0d7de; --bg:#ffffff; --code:#f6f8fa; --accent:#0969da; --ok:#1a7f37; --warn:#9a6700; --err:#cf222e; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans KR",sans-serif; }
+  .wrap { max-width:960px; margin:0 auto; padding:32px 20px 80px; }
+  h1 { font-size:28px; border-bottom:2px solid var(--line); padding-bottom:12px; }
+  h2 { font-size:21px; margin-top:36px; border-bottom:1px solid var(--line); padding-bottom:6px; }
+  h3 { font-size:17px; margin-top:24px; }
+  code { background:var(--code); padding:2px 6px; border-radius:6px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:13.5px; }
+  pre { background:var(--code); border:1px solid var(--line); border-radius:8px; padding:14px 16px; overflow-x:auto; }
+  pre code { background:none; padding:0; font-size:13px; line-height:1.55; }
+  table { border-collapse:collapse; width:100%; margin:14px 0; font-size:14.5px; display:block; overflow-x:auto; }
+  th,td { border:1px solid var(--line); padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:var(--code); }
+  .muted { color:var(--muted); }
+  .ok { color:var(--ok); font-weight:600; } .warn { color:var(--warn); font-weight:600; } .err { color:var(--err); font-weight:600; }
+  .callout { border-left:4px solid var(--accent); background:#ddf4ff55; padding:10px 14px; border-radius:0 8px 8px 0; margin:14px 0; }
+  .callout.w { border-color:var(--warn); background:#fff8c555; }
+  ol li,ul li { margin:5px 0; }
+  .step { background:#f6f8fa; border:1px solid var(--line); border-radius:8px; padding:4px 16px; margin:12px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>APIDiscover 테스트서버 배포 검증 가이드</h1>
+<p class="muted">app + postgres 2컨테이너 1 pod(podman, hostNetwork)로 테스트 VM 에 배포하고, Loki 도메인 수집·CLI CSV 를 검증하는 절차. 권위 문서 <code>doc/32-container-deploy-runbook.md</code>·<code>DECISIONS D44</code>. 대상 Loki(192.168.8.100:3200)는 <b>운영 서버</b> — 대용량 확인은 off-peak(01:00–06:00), 창/limit 작게.</p>
+
+<h2>0. 사전 준비 (테스트 VM, rootful=root 로그인)</h2>
+<div class="step"><pre><code>mkdir -p /opt/adc /opt/adc-exports
+chcon -Rt container_file_t /opt/adc /opt/adc-exports   # SELinux Enforcing(Rocky 등) 시 컨테이너 접근 허용
+# /opt/adc 는 비워둔다(postgres entrypoint 가 root 로 PGDATA 하위 pgdata 를 chown·initdb).</code></pre></div>
+<p class="muted">VM 요건: podman 설치, host 가 LAN Loki(192.168.8.100:3200) 도달 가능, 5432/8080 포트 미사용.</p>
+
+<h2>1. 이미지 빌드·전송 <span class="err">(★개별 tar)</span></h2>
+<div class="step"><pre><code>podman build -t localhost/apidiscover:test .          # 멀티스테이지 bootJar→JRE + wait-for-db.sh
+
+# ★이미지는 반드시 개별 tar 로 저장·전송한다
+podman save localhost/apidiscover:test -o app.tar
+podman save docker.io/library/postgres:16-alpine -o pg.tar
+scp app.tar pg.tar &lt;vm&gt;:/root/
+ssh &lt;vm&gt; 'podman load -i /root/app.tar; podman load -i /root/pg.tar'</code></pre></div>
+<div class="callout w"><b>⚠️ 결합 저장 금지.</b> <code>podman save img1 img2 -o one.tar</code> 는 load 시 두 태그가 한 이미지로 뭉개져(태그 collision) postgres 태그가 app 이미지를 가리키는 사고가 난다 → app 이 빈 DB 에 접속해 <b>크래시 루프(재시작 폭주)</b>. 로드 후 <code>podman images</code> 에서 app(약 401MB)·postgres(약 297MB)의 <b>이미지 ID 가 서로 다른지</b> 반드시 확인. <span class="muted">(VM 인터넷 가용 시 postgres 는 <code>podman pull</code> 도 가능.)</span></div>
+
+<h2>2. 기동</h2>
+<div class="step"><pre><code>podman play kube adc.yaml
+podman pod ps && podman ps --pod        # adc pod 의 db·app Running</code></pre></div>
+<ul>
+  <li><code>hostNetwork: true</code> — postgres=host:5432, app=host:8080 직접 바인드. app↔db 는 동일 host netns <code>localhost:5432</code>.</li>
+  <li>app 은 <code>wait-for-db.sh</code> 로 <code>localhost:5432</code> 준비를 최대 120s 대기 후 기동 → <b>DB 미준비로 인한 크래시 루프 없음</b>.</li>
+  <li><code>container</code> 프로파일 → PostgreSQL·<code>ddl-auto=update</code>. 첫 기동 시 postgres 가 <code>/opt/adc/pgdata</code> 에 initdb.</li>
+</ul>
+
+<h2>3. 검증 체크리스트</h2>
+<table>
+<tr><th>항목</th><th>명령</th><th>기대(정상)</th></tr>
+<tr><td>헬스</td><td><code>curl -s localhost:8080/actuator/health</code></td><td class="ok">{"status":"UP"}</td></tr>
+<tr><td>크래시 루프 없음</td><td><code>podman inspect adc-app --format '{{.RestartCount}}'</code></td><td class="ok">0 (증가 안 함)</td></tr>
+<tr><td>postgres 준비</td><td><code>podman logs adc-db | grep 'ready to accept'</code></td><td class="ok">database system is ready to accept connections</td></tr>
+<tr><td>wait-for-db 동작</td><td><code>podman logs adc-app | grep wait-for-db</code></td><td class="ok">…대기 → DB 도달 → 앱 기동</td></tr>
+<tr><td><b>Loki 수집(핵심)</b></td><td><code>podman logs adc-app | grep 'domain discovery:'</code></td><td class="ok">bootstrap=… <b>vector=N inserted=M</b> (timeout 아님)</td></tr>
+<tr><td>도메인 적재</td><td><code>podman exec -e PGPASSWORD=adc adc-db psql -U adc -d adc -tAc "select count(*) from domain_config;"</code></td><td class="ok">&gt; 0</td></tr>
+<tr><td>도메인+엣지</td><td colspan="2"><code>… "select dc.host, count(dh.hostname) from domain_config dc left join domain_hostnames dh on dh.host=dc.host group by dc.host order by 2 desc limit 10;"</code></td></tr>
+</table>
+<p class="muted">디스커버리 첫 실행은 <code>apidiscover.discovery.initial-delay</code>(기본 2분) 후. 이후 <code>interval</code>(기본 10분) 롤링. 빈 도메인 DB 면 첫 실행은 <code>bootstrap-window</code>(기본 1h).</p>
+
+<h2>4. CLI CSV 내보내기 (one-off, 서빙 무부하)</h2>
+<div class="step"><pre><code>podman run --rm --network host -v /opt/adc-exports:/exports \
+  localhost/apidiscover:test --adc.cli.export-domain=&lt;domain&gt;
+# → /opt/adc-exports/&lt;domain&gt;-&lt;epochmillis&gt;.csv</code></pre></div>
+<ul>
+  <li>인자가 ENTRYPOINT(<code>wait-for-db.sh</code>→<code>java -jar /app/app.jar</code>) 뒤에 append → CLI 모드(웹·스케줄러 미기동, Loki 미호출, 1 명령 후 종료).</li>
+  <li>exit: <code>0</code> 성공 / <code>2</code> 도메인 미지정 / <code>3</code> 도메인 미존재·검출 0건 / <code>4</code> 쓰기 실패.</li>
+  <li>CSV 15열+헤더: host·method·path_template·status·source·confidence·severity·estimated·spec_ref·preflight_ambiguous·low_confidence·param_query·param_path·first_seen·last_seen. (score 는 범위 밖.)</li>
+</ul>
+<div class="callout">CSV 에 <b>내용</b>이 나오려면 도메인별 <b>엔드포인트 스캔</b>(별도 스케줄, 기본 <code>PT1H</code>)이 <code>discovered_endpoint</code> 를 채운 뒤여야 한다. 갓 디스커버리된 도메인은 다음 스캔 사이클 전까지 "검출 0건"(exit 3)이 정상.</div>
+
+<h2>5. 종료/정리</h2>
+<div class="step"><pre><code>podman pod stop adc && podman pod rm adc   # /opt/adc(PGDATA)·/opt/adc-exports 는 hostPath 라 보존</code></pre></div>
+
+<h2>6. 트러블슈팅 — 실배포에서 겪은 결함 (D44)</h2>
+<table>
+<tr><th>증상</th><th>원인</th><th>해결</th></tr>
+<tr><td>adc-app 무한 재시작(RestartCount 폭증), java 고CPU</td><td>결합 <code>podman save</code> → load 태그 collision(postgres 태그가 app 가리킴) → app 이 존재하지 않는 DB 접속 <span class="err">Connection refused</span></td><td>이미지 <b>개별 tar</b> 전송, 로드후 ID 분리 검증(§1)</td></tr>
+<tr><td>기동 직후 <code>BatchDataSourceScriptDatabaseInitializer … Connection refused</code></td><td>pod 동시 기동 시 postgres initdb 지연 중 app 이 먼저 접속</td><td><code>wait-for-db.sh</code> 가 DB 준비 대기 후 기동(ENTRYPOINT)</td></tr>
+<tr><td>디스커버리 <code>HttpConnectTimeoutException</code> (Loki 미도달)</td><td>기본 bridge pod 는 LAN Loki(192.168.8.100) egress 불가</td><td><code>adc.yaml hostNetwork: true</code></td></tr>
+<tr><td>디스커버리 <code>HttpTimeoutException: request timed out</code> (Loki 도달은 됨)</td><td>서버측 <code>label_format</code> coalesce(Go 템플릿)가 라인마다 평가돼 ~10배 느림 → query-timeout(30s) 초과</td><td>coalesce 를 <b>클라이언트(Java)</b>로 이전(LogQL 에서 <code>label_format</code> 제거)</td></tr>
+<tr><td>CLI 실행 시 <code>Consider defining a bean of type 'HttpSecurity'</code></td><td>CLI(web=NONE)에서 <code>SecurityConfig</code>(웹 전용 빈) 로드 실패</td><td><code>SecurityConfig</code> 에 <code>@ConditionalOnWebApplication</code></td></tr>
+</table>
+
+<h2>7. 한계 / 주의</h2>
+<ul>
+  <li><b><code>max-domains-per-run</code> 캡</b> — 1회 run 당 트래픽 상위 N 도메인만 등록(기본 200). 관측 도메인이 많으면(예 ~13,900) 롱테일이 매 run 드롭된다. 캡은 DB 업서트량만 제한(Loki 부하 아님 — 벡터는 이미 수신)이라 <b>상향은 저위험</b>. 전수 인벤토리가 필요하면 <code>apidiscover.discovery.max-domains-per-run</code> 을 관측 규모에 맞춰 올린다.</li>
+  <li><b>hostNetwork</b> — postgres 5432(adc/adc)가 VM 인터페이스에 노출된다. 내부 테스트 VM 범위에선 수용 가능하나, VM 공유/노출 시 host 방화벽·<code>listen_addresses</code> 하드닝을 고려.</li>
+  <li><b>운영 Loki</b> — 스캔·디스커버리는 운영 Loki 를 호출한다. LokiClient 의 부하보호(윈도우·page-limit·throttle·동시성·백오프)를 우회하지 말 것. 대용량 확인은 off-peak.</li>
+</ul>
+
+</div>
+</body>
+</html>
