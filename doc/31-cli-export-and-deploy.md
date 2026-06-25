@@ -52,7 +52,7 @@
 ## B4. 컨테이너에서 DB 접속 + 실행
 
 PostgreSQL(네트워크)이라 파일잠금 무관. 같은 pod 의 PG 에 접속(§C2, **pod=localhost:5432**):
-- **권장 — one-off `podman run` 으로 pod 합류**: `podman run --rm --pod adc -v /opt/adc-exports:/exports <img> java -jar /app/app.jar --adc.cli.export-domain=foo.example.com` → netns 공유(localhost:5432)·exports 마운트·실행 후 `--rm`. 서빙 app 컨테이너에 부하 안 줌, 수명 깔끔.
+- **권장 — one-off `podman run` 으로 pod 합류**: `podman run --rm --pod adc -v /opt/adc-exports:/exports <img> --adc.cli.export-domain=foo.example.com` → netns 공유(localhost:5432)·exports 마운트·실행 후 `--rm`. 서빙 app 컨테이너에 부하 안 줌, 수명 깔끔. (인자는 exec-form ENTRYPOINT `java -jar /app/app.jar` 뒤에 append.)
 - **대안 — `podman exec`**: `podman exec adc-app java -jar /app/app.jar --adc.cli.export-domain=foo ...` → 같은 컨테이너 2nd JVM(localhost:5432·기존 exports 마운트 가시). 빠르나 서빙 컨테이너 자원 점유.
 - 두 방식 모두 §C2 토폴로지의 JDBC URL 과 **동일 접속**(pod→localhost). 절차 문서화(§C4).
 
@@ -83,7 +83,7 @@ PostgreSQL(네트워크)이라 파일잠금 무관. 같은 pod 의 PG 에 접속
 
 1. 빌드: `podman build -t apidiscover:test .`
 2. 기동: `podman play kube adc.yaml`(또는 pod 스크립트) — host `/opt/adc`=PGDATA, `/opt/adc-exports`=CSV.
-3. CLI: `podman run --rm --pod adc -v /opt/adc-exports:/exports apidiscover:test java -jar /app/app.jar --adc.cli.export-domain=<domain>` → `/opt/adc-exports/<domain>-<ts>.csv`.
+3. CLI: `podman run --rm --pod adc -v /opt/adc-exports:/exports apidiscover:test --adc.cli.export-domain=<domain>` → `/opt/adc-exports/<domain>-<ts>.csv`.
 4. **운영 주의(필수 문구)**: 대상 Loki(192.168.8.100:3200)는 **운영 서버** — 컨테이너 스캔/디스커버리도 부하보호(윈도우·limit·throttle·동시성) 준수, 대용량은 **off-peak**. 임시 확인도 창/limit 작게.
 
 ---
@@ -100,18 +100,18 @@ PostgreSQL(네트워크)이라 파일잠금 무관. 같은 pod 의 PG 에 접속
 ## dev 구현 체크리스트 (TASKS subitem, D26)
 
 **B (CLI)**
-- [ ] `main()` CLI 인자 감지 + `SpringApplicationBuilder.web(NONE).profiles("cli")` 분기.
-- [ ] `@EnableScheduling` → `SchedulingConfig`(@Configuration, `@Profile("!cli")`) 분리(서버 모드 동일 활성).
-- [ ] `CliExportRunner`(@Profile("cli"), CommandLineRunner) — forHost→CSV→exit code.
-- [ ] CSV writer(§B2 컬럼·source 파생·RFC4180·first/last_seen discovered join·params 결합) + `adc.cli.export-domain`/`output-dir` 프로퍼티.
-- [ ] 테스트 — CSV 포맷/이스케이프/source 파생/5 status/join 공란(spec-only)/미존재 도메인 exit 비0. (web=none 컨텍스트 부팅 테스트.)
+- [x] `main()` CLI 인자 감지 + `SpringApplicationBuilder.web(NONE).profiles("cli")` 분기.
+- [x] `@EnableScheduling` → `SchedulingConfig`(@Configuration, `@Profile("!cli")`) 분리(서버 모드 동일 활성). 구조 테스트(`SchedulingProfileTest`)로 고정.
+- [x] `CliExportRunner`(@Profile("cli"), CommandLineRunner) — `export()`→exit code(테스트 가능)/`run()`→`SpringApplication.exit`+`System.exit`.
+- [x] `DomainCsvWriter`(§B2 15컬럼·source 파생·RFC4180·first/last_seen discovered join·params `;` 결합) + `CliProperties`(`adc.cli.export-domain`/`output-dir`).
+- [x] 테스트 — CSV 포맷/이스케이프/source 파생/5 status/join 공란(spec-only)/미존재 도메인 exit 비0. (System.exit 미경유 — export() 단위테스트.)
 
 **C (Docker/podman)**
-- [ ] Dockerfile(멀티스테이지 bootJar→JRE21).
-- [ ] `adc.yaml`(podman play kube, 2컨테이너 pod, PGDATA `/opt/adc` hostPath, app `localhost:5432`) 또는 pod 스크립트.
-- [ ] `application-container.yml`(PG·ddl-auto update·Loki LAN) + `SPRING_PROFILES_ACTIVE=container`.
-- [ ] 배포/실행/CLI 절차 문서(§C4, 운영 Loki 부하·off-peak 문구 포함).
-- [ ] (검증) podman build·play kube 기동·`/discovery` 응답·CLI CSV 생성·LAN Loki 도달 확인.
+- [x] Dockerfile(멀티스테이지 bootJar→JRE21, `-x test`, `*-SNAPSHOT.jar` glob) + `.dockerignore`.
+- [x] `adc.yaml`(podman play kube, 2컨테이너 pod, PGDATA `/opt/adc`(pgdata 서브디렉터리) hostPath, app `localhost:5432`, exports 분리).
+- [x] `application-container.yml`(PG·ddl-auto update·Loki LAN, env override) + `SPRING_PROFILES_ACTIVE=container`.
+- [x] 배포/실행/CLI 절차 문서(`doc/32-container-deploy-runbook.md`, 운영 Loki 부하·off-peak 문구 포함).
+- [x] (검증) **`podman build` 성공까지** — 이미지 빌드·bootJar·`*-SNAPSHOT.jar` 복사 확인. ★`play kube` 기동·`/discovery`·CLI CSV·LAN Loki 도달은 운영 Loki 주의로 **미수행**(배포 시 doc/32 §6 체크리스트, 매니저/사용자 수행).
 
 ## 범위 밖 / 후속
 
