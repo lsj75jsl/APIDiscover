@@ -21,8 +21,9 @@ import org.springframework.stereotype.Service;
 
 /**
  * 수집 중 access log 에서 API 도메인을 자동 열거한다(doc/30). 원시 로그를 받지 않고 Loki 서버측 메트릭 집계
- * (sum by(domain,hostname) count_over_time(... | pattern | label_format domain=coalesce(host,real_host) ...))로
- * (도메인 × 엣지 hostname) 카운트만 수신 → FQDN 검증·개수 상한 후 {@link DomainConfig} 를 <b>무삭제</b> 업서트한다.
+ * (sum by(host, real_host, hostname) count_over_time(... | pattern ...))로 카운트만 수신 → <b>클라이언트 coalesce</b>
+ * (host 빈/"-"→real_host) → FQDN 검증·개수 상한 후 {@link DomainConfig} 를 <b>무삭제</b> 업서트한다.
+ * (서버 label_format coalesce 는 실측 10배 느려 query-timeout → 제거, doc/30 §1.)
  *
  * <p>★불변식: 도메인/사용자 설정(basePathStrip·specMergeStrategy·enabled·intervalOverride) 자동 삭제·덮어쓰기 절대 금지(§5).
  */
@@ -30,10 +31,6 @@ import org.springframework.stereotype.Service;
 public class DomainDiscoveryService {
 
     private static final Logger log = LoggerFactory.getLogger(DomainDiscoveryService.class);
-
-    /** label_format coalesce(Go 템플릿) — LogLineParser line 83 firstNonEmpty(nullIfDash(host),nullIfDash(real_host)) 와 동일(doc/30 §1). */
-    private static final String COALESCE_TEMPLATE =
-            "{{ if or (eq .host \\\"\\\") (eq .host \\\"-\\\") }}{{ .real_host }}{{ else }}{{ .host }}{{ end }}";
 
     private final LokiClient loki;
     private final DomainConfigRepository repo;
@@ -74,7 +71,10 @@ public class DomainDiscoveryService {
         Map<String, Double> countByDomain = new LinkedHashMap<>();
         int rejected = 0;
         for (LokiClient.MetricSample s : vector) {
-            String domain = normalizeDomain(s.labels().get("domain"));
+            // 클라이언트 coalesce(host 빈/"-"→real_host) — LogLineParser line83 firstNonEmpty(nullIfDash(host),nullIfDash(real_host)) 동일.
+            // 서버 label_format coalesce 는 실측 10배(2.2s→20.2s, query-timeout 초과) → 제거하고 클라이언트에서 처리(doc/30 §1).
+            String domain = firstNonEmpty(
+                    normalizeDomain(s.labels().get("host")), normalizeDomain(s.labels().get("real_host")));
             if (domain == null || !hostPattern.matcher(domain).matches()) {
                 rejected++; // 빈/형식위반 Host(변조·랜덤) 자동등록 차단(§6)
                 continue;
@@ -114,13 +114,15 @@ public class DomainDiscoveryService {
         return new DiscoveryResult(bootstrap, inserted, updated, rejected, dropped);
     }
 
-    /** doc/30 §1 LogQL — 서버측 집계(라인 미수신). pattern 포지션은 LogLineParser 와 공유 상수로 빌드(드리프트 차단). */
+    /**
+     * doc/30 §1 LogQL — 서버측 집계(라인 미수신). pattern 포지션은 LogLineParser 와 공유 상수로 빌드(드리프트 차단).
+     * ★서버 label_format coalesce 제거(실측 2.2s→20.2s, 10배·query-timeout 초과) → host/real_host/hostname 으로 group by 하고
+     * coalesce(host→real_host 폴백)·도메인 필터는 클라이언트(discover 루프)에서 처리(운영 Loki 부하 ↓).
+     */
     String buildLogQL(Duration window) {
-        return "sum by (domain, hostname) (count_over_time("
+        return "sum by (host, real_host, hostname) (count_over_time("
                 + "{job=\"" + props.loki().jobLabel() + "\"}"
                 + " | pattern \"" + buildPattern() + "\""
-                + " | label_format domain=\"" + COALESCE_TEMPLATE + "\""
-                + " | domain!=\"\" | domain!=\"-\""
                 + " [" + window.toSeconds() + "s]))";
     }
 
@@ -141,5 +143,10 @@ public class DomainDiscoveryService {
         }
         String t = raw.trim().toLowerCase(Locale.ROOT);
         return (t.isEmpty() || "-".equals(t)) ? null : t;
+    }
+
+    /** 클라이언트 coalesce — host 우선, 빈/dash(=null)면 real_host (LogLineParser.firstNonEmpty 동형). */
+    private static String firstNonEmpty(String a, String b) {
+        return (a != null) ? a : b;
     }
 }

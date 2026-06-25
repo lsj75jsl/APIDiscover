@@ -155,17 +155,43 @@ class DomainDiscoveryServiceTest {
         assertThat(ql.getAllValues().get(1)).contains("[720s]");  // window PT12M
     }
 
-    // --- LogQL 형태(coalesce·집계·필터) ---
+    // --- 클라이언트 coalesce: host 빈/"-" → real_host (서버 label_format 제거, 성능 10배) ---
 
     @Test
-    void buildsServerSideAggregationLogQLWithCoalesce() {
+    void coalescesToRealHostWhenHostBlankOrDash() {
+        when(loki.queryInstant(any(), any())).thenReturn(List.of(
+                labeled("", "fallback.example.com", "E1", 5),    // host 빈 → real_host
+                labeled("-", "dash.example.com", "E1", 5),       // host "-" → real_host
+                labeled("api.example.com", "-", "E1", 5)));      // host 우선
+
+        service().discover(NOW);
+        assertThat(db).extracting(DomainConfig::getHost)
+                .containsExactlyInAnyOrder("fallback.example.com", "dash.example.com", "api.example.com");
+    }
+
+    @Test
+    void mergesSameDomainAcrossHostRealHostCombos() {
+        // 같은 도메인이 (host) 와 (real_host 폴백) 양쪽에서 다른 hostname 으로 → 도메인 키로 합산(hostnames 합집합)
+        when(loki.queryInstant(any(), any())).thenReturn(List.of(
+                labeled("api.example.com", "-", "E1", 10),
+                labeled("", "api.example.com", "E2", 20)));
+
+        service().discover(NOW);
+        assertThat(db).hasSize(1);
+        assertThat(find("api.example.com").getHostnames()).containsExactly("E1", "E2"); // 합집합
+    }
+
+    // --- LogQL 형태(서버 coalesce 제거·host/real_host/hostname group by) ---
+
+    @Test
+    void buildsServerSideAggregationLogQLWithoutLabelFormat() {
         String ql = service().buildLogQL(Duration.ofMinutes(12));
-        assertThat(ql).contains("sum by (domain, hostname) (count_over_time(");
+        assertThat(ql).contains("sum by (host, real_host, hostname) (count_over_time(");
         assertThat(ql).contains("{job=\"access_log\"}");
-        assertThat(ql).contains("| label_format domain=");
-        assertThat(ql).contains(".real_host");          // coalesce 분기
-        assertThat(ql).contains("| domain!=\"\" | domain!=\"-\"");
         assertThat(ql).contains("[720s]");
+        // 성능 회귀 가드: 서버측 label_format coalesce·domain 필터 제거됨
+        assertThat(ql).doesNotContain("label_format");
+        assertThat(ql).doesNotContain("domain");
     }
 
     // --- helpers ---
@@ -178,8 +204,14 @@ class DomainDiscoveryServiceTest {
         return new DomainDiscoveryService(loki, repo, new DomainUpserter(repo), props(cap));
     }
 
-    private static MetricSample sample(String domain, String hostname, double count) {
-        return new MetricSample(Map.of("domain", domain, "hostname", hostname), count);
+    /** host=도메인·real_host="-"(폴백 불필요) 편의 — 기존 테스트의 "도메인=host" 의미 유지. */
+    private static MetricSample sample(String host, String hostname, double count) {
+        return labeled(host, "-", hostname, count);
+    }
+
+    /** 벡터 1행: {host, real_host, hostname} 라벨 + 집계값(클라이언트 coalesce 대상). */
+    private static MetricSample labeled(String host, String realHost, String hostname, double count) {
+        return new MetricSample(Map.of("host", host, "real_host", realHost, "hostname", hostname), count);
     }
 
     private DomainConfig find(String host) {

@@ -7,26 +7,24 @@
 
 수집 중 access log 에서 **API 도메인(Host)을 자동 열거**해 `DomainConfig` 를 부트스트랩/증분 갱신한다(수동 등록 부담 제거). 원시 로그를 받지 않고 **Loki 서버측 메트릭 집계**로 (도메인 × 엣지 hostname) 카운트만 수신한다. 인프로세스 `@Scheduled`(별도 스케줄러), 운영 Loki 부하보호 준수.
 
-## 1. LogQL 확정형 (서버측 집계, 라인 미수신)
+## 1. LogQL 확정형 (서버측 집계, 라인 미수신) — ★클라이언트 coalesce(성능 정정)
 
-도메인은 Loki 라벨이 아니라 **로그 라인 내용**(필드 15 host / 16 real_host, DELIM `^|^`)이다. `hostname` 은 스트림 라벨(엣지 서버). → 라인을 서버에서 파싱·집계:
+도메인은 Loki 라벨이 아니라 **로그 라인 내용**(필드 15 host / 16 real_host, DELIM `^|^`)이다. `hostname` 은 스트림 라벨(엣지 서버). → 라인을 서버에서 파싱·집계하되, **coalesce 는 클라이언트(Java)에서**:
 
 ```logql
-sum by (domain, hostname) (
+sum by (host, real_host, hostname) (
   count_over_time(
     {job="access_log"}
       | pattern "<_>^|^<_>^|^<_>^|^<_>^|^<_>^|^<_>^|^<_>^|^<_>^|^<_>^|^<_>^|^<_>^|^<_>^|^<_>^|^<_>^|^<_>^|^<host>^|^<real_host>^|^<_>"
-      | label_format domain="{{ if or (eq .host \"\") (eq .host \"-\") }}{{ .real_host }}{{ else }}{{ .host }}{{ end }}"
-      | domain!="" | domain!="-"
     [W]
   )
 )
 ```
 - **pattern**: `<_>^|^` ×15(인덱스 0–14 skip) → `<host>`(15) `^|^` `<real_host>`(16) → `^|^<_>`(나머지 흡수). `|` 는 따옴표 안 리터럴(파이프 아님). 필드 미달 라인은 미매칭→제외(LogLineParser FIELD_COUNT 동형).
-- **label_format(Loki 3.0 Go 템플릿)**: host 가 `""`/`-` 면 real_host, 아니면 host = **LogLineParser line 83 `firstNonEmpty(nullIfDash(host), nullIfDash(real_host))` 와 동일 coalesce**(full fidelity 확정).
-- **필터**: coalesce 후에도 빈/`-`(둘 다 부재)면 `domain!=""|domain!="-"` 로 제외.
-- **`by (domain, hostname)`**: 도메인별로 **서빙 엣지 hostname 집합**까지 확보 → `DomainConfig.hostnames` 자동 채움 → 이후 스캔이 targeted `{hostname=X} |= domain` 경로 사용 가능. 응답 = O(도메인×엣지) 벡터(라인 미전송).
-- **부하 인식(정직)**: `count_over_time(...|pattern...)` 은 W 내 전 라인을 **서버에서 파싱** → Loki CPU 비용 실재. W 작게(롤링), 부트스트랩 1h 는 1회·off-peak 권장, throttle/concurrency 준수(§3·§4).
+- **★서버 `label_format` coalesce 제거(성능 — 실 Loki 측정)**: `count_over_time(...|pattern [5m])` = **2.2s** 인데 `| label_format domain="{{coalesce}}"` 를 붙이면 **20.2s(10배)** — Go 템플릿이 라인마다 평가돼 과중 → 1h 부트스트랩·12m 롤링 모두 query-timeout(30s) 초과 → 디스커버리 실패. 따라서 서버에선 `host`·`real_host`·`hostname` 으로만 `group by` 하고, **coalesce(host 빈/`-`→real_host)·도메인 필터·FQDN 검증은 클라이언트**(`DomainDiscoveryService` 루프)에서 수행. 운영 Loki CPU 부하도 감소.
+- **클라이언트 coalesce(충실도 동일)**: `domain = firstNonEmpty(normalizeDomain(host), normalizeDomain(real_host))` — `normalizeDomain` 이 trim·소문자·빈/`-`→null. = **LogLineParser line 83 `firstNonEmpty(nullIfDash(host), nullIfDash(real_host))` 와 동일**(host(15)+real_host(16) 폴백, 사용자 확정 full fidelity). null(둘 다 부재)·FQDN 미일치는 제외(rejected).
+- **`by (host, real_host, hostname)`**: 같은 도메인이 여러 (host,real_host)·여러 hostname 으로 나올 수 있어, 클라이언트가 **coalesce 후 domain 키로 합산**(hostnames 합집합·count 합) → `DomainConfig.hostnames` 자동 채움. 응답 = 집계 벡터(라인 미전송).
+- **부하 인식(정직)**: `count_over_time(...|pattern...)` 은 W 내 전 라인을 **서버에서 파싱** → Loki CPU 비용 실재(단 label_format 제거로 ~10배 경감). W 작게(롤링), 부트스트랩 1h 는 1회·off-peak 권장, throttle/concurrency 준수(§3·§4).
 
 ## 2. LokiClient 확장 — instant 메트릭 쿼리
 

@@ -5,6 +5,20 @@
 
 ---
 
+## 2026-06-25 세션 31 — 긴급 성능 수정: 디스커버리 LogQL 서버 coalesce → 클라이언트 coalesce (doc/30 §1, D42)
+
+### 한 일 (DomainDiscoveryService + 테스트 + doc 만 — 매니저 인프라 수정분 wait-for-db/hostNetwork/Dockerfile/adc.yaml 미터치)
+- **근거(실 Loki 측정)**: `count_over_time({job}|pattern [5m])`=2.2s 인데 `| label_format domain="{{coalesce}}"` 추가 시 20.2s(10배) → Go 템플릿 라인별 평가 과중 → 1h 부트스트랩·12m 롤링 모두 query-timeout(30s) 초과 → 디스커버리 실패·domain_config=0. (Loki 도달·hostNetwork·wait-for-db 는 정상.)
+- `buildLogQL`: `sum by (domain, hostname)(... | label_format domain=coalesce | domain!="" | domain!="-")` → **`sum by (host, real_host, hostname)(count_over_time({job} | pattern [W]))`** (서버 label_format·domain 필터 제거, pattern 불변). `COALESCE_TEMPLATE` 상수 제거.
+- discover 루프: `s.labels().get("domain")` → **클라이언트 coalesce** `firstNonEmpty(normalizeDomain(host), normalizeDomain(real_host))`(LogLineParser line83 동일 의미). 이후 FQDN 검증·rejected·hostnamesByDomain 합산·countByDomain 그대로. 같은 도메인이 여러 (host,real_host)·hostname 조합으로 와도 coalesce 후 domain 키 합산(합집합) 유지.
+- 테스트: mock 벡터 라벨 {domain,hostname}→{host,real_host,hostname}, `sample(host,hostname,count)`(real_host="-" 편의)+`labeled(host,realHost,hostname,count)`. 신규 coalesce 테스트(host 빈/"-"→real_host)·동일도메인 합산 테스트 추가, LogQL 테스트는 label_format/domain 미포함·`sum by (host, real_host, hostname)` 로 갱신(성능 회귀 가드). 필드포지션 교차검증은 pattern 불변이라 유지. LiveIntegrationTest 도 새 쿼리·라벨로 갱신(미실행).
+
+### 결과
+- `./gradlew build` BUILD SUCCESSFUL, 총 **359(+2 신규 coalesce/합산 테스트) 실패 0 skip 2**(둘 다 -Dloki.live 게이트=운영 Loki 미호출). DomainDiscoveryServiceTest 10건 green. 운영 Loki 미호출(단위 mock, live 게이트 미실행).
+
+### 다음 단계
+- 커밋 금지(매니저). 실 Loki 디스커버리 성공·domain_config 적재는 매니저 실배포(feature/container-wait-for-db)로 검증. doc/30 §1·DECISIONS D42 coalesce 위치 정정 반영.
+
 ## 2026-06-25 세션 30 — PR2: CLI CSV 내보내기(B) + Docker/podman 배포(C) (doc/31 D43)
 
 ### 한 일 — B (CLI)

@@ -37,16 +37,27 @@ class DomainDiscoveryLiveIntegrationTest {
         String logql = svc.buildLogQL(Duration.ofMinutes(2)); // 소창
         List<LokiClient.MetricSample> vector = loki.queryInstant(logql, AT.toInstant());
 
-        assertThat(vector).as("도메인 집계 벡터(라인 미수신)").isNotEmpty();
-        // coalesce + 필터: 모든 domain 라벨이 비/"-" 가 아니어야(빈/dash 는 LogQL 에서 제외)
-        assertThat(vector).allSatisfy(s -> {
-            String domain = s.labels().get("domain");
-            assertThat(domain).isNotBlank();
-            assertThat(domain).isNotEqualTo("-");
+        assertThat(vector).as("host/real_host 집계 벡터(라인 미수신)").isNotEmpty();
+        // 서버 label_format 제거 → 벡터는 host/real_host 라벨. 클라이언트 coalesce(host→real_host) 후 하나 이상은 비어있지 않아야.
+        assertThat(vector).anySatisfy(s -> {
+            String coalesced = firstNonEmpty(norm(s.labels().get("host")), norm(s.labels().get("real_host")));
+            assertThat(coalesced).isNotNull();
         });
-        System.out.println("=== domain discovery live: " + vector.size() + " (domain,hostname) rows ===");
-        vector.stream().limit(20).forEach(s -> System.out.printf("  %-30s %-10s %.0f%n",
-                s.labels().get("domain"), s.labels().get("hostname"), s.value()));
+        System.out.println("=== domain discovery live: " + vector.size() + " (host,real_host,hostname) rows ===");
+        vector.stream().limit(20).forEach(s -> System.out.printf("  host=%-28s real_host=%-28s %-10s %.0f%n",
+                s.labels().get("host"), s.labels().get("real_host"), s.labels().get("hostname"), s.value()));
+    }
+
+    private static String norm(String v) {
+        if (v == null) {
+            return null;
+        }
+        String t = v.trim();
+        return (t.isEmpty() || "-".equals(t)) ? null : t;
+    }
+
+    private static String firstNonEmpty(String a, String b) {
+        return (a != null) ? a : b;
     }
 
     private static ApiDiscoverProperties props() {
