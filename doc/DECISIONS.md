@@ -332,7 +332,7 @@ doc/04 §7 9 케이스를 회귀로 잠금(순수 테스트, 프로덕션 무변
 - **문서 위치(판단)**: 신규 doc 대신 **doc/04 §7.1 '회귀 테스트 매핑' 보강**(케이스↔불변식↔테스트↔상태 co-location, 가벼움).
 - **테스트 위치(판단)**: 신규 클래스 대신 **기존 클래스 확장**(EndpointMatcherTest/ClassifierTest) + `// doc/04 §7 case N` 태그(추적성·중복 회피).
 - **신규 테스트(미커버 갭)**: ① 동일 path 양 method 정의 → 각자 distinct 매칭(현 mismatch 만) ② INFERRED 단독 → shadowConfidence −0.1 격리(현 번들) ③ specificity front-segment 우선·동률(현 `/users/me` 1건). 나머지(host-agnostic·404-only·version-zombie·undocumented_web_page·dormant)=기존 커버 → 중복 회피.
-- **플래그(현행 미구현/버그 — 테스트로 고정 금지)**: **F1** base-path-strip(doc/03 §2.2·§7 명시) **미구현** — OpenApiSpecParser 가 basePath 를 템플릿에 join → 프록시 strip 관측은 불일치 → false Shadow. **F2** catch-all `{var+}` 분기가 매처에 있으나 파서 미생성(도달 불가) + segCount 버킷팅이 `.+` 다중세그먼트 차단(도달 시 오동작). → 둘 다 TASKS 후속(F1=한계/옵션, F2=dead code 정리 vs 의도), 회귀 테스트 아님. **F1 해소 설계 → D38/doc/27.**
+- **플래그(현행 미구현/버그 — 테스트로 고정 금지)**: **F1** base-path-strip(doc/03 §2.2·§7 명시) **미구현** — OpenApiSpecParser 가 basePath 를 템플릿에 join → 프록시 strip 관측은 불일치 → false Shadow. **F2** catch-all `{var+}` 분기가 매처에 있으나 파서 미생성(도달 불가) + segCount 버킷팅이 `.+` 다중세그먼트 차단(도달 시 오동작). → 둘 다 TASKS 후속(F1=한계/옵션, F2=dead code 정리 vs 의도), 회귀 테스트 아님. **F1 해소 → D38/doc/27. F2 해소 → D39.**
 
 ### D38. base-path-strip — false Shadow 방지 (D37 F1 해소, doc/27) — 제안·권장안
 프록시가 base path prefix 를 strip 하는 환경에서 basePath-결합 템플릿 vs strip 관측 불일치 → false Shadow/Unused. **(a) 옵션 구현 권장**(기본 off=무회귀), (b) 문서화만 미채택.
@@ -342,6 +342,13 @@ doc/04 §7 9 케이스를 회귀로 잠금(순수 테스트, 프로덕션 무변
 - **비대칭/무회귀**: 기본 null=as-is=현행. 설정 시 가산(시도 추가만)→false Shadow→Active·false Unused→observed 교정, 기존 매칭 불변(as-is 우선). 잘못 prefix=opt-in operator 오류 한정.
 - **ETag**: canonical 불변→specVersion 무변경. 설정 시 findings 변화→ETag bump(정당·결정적·시간非의존, now 무관). basePathStrip 은 findings 반영이라 ETag 입력 별도 불요.
 - **무회귀**: 3-arg match 오버로드·null stripPrefix 하위호환. doc/18 sync(`domain_config.base_path_strip`)=technical_writer. 후속: 다중 prefix List·자동감지(미채택)·parse 토글(대안).
+
+### D39. catch-all `{var+}` dead code 제거 (D37 F2 해소, doc/04 §1.1) — 권장
+`EndpointMatcher` 의 catch-all 분기(`isCatchAll`→`.+`)는 **도달 불가 vestigial code** → **(a) 제거 권장**, (b) 유지+주석 미채택.
+- **근거(제거)**: ① 파서 3종(OpenApi/Postman/CSV) 어느 것도 `{var+}` 미생성(grep 0) → `isCatchAll` 항상 false. ② `(method,host,segCount)` 버킷팅이 다중 세그먼트 `.+` 를 구조적 차단(후보가 정확 segCount 버킷에서만 옴 → `.+` 의 멀티세그 의도 도달 불가). ③ 도달 가능한(동일 segCount) 요청에선 `.+` ≡ `[^/]+`(단일 세그먼트엔 `/` 없음) → 제거해도 **동작 불변**. YAGNI(CLAUDE.md §2).
+- **범위**: `isCatchAll` 분기(compile `.+`) + 헬퍼 삭제. 제거 후 `{var+}` 는 `isVariable`→`[^/]+`(단일 세그먼트 변수)로 일관 처리. 타 사용처 0(grep, SensitiveKeyMatcher 등 무관)·관련 테스트 0 → 회귀 없음, 기존 `EndpointMatcherTest` green.
+- **설계 결함 명시(#4)**: catch-all 은 doc/04 §1.1 에 '옵션'으로 문서화됐으나 `.+` 구현이 **segCount 버킷팅과 충돌**(가변 세그먼트 수 매칭 불가)해 처음부터 비기능. 진짜 catch-all 지원은 **버킷팅 재설계**(템플릿 segCount 이상 버킷 스캔 등)가 필요한 **별도 기능** — 이번은 vestigial 제거만. doc/04 §1.1 을 '미지원'으로 갱신.
+- **(b) 미채택**: 도달 불가·비기능 코드 유지는 오해 유발(catch-all 작동 오인). 설계 지식은 doc/04 §1.1·본 결정에 보존. (catch-all 실수요 발생 시 별도 기능 항목으로.)
 
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.

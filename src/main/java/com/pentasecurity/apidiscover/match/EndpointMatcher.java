@@ -85,10 +85,9 @@ public class EndpointMatcher {
             for (int i = 0; i < segs.size(); i++) {
                 String seg = segs.get(i);
                 rx.append('/');
-                if (isCatchAll(seg)) {
-                    rx.append(".+");
-                    specificity[i] = 0;
-                } else if (isVariable(seg)) {
+                if (isVariable(seg)) {
+                    // 변수 세그먼트 = 단일 세그먼트 [^/]+. catch-all({var+})은 미지원(doc/04 §1.1):
+                    // 3종 파서 미생성 + segCount 버킷팅이 다중 세그먼트 매칭을 차단 → 단일 변수로 일관 처리.
                     rx.append("[^/]+");
                     specificity[i] = 0;
                 } else {
@@ -150,10 +149,6 @@ public class EndpointMatcher {
 
     private static boolean isVariable(String seg) {
         return seg.startsWith("{") && seg.endsWith("}");
-    }
-
-    private static boolean isCatchAll(String seg) {
-        return isVariable(seg) && seg.contains("+");
     }
 
     private static String bucketKey(String method, String hostKey, int segCount) {
