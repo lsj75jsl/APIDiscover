@@ -17,8 +17,12 @@
 - 무회귀: Classifier 로직 무변경(결합 뷰는 입력만 누적 카탈로그), 기본 MERGE+단일=현행 결합 동치, VERSION_GROUPED 외 flat, ETag 결정적·시간非의존(결합 뷰에 lastSeen 비노출·findings severity→band·params 투영 유지). 기존 SpecSource 3-arg 호출부(EMPTY·ReportBuilderTest) 하위호환 ctor 로 무변경.
 - 한계: 카탈로그가 distinctClients/p50·p95/acrm 미보유(§2 카탈로그 경량)→결합 뷰 Shadow confidence 근사(분류 자체 무영향). 원 카탈로그 list REST(/discovered·/spec)=결합 뷰로 충족·중앙 노출 P4 생략.
 
+### 통합 최종 리뷰 P3 2건 반영(2026-06-25)
+- **P3-2(ETag 정밀)**: per-scan ETag 의 specSource 입력에서 `documents[].specVersion`(per-record monotonic) 제외 → `specSourceEtagView`(format/warnings/문서 name·format 만). 합성 content 버전은 `report.specVersion`(별도 입력)이 반영 → 동일 콘텐츠 재업로드 무bump(2단계 content-stable 복원). persist 주석 정정. 회귀 테스트 `sameSpecContentReuploadDoesNotBumpEtagDespitePerRecordVersion` 추가(tests=311).
+- **P3-1(acrm 한계 문서화)**: doc/26 §11 에 '결합 카탈로그 뷰 OPTIONS confidence=M3 dormant 가정, M3-ACTIVE 충실성 위해 `discovered_endpoint.acrmPresentCount` 저장은 후속' 명시(코드 무변경, 과한 선구현 회피).
+
 ### 다음 단계
-- 브랜치 `feature/multi-spec-merge` 커밋(누적, 1~3단계 완료). **이후: doc/18 sync(technical_writer) + 최종 리뷰 + 1 PR 머지**(D28 — 머지 시 parent TASKS·설계문서 완료 동기).
+- 브랜치 `feature/multi-spec-merge` 커밋(누적, 1~3단계+최종 P3 완료). **이후: doc/18 sync(technical_writer) + 최종 빌드 + 1 PR 머지**(D28 — 머지 시 parent TASKS·설계문서 완료 동기).
 
 ## 2026-06-25 세션 22 — 멀티스펙 2단계: 멀티 문서 + 병합 모드 (doc/26 §3/§5/§8, D35)
 

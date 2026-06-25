@@ -145,3 +145,4 @@ class DiscoveredEndpointRecord {
 - 다중 출처 provenance(sourceRef 결합)·spec query-param 캐노니컬 확장 — 별도.
 - 중앙 멀티-spec 오케스트레이션·원 카탈로그 REST 노출·auth — P4(외부연동).
 - 문서 간 호환성 경고(같은 endpoint 상이 정의→spec_source.warnings) — 후속(doc/25 채널).
+- **결합 카탈로그 뷰 OPTIONS confidence 는 M3 dormant 가정**(3단계 P3-1) — `discovered_endpoint` 는 `acrmPresentCount` 미보유(§2 카탈로그 경량)라 `CombinedDiscoveryService` 의 OPTIONS 분기는 항상 DORMANT(현행+M2 경로). 기본 환경(acrm-field-index=-1=dormant, doc/23 §9)에선 per-scan 과 동일·무해. **M3-ACTIVE 환경**(org 로그포맷 켜짐)에선 per-scan 결합 뷰가 OPTIONS 를 Active 로 승급하는 반면 누적 결합 뷰는 dormant 가정이라 갈릴 수 있음 — 충실성 위해 `discovered_endpoint.acrmPresentCount` 저장(+재구성 반영)은 후속(현 dormant 기본이라 과한 선구현 회피).

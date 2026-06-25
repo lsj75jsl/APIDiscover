@@ -294,12 +294,13 @@ public class DiscoveryJobService {
         // $type 분포는 distinct 키집합(정렬, count 제외)만 → 신규 값=드리프트 bump, count 변동=무bump (doc/21 §3 Tier1)
         // preflightSignal 은 status 만 → DORMANT↔ACTIVE 전환=실제 분류 변화 bump, acrm count churn 없음 (doc/23 §9.5)
         // Zombie severity 는 band 로 투영 → entrenchment/hits 발 미세 creep 무bump, band 전이 시만 bump (doc/24 §5)
-        // specSource(warnings) 는 spec 버전당 고정 → 신규 업로드(새 버전) bump 에 편승, churn 0 (doc/25 §A.4)
+        // 합성 content 버전(report.specVersion)이 spec 콘텐츠 변화를 반영. specSource 는 content-stable 투영만
+        // (format/warnings/문서명·포맷) — per-record monotonic specVersion 제외 → 동일 콘텐츠 재업로드 무bump (doc/26 §8, P3-2)
         String version = EtagUtil.of(toJson(List.of(
                 report.specVersion(), report.summary(), findingsEtagView(report.findings()),
                 report.droppedNonApi(), report.droppedByLimit(), report.droppedNonExistent(),
                 report.endpointKindSignal(), report.typeDistribution().distinctKeys(),
-                report.preflightSignal().status(), report.specSource())));
+                report.preflightSignal().status(), specSourceEtagView(report.specSource()))));
 
         ScanResult r = scanRepo.findById(host).orElseGet(ScanResult::new);
         r.host = host;
@@ -345,6 +346,17 @@ public class DiscoveryJobService {
             }
         }
         return out;
+    }
+
+    /**
+     * specSource ETag 투영 — content-stable 만(format/warnings/문서 name+format). documents 의 per-record
+     * monotonic specVersion 은 제외 → 동일 콘텐츠 재업로드 무bump(합성 content 버전은 report.specVersion 이 별도 반영, P3-2).
+     */
+    private static Object specSourceEtagView(com.pentasecurity.apidiscover.model.SpecSource s) {
+        List<Object> docs = s.documents().stream()
+                .map(d -> (Object) java.util.Arrays.asList(d.specName(), d.format())) // specVersion(monotonic) 제외
+                .toList();
+        return java.util.Arrays.asList(s.format(), s.warnings(), docs);
     }
 
     /** params → [정렬 query 이름, 정렬 path 토큰] (count/buckets 제외 — 명칭집합만, doc/25 §B.3). */

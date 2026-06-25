@@ -174,6 +174,32 @@ class DiscoveryJobServiceTest {
     }
 
     @Test
+    void sameSpecContentReuploadDoesNotBumpEtagDespitePerRecordVersion() {
+        // P3-2: 동일 콘텐츠 재업로드(per-record specVersion 1→2) → 합성 content 버전 동일 → ETag 무bump.
+        // SpecSource.documents[].specVersion(monotonic)은 리포트 body 진단용, ETag 투영서 제외.
+        var canonical = List.of(new CanonicalEndpoint("GET", "/v2/users/{id}", null, false, null, "ref"));
+        when(specStore.loadActiveCanonical(HOST)).thenReturn(canonical);
+        when(scanRepo.findById(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.save(any(ScanResult.class))).thenAnswer(inv -> inv.getArgument(0));
+        List<String> traffic = List.of(line("GET", "/v2/users/1", 200), line("GET", "/v2/users/2", 200));
+
+        SpecRecord v1 = new SpecRecord();
+        v1.specVersion = 1L;
+        v1.format = SpecFormat.OPENAPI;
+        when(specStore.activeMeta(HOST)).thenReturn(Optional.of(v1));
+        ScanResult a = service.analyze(HOST, traffic, window);
+
+        SpecRecord v2 = new SpecRecord(); // 재업로드: 동일 콘텐츠, per-record 버전만 2
+        v2.specVersion = 2L;
+        v2.format = SpecFormat.OPENAPI;
+        when(specStore.activeMeta(HOST)).thenReturn(Optional.of(v2));
+        ScanResult b = service.analyze(HOST, traffic, window);
+
+        assertThat(a.active).isEqualTo(1);
+        assertThat(a.version).isEqualTo(b.version); // per-record 1→2 임에도 content-stable → 무bump
+    }
+
+    @Test
     void versionIsStableAcrossIdenticalContent() {
         when(specStore.activeMeta(HOST)).thenReturn(Optional.empty());
         when(scanRepo.findById(HOST)).thenReturn(Optional.empty());
