@@ -44,20 +44,8 @@
 > (현재 비어 있음 — low_confidence+warnings·Active/Zombie params·total_dropped 완료, Done 참조)
 
 #### 스펙 파서 / Spec Store (03 문서)
-- [ ] 검출/업로드 데이터 모델 통합 + 멀티 스펙 병합 전략 **(설계 완료 → doc/26 전면개정, DECISIONS D35·D36 — 제안·사용자 확인 대기, dev 미착수)**
-  - **1단계 — 데이터 모델(A 검출 SoT / C version 차원)** → 구현 완료 2026-06-25, build 그린(tests=297), 브랜치 `feature/multi-spec-merge` 커밋(누적)·리뷰 대기
-    - [x] `domain/DiscoveredEndpointRecord`(host index+unique(host,method,path_template)+version) + repository(findByHost/findByHostAndVersion/findByHostAndMethodAndPathTemplate/deleteByHostAndLastSeenBefore). cap(5000)+retention prune(180d). **EndpointHistory 흡수**(firstSeen/lastSeen 이관)
-    - [x] `DiscoveryJobService` — discovered→discovered_endpoint 누적 upsert(firstSeen min/lastSeen max/스냅샷), severity recency 를 discovered_endpoint.firstSeen 로 전환(Evidence entrenchedFirstSeen·signature 키), `endpoint_history` 엔티티/repo/observedTimes/EndpointObservation 제거(재구축 이관=콜드스타트 현행)
-    - [x] `discovered_endpoint.version`(path `^v\d+$`→매칭 spec 도출) + `spec_record`+`specName`(null→default, 스키마/컬럼만; 멀티문서 upsert 2단계)
-  - **2단계 — 멀티 스펙 + 모드(B)** → 구현 완료 2026-06-25, build 그린(tests=305), 브랜치 `feature/multi-spec-merge` 커밋(누적)·리뷰 대기
-    - [x] `model/SpecMergeStrategy`+`DomainConfig.specMergeStrategy`(기본 MERGE, null→MERGE)+DomainController/DomainDtos DTO 가산. `SpecStore` 모드 분기(MERGE/VG=같은 specName 만 비활성·형제 유지/SEPARATE=전체 교체), `upload(host,name,content)`+default 위임
-    - [x] `SpecCanonicalizer.merge` 결정적(dedupe+deprecated OR+비-deprecated latest-specVersion-wins·tie sourceRef·순서 무관)+합성 spec 버전(merged canonical SHA-256 해시, EtagUtil 일관·64bit)→matcherCache/report/SpecSource. 멀티문서 SpecSource +documents·warnings union 은 3단계
-  - **3단계 — 결합·버전그룹(C/D)** → 구현 완료 2026-06-25, build 그린(tests=310), 브랜치 `feature/multi-spec-merge` 커밋(누적)·리뷰 대기
-    - [x] host 결합 Discovery 뷰 — `CombinedDiscoveryService`(discovered_endpoint 재구성 ∪ active spec → Classifier 불변 5-arg → 결합 findings) + `model/CombinedDiscovery` + `GET /api/v1/domains/{host}/discovery`. VERSION_GROUPED=version 라벨 그룹(`VersionTag`), 그 외 flat. 분류 범위=per-scan 유지(무회귀)+누적 카탈로그 결합 뷰 신설(둘 다). `SpecSource`+documents/union(2단계 이월 완료)
-    - [ ] (선택) `/discovered`·`/spec` 원 카탈로그 list — 결합 뷰 `/discovery` 로 충족, 원 카탈로그 REST·중앙 노출 P4 생략(D25)
-  - **공통**
-    - [x] 테스트 — discovered_endpoint upsert/recency/cap·prune / 모드 case×mode·결정성·합성버전 / 단일=현행 무회귀 / EndpointHistory 이관(severity 콜드스타트=현행) / host 결합·버전그룹 / ETag 결정적(시간非의존) — tests=310
-    - [x] (doc/18 sync, technical_writer) `discovered_endpoint`(§2.8)·`spec_record.spec_name`·`domain_config.spec_merge_strategy`·`endpoint_history` 제거 반영 (7엔티티/8테이블 유지)
+> (현재 비어 있음 — 검출/업로드 데이터 모델 통합 + 멀티 스펙 병합 완료, Done 참조)
+> 후속(P4·선택): `/discovered`·`/spec` 원 카탈로그 list REST 중앙 노출 — 결합 뷰 `/discovery` 로 자체조회 충족, 중앙 노출은 외부연동(P4) 시.
 
 ### P2. 품질/테스트
 - [ ] 엔티티 캡슐화 (현재 스캐폴딩상 public 필드)
@@ -86,6 +74,13 @@
 ---
 
 ## Done
+
+### 검출/업로드 데이터 모델 통합 + 멀티 스펙 병합 전략 (2026-06-25, doc/26 / DECISIONS D35·D36, PR #16) — tests=311 green
+- [x] (1단계 데이터모델) `discovered_endpoint`(검출 SoT, host idx+unique(host,method,template)+version, 누적 upsert+cap5000/prune180d) + **EndpointHistory 흡수**(endpoint_history 제거, severity recency→discovered_endpoint.firstSeen) + `spec_record.spec_name`·`discovered_endpoint.version`
+- [x] (2단계 멀티스펙+모드) `DomainConfig.specMergeStrategy`(MERGE/SEPARATE/VERSION_GROUPED, 기본 MERGE) + `SpecStore` 모드 분기 + `SpecCanonicalizer.merge` 결정적(dedupe+deprecated OR+latest-wins, 순서무관) + 합성 spec 버전(SHA-256, EtagUtil 일관)
+- [x] (3단계 결합·버전그룹) `CombinedDiscoveryService.forHost`(discovered ∪ active spec → Classifier 불변 → 결합 findings) + `GET /api/v1/domains/{host}/discovery` + VERSION_GROUPED 버전그룹 뷰 + `SpecSource.documents[]` 멀티문서
+- [x] (doc/18 sync) `discovered_endpoint` §2.8·`spec_name`·`spec_merge_strategy` 추가·`endpoint_history` 제거(7엔티티/8테이블 유지)
+> 사용자 요구: 검출(Loki)↔업로드(파일) DB 전용테이블 분리·비교(Shadow/Zombie)·도메인별 결합 목록·버전 그룹핑·병합 옵션. 검출 SoT=discovered_endpoint(spec_record 대칭), 결합은 Classifier 불변. 기본 MERGE+단일=현행 무회귀. ETag 결정적·시간非의존(content 버전·per-record 제외·lastSeen 비입력). 단계별+통합 리뷰 P1/P2/P3=0. 후속(doc/26 §11): 결합 카탈로그 OPTIONS=M3 dormant 가정(catalog acrmPresentCount 저장), 원 카탈로그 list REST 중앙 노출 P4.
 
 ### 리포트/출력 보강 3항목 — low_confidence·spec warnings·Active/Zombie params·total_dropped (2026-06-24, doc/25 / DECISIONS D34, PR #15) — tests=298 green
 - [x] §A low_confidence + spec_source.warnings — `SpecParseResult(endpoints,warnings)` seam 신설·3파서 수집, `SpecRecord.warningsJson` 영속→스캔 로드→`model/SpecSource`+`DiscoveryReport.specSource`(EMPTY 폴백), Finding.Shadow/Zombie 파생 `low_confidence`(confidence<0.5)+`Summary.lowConfidence`
