@@ -86,6 +86,7 @@ INSERT 에는 이 기본값이 적용되지 않는다.
 | `enabled` | `enabled` | `boolean` | BOOLEAN | | NOT NULL | 필드 기본값 `true`(SQL DEFAULT 아님) |
 | `interval_override` | `intervalOverride` | `String` | VARCHAR(255) | | nullable | ISO-8601 Duration 문자열(예 `PT1H`) 또는 null=전역 기본 |
 | `spec_merge_strategy` | `specMergeStrategy` | `@Enumerated(STRING) SpecMergeStrategy` | VARCHAR(255) | | nullable | 값: `MERGE`/`SEPARATE`/`VERSION_GROUPED`. 필드 기본값 `MERGE`. 기존 행 null → 읽을 때 `MERGE` 로 해석(`SpecStore`, doc/26 §5) |
+| `base_path_strip` | `basePathStrip` | `String` | VARCHAR(255) | | nullable | 프록시가 관측 경로에서 제거한 base prefix(예 `/v2`·`/api`)의 operator 명시값. null=off(기본). spec 매칭 라우팅 정합용. `specMergeStrategy` 와 동형 per-domain 설정(doc/27 §, D38) |
 | `created_at` | `createdAt` | `Instant` | TIMESTAMP(6) | | nullable | |
 | `updated_at` | `updatedAt` | `Instant` | TIMESTAMP(6) | | nullable | |
 
@@ -283,7 +284,7 @@ spec_record │   │   │   domain_classification_config(host, PK·1:1)
 
 | 테이블 | 엔티티 | 설계 출처 |
 |--------|--------|----------|
-| `domain_config` | `DomainConfig` | doc/07 §3.1, doc/05 §2.3(hostnames), `spec_merge_strategy`=doc/26 §5·D35 |
+| `domain_config` | `DomainConfig` | doc/07 §3.1, doc/05 §2.3(hostnames), `spec_merge_strategy`=doc/26 §5·D35, `base_path_strip`=doc/27·D38 |
 | `domain_hostnames` | `DomainConfig.hostnames` (`@ElementCollection`) | doc/05 §2.3 |
 | `spec_record` | `SpecRecord` | doc/03 §7.3, `warnings_json`=doc/25 §A.2·D34, `spec_name`=doc/26 §3·D35 |
 | `scan_result` | `ScanResult` | doc/07 §3.2·§3.3, `reportJson`=doc/01 §4·doc/12, `total_dropped`=doc/25 §C·D34 |
