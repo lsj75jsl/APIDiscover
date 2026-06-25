@@ -49,7 +49,6 @@
 
 ### P2. 품질/테스트
 - [ ] 엔티티 캡슐화 (현재 스캐폴딩상 public 필드)
-- [ ] doc/18 DB 스키마 문서 — `@Lob String` 9컬럼 정의를 `text`(@Column columnDefinition) 로 반영 (D40/D28 후속, technical_writer)
 
 ### P3. 운영/인프라 (자체 운영)
 - [ ] off-peak 시간대 제한
@@ -77,7 +76,7 @@
 - [x] L52 `@Lob String` 9컬럼 PG `text` 실검증 — `information_schema.data_type='text'` 엄격 단언 + 대용량 round-trip. `raw_doc`(byte[])은 `oid` 유지(범위 밖, round-trip만).
 - [x] L53 통합 테스트 — build.gradle.kts(testcontainers 3종 + `tasks.withType<Test>` DOCKER_HOST(XDG 가드)/RYUK 주입), `PostgresIntegrationTest`(@ServiceConnection postgres:16-alpine, ddl-auto=create-drop, @MockBean LokiClient), `/discovery` e2e + `/result` 조건부 GET 304.
 - [x] 게이팅 무회귀 — `@Testcontainers(disabledWithoutDocker=true)` docker 부재 시 auto-skip(build green). PG 13건 실행·통과(skip 0). bogus DOCKER_HOST auto-skip 확인.
-> ★실결함(D37 원칙): @Lob String 9컬럼이 PG `oid`(large object) 매핑 → 비트랜잭션 `/discovery` 에서 `Unable to access lob stream` 실패 = 실 운영결함. 테스트 느슨화 대신 5엔티티 9필드 @Lob→`@Column(columnDefinition="text")` 수정해 해소. 리뷰 P1=0 P2=1 P3=1 전건 수정. 후속: doc/18 스키마 text 반영(P2, technical_writer).
+> ★실결함(D37 원칙): @Lob String 9컬럼이 PG `oid`(large object) 매핑 → 비트랜잭션 `/discovery` 에서 `Unable to access lob stream` 실패 = 실 운영결함. 테스트 느슨화 대신 5엔티티 9필드 @Lob→`@Column(columnDefinition="text")` 수정해 해소. 리뷰 P1=0 P2=1 P3=1 전건 수정. doc/18 스키마 text 동기 완료(b0db071, D28).
 
 ### catch-all {var+} dead code 제거 (2026-06-25, DECISIONS D39, PR #19) — tests=319 불변
 - [x] `EndpointMatcher` `isCatchAll` 분기(compile `.+`)+헬퍼 삭제 — `{var+}`→`isVariable` `[^/]+` 일관
