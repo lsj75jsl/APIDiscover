@@ -51,13 +51,8 @@
 - [ ] 엔티티 캡슐화 (현재 스캐폴딩상 public 필드)
 - [ ] `@Lob String` JSON 컬럼 PostgreSQL TEXT 매핑 실검증(canonical/report/classification 공통)
 - [ ] 통합 테스트 (Testcontainers: 실제 PostgreSQL/JPA, REST API e2e, 조건부 GET 304) — `→ 의존:` 위 PostgreSQL 매핑 검증과 함께
-- [ ] 매칭 엣지 케이스(04 §7) 회귀 테스트 **(설계 완료 → doc/04 §7.1 매핑, DECISIONS D37 — 신규 3건 구현 완료 2026-06-25, build 그린 tests=314, 브랜치 `feature/matching-edge-regression-tests` 커밋 보류·리뷰 대기; F1/F2 후속만 잔여)**
-  - [x] doc/04 §7.1 회귀 테스트 매핑 표 보강 (케이스↔불변식↔테스트↔상태) — case3/4/5 ✅+신규 테스트명 기입
-  - [x] (신규, `EndpointMatcherTest`) 동일 path 양 method 정의→각자 distinct 매칭(case3) / specificity front-segment 우선·동률(case4 강화), `// doc/04 §7` 태그
-  - [x] (신규, `ClassifierTest`) INFERRED 단독→shadowConfidence −0.1 격리(case5), `// doc/04 §7` 태그
-  - [x] (확인) 기존 커버 케이스(1·6·7·8·9)는 §7.1 에 잠그는 테스트 명시만(중복 테스트 추가 안 함)
-  - [ ] **(F1 플래그·후속, 회귀 아님)** base-path-strip 미구현(doc/03 §2.2·§7) — 한계 문서화 vs strip 옵션 구현 검토 (basePath join→프록시 strip 관측 false Shadow)
-  - [ ] **(F2 플래그·후속, 회귀 아님)** catch-all `{var+}` dead code(파서 미생성·segCount 버킷팅 차단) 정리 vs 의도 확인
+- [ ] **(신규, D37 F1 플래그)** base-path-strip 미구현(doc/03 §2.2·doc/04 §7) — basePath join 템플릿 vs 프록시 strip 관측 불일치 → false Shadow 여지. 한계 문서화 vs strip 옵션 구현 검토
+- [ ] **(신규, D37 F2 플래그)** catch-all `{var+}` dead code(파서 미생성·segCount 버킷팅 차단으로 도달 불가) — 정리 vs 의도 확인
 
 ### P3. 운영/인프라 (자체 운영)
 - [ ] off-peak 시간대 제한
@@ -80,6 +75,13 @@
 ---
 
 ## Done
+
+### 매칭 엣지 케이스(doc/04 §7) 회귀 테스트 (2026-06-25, doc/04 §7.1 / DECISIONS D37, PR #17) — tests=314 green
+- [x] doc/04 §7.1 회귀 테스트 매핑표 보강 (케이스↔불변식↔테스트↔상태)
+- [x] (EndpointMatcherTest) case3 동일 템플릿 양 method distinct 매칭 / case4 specificity front-segment 우선·동률 결정성
+- [x] (ClassifierTest) case5 INFERRED 단독→shadowConfidence −0.1 격리(control=SPEC 1.0)
+- [x] (확인) 기존 커버 5케이스(1·6·7·8·9)는 §7.1 명시만(중복 테스트 없음)
+> 순수 테스트(프로덕션 무변경). §7 9케이스 중 5 기존커버·3 신규회귀·1 미구현(F1). F1(base-path-strip)·F2(catch-all dead code)는 미구현/dead code 라 회귀 고정 안 함→P2 후속 분리. 리뷰 P1/P2/P3=0(P3 doc 테스트명 정밀화).
 
 ### 검출/업로드 데이터 모델 통합 + 멀티 스펙 병합 전략 (2026-06-25, doc/26 / DECISIONS D35·D36, PR #16) — tests=311 green
 - [x] (1단계 데이터모델) `discovered_endpoint`(검출 SoT, host idx+unique(host,method,template)+version, 누적 upsert+cap5000/prune180d) + **EndpointHistory 흡수**(endpoint_history 제거, severity recency→discovered_endpoint.firstSeen) + `spec_record.spec_name`·`discovered_endpoint.version`
