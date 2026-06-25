@@ -94,12 +94,14 @@ public class DomainController {
         if (req.specMergeStrategy() != null) {
             d.specMergeStrategy = req.specMergeStrategy();
         }
+        // base-path-strip prefix (doc/27 §3). null=off — intervalOverride 와 동형(직접 대입).
+        d.basePathStrip = req.basePathStrip();
     }
 
     private DomainView toView(DomainConfig d) {
         SpecMetaView spec = specStore.activeMeta(d.host).map(DomainController::toSpecView).orElse(null);
         SpecMergeStrategy mode = d.specMergeStrategy != null ? d.specMergeStrategy : SpecMergeStrategy.MERGE;
-        return new DomainView(d.host, d.enabled, d.hostnames, d.intervalOverride, mode, spec);
+        return new DomainView(d.host, d.enabled, d.hostnames, d.intervalOverride, mode, d.basePathStrip, spec);
     }
 
     private static SpecMetaView toSpecView(SpecRecord r) {

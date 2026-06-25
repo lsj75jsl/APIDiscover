@@ -177,9 +177,11 @@ public class DiscoveryJobService {
                 priorFirstSeen.put(sig, rec.firstSeen);
             }
         });
-        // findings + non_api dropped 메트릭 동시 산출 (doc/12 §1, doc/24·26)
-        ClassificationResult classified =
-                classifier.classifyWithMetrics(discovered, spec, matcher, eff.scorer(), eff.hints(), priorFirstSeen);
+        // base-path-strip prefix (doc/27 §3). null=off=현행. 매처가 as-is 우선·미매칭 시 prefix 재부착 재시도.
+        String stripPrefix = domainRepo.findById(host).map(c -> c.basePathStrip).orElse(null);
+        // findings + non_api dropped 메트릭 동시 산출 (doc/12 §1, doc/24·26·27)
+        ClassificationResult classified = classifier.classifyWithMetrics(
+                discovered, spec, matcher, eff.scorer(), eff.hints(), priorFirstSeen, stripPrefix);
         List<Finding> findings = classified.findings();
         // OPTIONS 는 CORS 신호로만 쓰고 보고에서 제외되므로 인벤토리 카운트에서도 뺀다 (과대집계 방지)
         long reportedCount = discovered.stream()

@@ -51,7 +51,13 @@
 - [ ] 엔티티 캡슐화 (현재 스캐폴딩상 public 필드)
 - [ ] `@Lob String` JSON 컬럼 PostgreSQL TEXT 매핑 실검증(canonical/report/classification 공통)
 - [ ] 통합 테스트 (Testcontainers: 실제 PostgreSQL/JPA, REST API e2e, 조건부 GET 304) — `→ 의존:` 위 PostgreSQL 매핑 검증과 함께
-- [ ] **(신규, D37 F1 플래그)** base-path-strip 미구현(doc/03 §2.2·doc/04 §7) — basePath join 템플릿 vs 프록시 strip 관측 불일치 → false Shadow 여지. 한계 문서화 vs strip 옵션 구현 검토
+- [ ] **(D37 F1 후속)** base-path-strip — false Shadow/Unused 방지 **(설계 완료 → doc/27, DECISIONS D38 — 구현 완료 2026-06-25, build 그린 tests=319, 브랜치 `feature/base-path-strip` 커밋 보류·리뷰 대기; doc/18 sync 만 잔여)**
+  - [x] `DomainConfig.basePathStrip`(String nullable, 기본 null=off) + `DomainController`/`DomainDtos` DTO 가산 (ddl-auto, null=off 직접 대입)
+  - [x] `EndpointMatcher.match(method,host,path,stripPrefix)` 오버로드 — as-is 우선·미매칭+prefix 시 `stripPrefix+path` 재시도, 기존 3-arg 불변(하위호환)
+  - [x] `Classifier.classifyWithMetrics`(7-arg)/`classify`(6-arg) +stripPrefix(null 오버로드)→matcher 전달; `CombinedDiscoveryService`·`DiscoveryJobService` DomainConfig.basePathStrip 로드·주입
+  - [x] 테스트 — (matcher) strip 재부착/as-is 우선/null 현행/잘못 prefix 무오판 ; (e2e) strip→Active·false Shadow/Unused 해소·null 대조 현행·ETag findings 변화 bump·재스캔 동일. matcherCache 무효화 불요(strip=match 파라미터, 구조적)
+  - [x] (doc/03 §2.2 갱신) at-match strip 메커니즘 명시
+  - [ ] (doc/18 sync, technical_writer) `domain_config.base_path_strip` 컬럼 반영
 - [ ] **(신규, D37 F2 플래그)** catch-all `{var+}` dead code(파서 미생성·segCount 버킷팅 차단으로 도달 불가) — 정리 vs 의도 확인
 
 ### P3. 운영/인프라 (자체 운영)

@@ -21,6 +21,7 @@ import com.pentasecurity.apidiscover.domain.ClassificationConfigRepository;
 import com.pentasecurity.apidiscover.domain.DomainClassificationConfigRepository;
 import com.pentasecurity.apidiscover.domain.DiscoveredEndpointRecord;
 import com.pentasecurity.apidiscover.domain.DiscoveredEndpointRepository;
+import com.pentasecurity.apidiscover.domain.DomainConfig;
 import com.pentasecurity.apidiscover.domain.DomainConfigRepository;
 import com.pentasecurity.apidiscover.model.ClassificationProfile;
 import com.pentasecurity.apidiscover.domain.ScanResult;
@@ -57,6 +58,8 @@ class DiscoveryJobServiceTest {
 
     private final SpecStore specStore = mock(SpecStore.class);
     private final ScanResultRepository scanRepo = mock(ScanResultRepository.class);
+    // 기본 빈 mock → findById empty → basePathStrip=null=off(무회귀). base-path-strip 테스트만 stub.
+    private final DomainConfigRepository domainRepo = mock(DomainConfigRepository.class);
     private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
 
     // 기본 빈 mock → resolver 가 무회귀 default 반환. e2e 테스트는 globalClsRepo 를 직접 stub.
@@ -103,7 +106,7 @@ class DiscoveryJobServiceTest {
             resolver,
             new ReportBuilder(),
             scanRepo,
-            mock(DomainConfigRepository.class),
+            domainRepo,
             mock(WatermarkRepository.class),
             discoveredRepo,
             mock(LokiClient.class),
@@ -197,6 +200,41 @@ class DiscoveryJobServiceTest {
 
         assertThat(a.active).isEqualTo(1);
         assertThat(a.version).isEqualTo(b.version); // per-record 1→2 임에도 content-stable → 무bump
+    }
+
+    @Test
+    void basePathStripReattachesStrippedTrafficCorrectingFalseShadow() {
+        // doc/27: 스펙 basePath 결합(/v2/users/{id}), 프록시 /v2 strip → 관측 /users/N. basePathStrip 으로 교정.
+        SpecRecord rec = new SpecRecord();
+        rec.specVersion = 1L;
+        when(specStore.activeMeta(HOST)).thenReturn(Optional.of(rec));
+        when(specStore.loadActiveCanonical(HOST)).thenReturn(List.of(
+                new CanonicalEndpoint("GET", "/v2/users/{id}", null, false, null, "ref")));
+        when(scanRepo.findById(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.save(any(ScanResult.class))).thenAnswer(inv -> inv.getArgument(0));
+        List<String> stripped = List.of(
+                line("GET", "/users/1?x=1", 200), line("GET", "/users/2?x=2", 200), line("GET", "/users/3?x=3", 200));
+
+        // (대조) basePathStrip 미설정(null) → /users/{id} 미매칭 Shadow + /v2/users/{id} Unused (현행 무회귀)
+        ScanResult off = service.analyze(HOST, stripped, window);
+        assertThat(off.active).isZero();
+        assertThat(off.shadow).isEqualTo(1); // false Shadow
+        assertThat(off.unused).isEqualTo(1); // false Unused
+
+        // basePathStrip=/v2 → at-match 재부착(/v2/users/{id}) → Active, false Shadow/Unused 해소
+        DomainConfig cfg = new DomainConfig();
+        cfg.host = HOST;
+        cfg.basePathStrip = "/v2";
+        when(domainRepo.findById(HOST)).thenReturn(Optional.of(cfg));
+        ScanResult on = service.analyze(HOST, stripped, window);
+        assertThat(on.active).isEqualTo(1);
+        assertThat(on.shadow).isZero();
+        assertThat(on.unused).isZero();
+
+        // findings 변화 → ETag bump(정당); 동일 데이터 재스캔 → 동일 version(결정적·시간非의존)
+        assertThat(on.version).isNotEqualTo(off.version);
+        ScanResult on2 = service.analyze(HOST, stripped, window);
+        assertThat(on2.version).isEqualTo(on.version);
     }
 
     @Test

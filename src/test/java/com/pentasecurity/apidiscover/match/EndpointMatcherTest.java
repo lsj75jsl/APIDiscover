@@ -75,6 +75,36 @@ class EndpointMatcherTest {
                 .contains("/health");
     }
 
+    // doc/27 §3 — base-path-strip at-match: as-is 우선 + 미매칭 시 strip prefix 재부착(prepend) 1회 재시도.
+    @Test
+    void stripPrefixReattachesAndMatchesProxyStrippedPath() {
+        var m = new EndpointMatcher(List.of(ep("GET", "/v2/users/{id}", null)));
+        // 프록시가 /v2 strip → 관측 /users/1 → as-is 미매칭, prefix 재부착(/v2/users/1)→매칭(false Shadow 해소)
+        assertThat(m.match("GET", "any", "/users/1", "/v2"))
+                .map(CanonicalEndpoint::pathTemplate).contains("/v2/users/{id}");
+    }
+
+    @Test
+    void asIsMatchTakesPriorityOverStripRetry() {
+        var m = new EndpointMatcher(List.of(ep("GET", "/v2/users/{id}", null)));
+        // 비-strip 트래픽 /v2/users/1 은 as-is 매칭 → 재부착(double-prefix) 미발동
+        assertThat(m.match("GET", "any", "/v2/users/1", "/v2"))
+                .map(CanonicalEndpoint::pathTemplate).contains("/v2/users/{id}");
+    }
+
+    @Test
+    void nullStripPrefixIsAsIsOnly() {
+        var m = new EndpointMatcher(List.of(ep("GET", "/v2/users/{id}", null)));
+        assertThat(m.match("GET", "any", "/users/1", null)).isEmpty(); // 현행 무회귀: strip 없이 미매칭
+    }
+
+    @Test
+    void wrongStripPrefixDoesNotCreateSpuriousMatch() {
+        var m = new EndpointMatcher(List.of(ep("GET", "/v2/users/{id}", null)));
+        // 잘못된 prefix /api → /api/users/1 도 /v2/users/{id} 매칭 안 됨 (임의 새 오판 없음, opt-in 한정)
+        assertThat(m.match("GET", "any", "/users/1", "/api")).isEmpty();
+    }
+
     // doc/04 §7 case3 — 동일 path, 다른 method → method 포함 시그니처로 각자 distinct 매칭.
     // 기존 methodMustMatch 는 미정의 method 의 mismatch 만 검증 → 양 method 정의 시 정확 분리 매칭을 잠근다.
     @Test

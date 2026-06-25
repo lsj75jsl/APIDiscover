@@ -79,7 +79,9 @@ public class CombinedDiscoveryService {
         EndpointMatcher matcher = matcherCache.get(host, specVersion, () -> new EndpointMatcher(spec));
 
         EffectiveClassification eff = classificationResolver.resolve(host);
-        List<Finding> findings = classifier.classify(discovered, spec, matcher, eff.scorer(), eff.hints());
+        // base-path-strip (doc/27 §3) — null=off=현행. 결합 뷰도 동일 at-match 재시도.
+        String stripPrefix = domainRepo.findById(host).map(c -> c.basePathStrip).orElse(null);
+        List<Finding> findings = classifier.classify(discovered, spec, matcher, eff.scorer(), eff.hints(), stripPrefix);
 
         SpecMergeStrategy mode = modeOf(host);
         SpecSource specSource = hasSpec

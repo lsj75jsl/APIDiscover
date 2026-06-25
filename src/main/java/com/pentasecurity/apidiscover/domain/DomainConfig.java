@@ -39,6 +39,9 @@ public class DomainConfig {
     @Enumerated(EnumType.STRING)
     public SpecMergeStrategy specMergeStrategy = SpecMergeStrategy.MERGE;
 
+    /** 프록시가 관측 경로에서 제거한 base prefix(예 "/v2"). null=off(현행). at-match 재부착(doc/27 §3). */
+    public String basePathStrip;
+
     public Instant createdAt;
     public Instant updatedAt;
 }

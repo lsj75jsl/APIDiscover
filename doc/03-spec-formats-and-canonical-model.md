@@ -67,8 +67,11 @@ paths:
     "deprecated":true,"version":"1.0.0","source_ref":"openapi#getOrderV1" }
 ]
 ```
-> 주의: `servers.url` 의 base path(`/v2`)가 각 path 앞에 결합된다. base path 결합 정책은
-> 설정으로 on/off 가능해야 한다(프록시가 prefix 를 떼는 환경 대응).
+> 주의: `servers.url` 의 base path(`/v2`)가 각 path 앞에 결합된다(canonical=결합형, SoT 보존).
+> 프록시가 prefix 를 떼는 환경 대응은 **at-match strip**(doc/27 §3, D38)으로 구현: 파싱/canonical 은
+> 결합형 그대로 두고, 매칭 시점에 `DomainConfig.basePathStrip` prefix 를 **재부착해 추가 시도**한다
+> (`EndpointMatcher.match(...,stripPrefix)` — as-is 우선, 미매칭 시 `stripPrefix+path` 재시도).
+> parse-time 결합 토글(미결합 canonical)은 재파싱·SoT 손실로 미채택(doc/27 §2). 기본 null=off=현행.
 
 ## 3. Postman Collection v2.1
 
