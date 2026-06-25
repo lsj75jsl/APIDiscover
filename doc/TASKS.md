@@ -49,14 +49,7 @@
 
 ### P2. 품질/테스트
 - [ ] 엔티티 캡슐화 (현재 스캐폴딩상 public 필드)
-- [ ] `@Lob String` JSON 컬럼 PostgreSQL TEXT 매핑 실검증(canonical/report/classification 공통) **(설계 완료 → doc/28 / DECISIONS D40, L53 과 묶음 단일 PR)** — *구현 완료(브랜치 feature/testcontainers-pg-integration, build green, 머지 시 Done). **실결함 발견·수정**: @Lob String 9컬럼 전부 PG `oid` 매핑(text 아님) + 비트랜잭션 read 시 LOB stream 오류 → 5엔티티 @Lob→`@Column(columnDefinition="text")` 수정해 text 화(D37 원칙, D40 갱신).*
-  - [x] `@Lob String` 9컬럼(classification 4·report 1·canonical/spec 2·discovered 2) `information_schema.data_type='text'` 단언 + 대용량 round-trip — **text 아니면 실결함 보고**(테스트 느슨화 금지, D37 원칙) → 실결함(oid) 확인·수정 후 text 통과
-  - [x] `spec_record.raw_doc`(@Lob byte[]) 별도 — round-trip + 실타입 기록(실측 `oid`, text 단언 안 함)
-- [ ] 통합 테스트 (Testcontainers: 실제 PostgreSQL/JPA, REST API e2e, 조건부 GET 304) — `→ 의존:` 위 PostgreSQL 매핑 검증과 함께 **(설계 완료 → doc/28 / DECISIONS D40, 묶음 단일 PR)** — *구현 완료(build green, PG 테스트 13건 실행·통과 skip 0, 머지 시 Done).*
-  - [x] build.gradle.kts — Testcontainers 3종(spring-boot-testcontainers/junit-jupiter/postgresql, 버전 미명시) + `tasks.withType<Test>` `DOCKER_HOST`(XDG 파생 가드)/`RYUK_DISABLED` 주입
-  - [x] `PostgresIntegrationTest`(`@SpringBootTest @AutoConfigureMockMvc @Testcontainers(disabledWithoutDocker=true)`, `@Container @ServiceConnection postgres:16-alpine`, `ddl-auto=create-drop`, `@MockBean LokiClient`)
-  - [x] `GET /discovery` e2e(실 PG 시드→200·필드) + `GET /result` 조건부 GET(1차 200+ETag → If-None-Match 304)
-  - [x] 회귀 — podman 가용 시 통합테스트 green(13건 run, skip 0) / bogus DOCKER_HOST 로 auto-skip 확인(클래스 5메서드 skipped, build green) / 기존 319 단위테스트 무영향(총 332/실패 0/skip 1=LokiLive)
+- [ ] doc/18 DB 스키마 문서 — `@Lob String` 9컬럼 정의를 `text`(@Column columnDefinition) 로 반영 (D40/D28 후속, technical_writer)
 
 ### P3. 운영/인프라 (자체 운영)
 - [ ] off-peak 시간대 제한
@@ -79,6 +72,12 @@
 ---
 
 ## Done
+
+### Testcontainers(PostgreSQL) 통합 테스트 + @Lob String→text 매핑 실결함 수정 (2026-06-25, doc/28 / DECISIONS D40, PR #20) — tests=332(+13 PG) 실패 0 skip 1(LokiLive)
+- [x] L52 `@Lob String` 9컬럼 PG `text` 실검증 — `information_schema.data_type='text'` 엄격 단언 + 대용량 round-trip. `raw_doc`(byte[])은 `oid` 유지(범위 밖, round-trip만).
+- [x] L53 통합 테스트 — build.gradle.kts(testcontainers 3종 + `tasks.withType<Test>` DOCKER_HOST(XDG 가드)/RYUK 주입), `PostgresIntegrationTest`(@ServiceConnection postgres:16-alpine, ddl-auto=create-drop, @MockBean LokiClient), `/discovery` e2e + `/result` 조건부 GET 304.
+- [x] 게이팅 무회귀 — `@Testcontainers(disabledWithoutDocker=true)` docker 부재 시 auto-skip(build green). PG 13건 실행·통과(skip 0). bogus DOCKER_HOST auto-skip 확인.
+> ★실결함(D37 원칙): @Lob String 9컬럼이 PG `oid`(large object) 매핑 → 비트랜잭션 `/discovery` 에서 `Unable to access lob stream` 실패 = 실 운영결함. 테스트 느슨화 대신 5엔티티 9필드 @Lob→`@Column(columnDefinition="text")` 수정해 해소. 리뷰 P1=0 P2=1 P3=1 전건 수정. 후속: doc/18 스키마 text 반영(P2, technical_writer).
 
 ### catch-all {var+} dead code 제거 (2026-06-25, DECISIONS D39, PR #19) — tests=319 불변
 - [x] `EndpointMatcher` `isCatchAll` 분기(compile `.+`)+헬퍼 삭제 — `{var+}`→`isVariable` `[^/]+` 일관
