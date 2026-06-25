@@ -51,21 +51,11 @@
 > (현재 비어 있음 — 매칭 회귀테스트·F1/F2·@Lob→text 실검증·Testcontainers·엔티티 캡슐화 완료, Done 참조. Docker 의존 항목은 host podman 으로 해소.)
 
 ### P3. 운영/인프라 (자체 운영)
-- [ ] Loki 도메인 목록 추출 — 도메인 자동 디스커버리 (access log 에서 API 도메인 열거 → DomainConfig 부트스트랩) **(설계 완료 → doc/30 / DECISIONS D42, 브랜치 feature/domain-discovery-deploy)**
-      — **조사결과(2026-06-25)**: 도메인은 **Loki 라벨이 아님**(라벨 = `job`·`hostname`). 실제 API 도메인(Host 헤더)은 **로그 라인 내용**에 있어 `LogLineParser` F_HOST 필드로 파싱된다 → 라벨 조회로 공짜 추출 불가. → **채택안(doc/30): 서버측 메트릭 집계**(`sum by(domain,hostname) count_over_time(... | pattern | label_format domain=coalesce(host,real_host) ...)`) — 라인 미수신·엣지 hostname 집합 동시 확보.
-  - [x] `LokiClient` instant 벡터 쿼리(`/loki/api/v1/query`) — `requestWithRetry` URL 인자형 추출로 throttle/concurrency/backoff 재사용(queryRange 불변). `MetricSample(labels,value)` 반환
-  - [x] `ApiDiscoverProperties.Discovery`(enabled/interval/window/bootstrap-window/initial-delay/max-domains-per-run/host-pattern) + application.yml 기본값
-  - [x] `DomainDiscoveryService` — LogQL 빌드·instant 쿼리·벡터→(domain→hostnames)·host FQDN 검증·max-domains 상한(카운트 desc)
-  - [x] 업서트(★무삭제·사용자설정 보존·hostnames 합집합) + `DomainConfig.discoveredAt`/`lastSeenAt` 가산(ddl-auto). PG 통합테스트 green=컬럼 반영
-  - [x] `DomainDiscoveryScheduler`(@Scheduled fixedDelay+initialDelay stagger, enabled 토글, 예외 격리) — 스캔과 분리
-  - [x] 윈도우(롤링 + 부트스트랩 1h 1회=빈 도메인 DB) + 필드포지션(DELIM/15/16) 교차검증 테스트(LogLineParser 상수 공유)
-  - [x] 테스트(벡터 파싱·coalesce LogQL·host 거름·상한·업서트 머지·무삭제·설정보존·부트스트랩 vs 롤링) 13건 green / 실 Loki `label_format` coalesce 확인=LokiLive 게이트 분리(`-Dloki.live`, 미실행). doc/18 sync 는 technical_writer 후속(`domain_config.discovered_at`/`last_seen_at`)
-  > Phase 1(A) 구현 완료(build green 346/실패0/skip2=loki.live 게이트만, 머지 시 부모 Done). B(CLI)·C(Docker)는 PR2 후속(아래 별 항목).
-- [ ] **(신규, doc/31 B)** CLI CSV 내보내기 — `--adc.cli.export-domain=<domain>` → 결합 Discovery CSV **(설계 완료 → doc/31 / DECISIONS D43, 동일 브랜치)**
+- [ ] **(신규, doc/31 B)** CLI CSV 내보내기 — `--adc.cli.export-domain=<domain>` → 결합 Discovery CSV **(설계 완료 → doc/31 / DECISIONS D43, PR2)**
   - [ ] CLI 모드 분기(`SpringApplicationBuilder.web(NONE).profiles("cli")`) + `@EnableScheduling`→`SchedulingConfig(@Profile("!cli"))` 분리(서버 동일 활성)
   - [ ] `CliExportRunner`(CommandLineRunner) + CSV writer(forHost→14컬럼·source 파생·RFC4180·first/last_seen discovered join·score 범위밖)
   - [ ] 출력 `adc.cli.output-dir`(PGDATA 밖 `/exports`) + 테스트(포맷·이스케이프·5 status·미존재 exit 비0)
-- [ ] **(신규, doc/31 C)** Docker/podman 테스트 배포 — app+postgres pod + `/opt/adc` **(설계 완료 → doc/31 / DECISIONS D43, 동일 브랜치)**
+- [ ] **(신규, doc/31 C)** Docker/podman 테스트 배포 — app+postgres pod + `/opt/adc` **(설계 완료 → doc/31 / DECISIONS D43, PR2)**
   - [ ] Dockerfile(멀티스테이지 bootJar→temurin:21-jre) + `application-container.yml`(PG·ddl-auto update·Loki LAN)
   - [ ] `adc.yaml`(podman play kube, 2컨테이너 pod, app `localhost:5432`, PGDATA `/opt/adc` hostPath) 또는 pod 스크립트
   - [ ] 배포/실행/CLI 절차 문서(운영 Loki 부하·off-peak) + (검증) build·기동·`/discovery`·CLI CSV·LAN Loki 도달
@@ -89,6 +79,13 @@
 ---
 
 ## Done
+
+### 도메인 자동 디스커버리 (A) — Loki 서버측 집계·무삭제 업서트 (2026-06-25, doc/30 / DECISIONS D42, PR #22) — tests=347(332+15) 실패0 skip2(live 게이트)
+- [x] `LokiClient.queryInstant`(/loki/api/v1/query 벡터) — requestWithRetry URL 인자형 추출로 throttle/concurrency(max2)/백오프/timeout 재사용, queryRange 불변.
+- [x] `DomainDiscoveryService` — sum by(domain,hostname) count_over_time(... pattern 필드15/16 | label_format coalesce(host,real_host) ...). 라인 미수신·엣지 hostname 동시 확보. 필드포지션 LogLineParser 공유 상수+교차검증 테스트.
+- [x] ★무삭제 업서트 — `DomainUpserter`(@Transactional managed 단일 tx): 신규 INSERT, 기존 hostnames 합집합·lastSeenAt 만, 설정 미터치·자동삭제 없음. `DomainConfig @DynamicUpdate`+managed-tx 로 동시 PUT 설정 lost-update 구조 차단(@Version 미도입, D18 §5 일관).
+- [x] 가드(FQDN 정규식·max-domains-per-run), 윈도우(롤링+부트스트랩 1h), 스케줄러 분리(@Scheduled 기본 10분·분단위 설정). 운영 Loki 보호: 단위 mock, 실 coalesce 는 `-Dloki.live` 게이트.
+> 리뷰 P1=0 P2=0 P3=0. P3-1(lost-update): 1차 @DynamicUpdate 단독이 detached-merge 로 동시성 무효 → managed 단일 tx(별도 @Transactional 빈)로 정정, 실 PG 통합테스트로 4설정 보존 입증. 레이스 결정적 테스트 불가는 구조+주석으로 고정(리뷰 수용). doc/18(discovered_at/last_seen_at) sync=technical_writer 후속. B(CLI)·C(Docker)=PR2.
 
 ### 엔티티 캡슐화 — public 필드 → private + 접근자 (2026-06-25, doc/29 / DECISIONS D41, PR #21) — tests=332 불변, 엔티티 public 필드 잔존 0
 - [x] 7 엔티티(Watermark·ClassificationConfig·DomainClassificationConfig·DomainConfig·SpecRecord·ScanResult·DiscoveredEndpointRecord) 약 63 public 필드 → private + 수기 getter/setter(Lombok 미도입). 블래스트 반경 오름차순 스테이지·단계별 build green.
