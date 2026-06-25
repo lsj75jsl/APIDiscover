@@ -2,6 +2,7 @@
 package com.pentasecurity.apidiscover.domain;
 
 import com.pentasecurity.apidiscover.spec.SpecFormat;
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -36,11 +37,11 @@ public class SpecRecord {
     public byte[] rawDoc;
 
     /** Canonical 엔드포인트 집합 직렬화(JSON). 매칭의 진실원. */
-    @Lob
+    @Column(columnDefinition = "text") // PG text 매핑(@Lob String→oid 회피, doc/28 D40/D37)
     public String canonicalJson;
 
     /** nullable — 파싱 recoverable 경고 List&lt;String&gt; 직렬화(doc/25 §A.2). 스캔이 specSource.warnings 로 로드. */
-    @Lob
+    @Column(columnDefinition = "text") // PG text 매핑(@Lob String→oid 회피, doc/28 D40/D37)
     public String warningsJson;
 
     public int endpointCount;

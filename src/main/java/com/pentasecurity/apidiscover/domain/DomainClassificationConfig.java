@@ -2,11 +2,11 @@
 package com.pentasecurity.apidiscover.domain;
 
 import com.pentasecurity.apidiscover.model.ClassificationProfile;
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
-import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
 import java.time.Instant;
 
@@ -27,11 +27,11 @@ public class DomainClassificationConfig {
     public Double thresholdOverride;
 
     /** nullable — Map&lt;String,Double&gt;(CUSTOM 한정 가중치 override). */
-    @Lob
+    @Column(columnDefinition = "text") // PG text 매핑(@Lob String→oid 회피, doc/28 D40/D37)
     public String customWeightsJson;
 
     /** nullable — MatcherConfig(도메인 override, includeWebForms nullable). */
-    @Lob
+    @Column(columnDefinition = "text") // PG text 매핑(@Lob String→oid 회피, doc/28 D40/D37)
     public String matcherJson;
 
     public Instant updatedAt;

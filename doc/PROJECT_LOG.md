@@ -5,6 +5,20 @@
 
 ---
 
+## 2026-06-25 세션 27 — Testcontainers(PostgreSQL) 통합 테스트 + @Lob String→text 실결함 수정 (doc/28, D40, D37)
+
+### 한 일
+- `build.gradle.kts`: Testcontainers 3종(spring-boot-testcontainers/junit-jupiter/postgresql, 버전 미명시=Spring Boot BOM) + `tasks.withType<Test>` 에 rootless podman 소켓 가드 주입(`DOCKER_HOST`=`unix://$XDG_RUNTIME_DIR/podman/podman.sock`, `TESTCONTAINERS_RYUK_DISABLED`; DOCKER_HOST 기설정·소켓 부재 시 미개입).
+- `PostgresIntegrationTest`(`@SpringBootTest @AutoConfigureMockMvc @Testcontainers(disabledWithoutDocker=true)`, `@Container @ServiceConnection postgres:16-alpine`, `ddl-auto=create-drop`, `@MockBean LokiClient`, `@BeforeEach` 상태 리셋) 신규 13건: ① @Lob String 9컬럼 `information_schema.data_type='text'` 단언(파라미터화) ② 대용량(~60KB) round-trip ③ raw_doc 실타입 기록 ④ `GET /discovery` 실 PG e2e ⑤ `GET /result` 조건부 GET 304.
+- **실결함 발견·수정(D37 원칙)**: @Lob String 9컬럼 전부 PG `oid`(large object) 매핑 → 비트랜잭션 read(`/discovery`)에서 `Unable to access lob stream` 발생. 테스트 느슨화 대신 5엔티티(ClassificationConfig·DomainClassificationConfig·ScanResult·SpecRecord·DiscoveredEndpointRecord) 9 String 필드 `@Lob`→`@Column(columnDefinition="text")` 수정 → PG `text`·정상 setString·H2 호환. `raw_doc`(byte[])은 범위 밖 `@Lob` 유지(실측 oid).
+
+### 결과
+- BUILD SUCCESSFUL. PG 통합테스트 **13건 실행·통과(skip 0, 컨테이너 실기동 로그 확인)**, 총 **332건 실패 0 skip 1**(=LokiLive, 기존 319 무영향). bogus `DOCKER_HOST` 로 클래스 **auto-skip**(5메서드 skipped, build green 3s) = 무회귀 게이팅 검증.
+- 수정 방식 근거(D40 갱신): `@JdbcTypeCode(LONGVARCHAR)`=varchar(32600) 유한·`LONG32VARCHAR`=드라이버 `Unknown Types` 부팅실패 → 둘 다 부적합, `columnDefinition="text"` 만 충족.
+
+### 다음 단계
+- 커밋 금지(매니저 git 담당), build green 까지. L52/L53 묶음 단일 PR. 머지 시 부모 항목 Done. doc/18 스키마 text 반영=technical_writer 후속.
+
 ## 2026-06-25 세션 26 — catch-all {var+} dead code 제거 (D39, D37 F2, doc/04 §1.1)
 
 ### 한 일

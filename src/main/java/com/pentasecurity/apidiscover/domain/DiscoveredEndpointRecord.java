@@ -1,12 +1,12 @@
 // 검출 SoT — 누적 검출 인벤토리 + recency(EndpointHistory 흡수) 엔티티 (doc/26 §2, D36)
 package com.pentasecurity.apidiscover.domain;
 
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
-import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.time.Instant;
@@ -47,12 +47,12 @@ public class DiscoveredEndpointRecord {
 
     /** 최신 윈도우 스냅샷(카탈로그 표시) — 분석 상세(p50/p95·distinctClients)는 reportJson 유지(doc/26 §2). */
     public long hits;
-    @Lob
+    @Column(columnDefinition = "text") // PG text 매핑(@Lob String→oid 회피, doc/28 D40/D37)
     public String statusDistJson;
 
     /** ApiScorer 신호 + ParamCandidates(doc/13) 스냅샷. */
     public boolean hadQuery;
     public boolean nonBrowserUa;
-    @Lob
+    @Column(columnDefinition = "text") // PG text 매핑(@Lob String→oid 회피, doc/28 D40/D37)
     public String paramsJson;
 }
