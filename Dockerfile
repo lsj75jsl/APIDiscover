@@ -9,5 +9,8 @@ FROM eclipse-temurin:21-jre
 WORKDIR /app
 # bootJar 만 복사(*-SNAPSHOT.jar; plain jar 는 *-SNAPSHOT-plain.jar 라 미매칭)
 COPY --from=build /src/build/libs/*-SNAPSHOT.jar /app/app.jar
+# DB 준비 대기 래퍼 — 컨테이너 동시 기동 시 크래시 루프 방지(doc/32). "$@" 로 CLI 인자 그대로 전달.
+COPY wait-for-db.sh /app/wait-for-db.sh
+RUN chmod +x /app/wait-for-db.sh
 EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "/app/app.jar"]
+ENTRYPOINT ["/app/wait-for-db.sh"]

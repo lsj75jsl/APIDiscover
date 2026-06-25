@@ -1,6 +1,8 @@
 # podman play kube — app + postgres 2컨테이너 1 pod (doc/31 C2). pod netns 공유 → app 은 localhost:5432 로 db 접속.
 # PGDATA = host /opt/adc → /var/lib/postgresql/data (하위 pgdata 서브디렉터리 = 마운트 비-빈 시 initdb 충돌 회피).
 # exports(CSV)는 PGDATA 밖 — 서빙 pod 엔 미마운트, CLI one-off run 에서 /opt/adc-exports→/exports 마운트(doc/31 B3/B4).
+# hostNetwork: 컨테이너→LAN 운영 Loki(192.168.8.100:3200) egress 위해 host 네트워크 사용(기본 bridge 는 LAN 도달 불가, doc/32 §3).
+#   → app 은 host:8080, postgres 는 host:5432 로 직접 바인드. app↔db 는 동일 host netns 의 localhost:5432.
 apiVersion: v1
 kind: Pod
 metadata:
@@ -8,6 +10,7 @@ metadata:
   labels:
     app: apidiscover
 spec:
+  hostNetwork: true
   containers:
     - name: db
       image: docker.io/library/postgres:16-alpine
@@ -35,8 +38,7 @@ spec:
         - name: SPRING_DATASOURCE_PASSWORD
           value: adc
       ports:
-        - containerPort: 8080
-          hostPort: 8080
+        - containerPort: 8080      # hostNetwork=true 라 host:8080 직접 바인드(hostPort 매핑 불요)
   volumes:
     - name: pgdata
       hostPath:
