@@ -5,6 +5,22 @@
 
 ---
 
+## 2026-06-25 세션 21 — 멀티스펙 1단계: 검출 SoT 데이터 모델 (doc/26 §2/§4/§8, D35/D36)
+
+### 한 일
+- **신규 검출 SoT**: `domain/DiscoveredEndpointRecord`(@Entity `discovered_endpoint`, host index+unique(host,method,path_template)+(host,version) index, id PK=spec_record 스타일) + `DiscoveredEndpointRepository`(findByHost/findByHostAndVersion/findByHostAndMethodAndPathTemplate/deleteByHostAndLastSeenBefore). 컬럼: identity+templateSource+endpointKind+kindConfidence+version+firstSeen/lastSeen/lastScanAt+hits+statusDistJson+hadQuery/nonBrowserUa/paramsJson(@Lob).
+- **누적 upsert**: `DiscoveryJobService.analyze` — 스캔 전 `loadDiscovered`(retention prune 180d=데이터 ts 기준 + findByHost→signature 맵), persist 후 `upsertDiscovered`(firstSeen min/lastSeen max/최신 윈도우 스냅샷, cap 5000=신규 identity 제한). version 도출(path `^v\d+$` 세그먼트→매칭 spec.version→null).
+- **EndpointHistory 흡수(D36)**: severity recency 를 `discovered_endpoint.firstSeen`(검출 signature 키)로 전환 — `Evidence.entrenchedFirstSeen`(add 시 prior 누적 min), Classifier 2차 Zombie 가 ev.entrenchedFirstSeen 사용. `EndpointHistory` 엔티티/repo·`model/EndpointObservation`·`ClassificationResult.observedTimes` 제거(orphan).
+- **spec_record**: +`specName` 컬럼(null→"default" 해석, 스키마/컬럼만 — 멀티문서 upsert 는 2단계).
+
+### 결과
+- `JAVA_HOME=…/java-21 ./gradlew build` BUILD SUCCESSFUL, **tests=297 failures=0 skipped=1**(observedTimes 단위 테스트 1건 제거=298→297). @SpringBootTest 컨텍스트가 ddl-auto 로 `discovered_endpoint` 생성→엔티티 매핑 H2 검증.
+- 무회귀: 콜드스타트(빈 discovered_endpoint)=현행 severity. ETag 무영향(discovered_endpoint 는 ETag 입력 아님 → lastSeen 자동 제외, doc/26 §8). 재스캔 동일 데이터→lifespan 0→동일 version 유지.
+- 문서: doc/26 §10 1단계 [x], doc/24 §3 EndpointHistory 흡수 갱신 주석, TASKS 1단계 subitem [x](부모는 2·3단계 잔여로 [ ]), DECISIONS D36 진행 기록.
+
+### 다음 단계
+- 브랜치 `feature/multi-spec-merge` 커밋(누적)·리뷰 대기. 리뷰 후 2단계(멀티스펙+모드 B/D35) 별도 지시. doc/18 sync(discovered_endpoint·spec_name·endpoint_history 제거)=technical_writer 후속.
+
 ## 2026-06-24 세션 20 — $type taxonomy 실 Loki 샘플링 (research 0.4, doc/21 §A)
 
 ### 한 일

@@ -44,7 +44,20 @@
 > (현재 비어 있음 — low_confidence+warnings·Active/Zombie params·total_dropped 완료, Done 참조)
 
 #### 스펙 파서 / Spec Store (03 문서)
-- [ ] 멀티 스펙 업로드(여러 문서 병합)
+- [ ] 검출/업로드 데이터 모델 통합 + 멀티 스펙 병합 전략 **(설계 완료 → doc/26 전면개정, DECISIONS D35·D36 — 제안·사용자 확인 대기, dev 미착수)**
+  - **1단계 — 데이터 모델(A 검출 SoT / C version 차원)** → 구현 완료 2026-06-25, build 그린(tests=297), 브랜치 `feature/multi-spec-merge` 커밋(누적)·리뷰 대기
+    - [x] `domain/DiscoveredEndpointRecord`(host index+unique(host,method,path_template)+version) + repository(findByHost/findByHostAndVersion/findByHostAndMethodAndPathTemplate/deleteByHostAndLastSeenBefore). cap(5000)+retention prune(180d). **EndpointHistory 흡수**(firstSeen/lastSeen 이관)
+    - [x] `DiscoveryJobService` — discovered→discovered_endpoint 누적 upsert(firstSeen min/lastSeen max/스냅샷), severity recency 를 discovered_endpoint.firstSeen 로 전환(Evidence entrenchedFirstSeen·signature 키), `endpoint_history` 엔티티/repo/observedTimes/EndpointObservation 제거(재구축 이관=콜드스타트 현행)
+    - [x] `discovered_endpoint.version`(path `^v\d+$`→매칭 spec 도출) + `spec_record`+`specName`(null→default, 스키마/컬럼만; 멀티문서 upsert 2단계)
+  - **2단계 — 멀티 스펙 + 모드(B)**
+    - [ ] `DomainConfig.specMergeStrategy`(MERGE/SEPARATE/VERSION_GROUPED, 기본 MERGE)+DomainController DTO. `SpecStore` 모드 분기(MERGE upsert/SEPARATE 형제 비활성/VERSION_GROUPED 공존)
+    - [ ] `SpecCanonicalizer` 결정적 merge(union pre-sort→dedupe+deprecated OR, latest-wins 비-deprecated)+합성 spec 버전(해시)→matcherCache/report/SpecSource(+documents, warnings union)
+  - **3단계 — 결합·버전그룹(C/D)**
+    - [ ] host 결합 Discovery 뷰 — Classifier(discovered_endpoint ∪ active spec) 불변(두 출처 분리), 결합 목록 + VERSION_GROUPED 버전 그룹 구조. 분류 범위=per-scan 유지(무회귀)+누적 카탈로그 결합 뷰 신설
+    - [ ] (선택) `/discovered`·`/spec` host 조회 엔드포인트
+  - **공통**
+    - [ ] 테스트 — discovered_endpoint upsert/recency/cap·prune / 모드 case×mode·결정성·합성버전 / 단일=현행 무회귀 / EndpointHistory 이관(severity 콜드스타트=현행) / host 결합·버전그룹 / ETag 결정적(시간非의존)
+    - [ ] (doc/18 sync, technical_writer) `discovered_endpoint`·`spec_record.spec_name`·`endpoint_history` 제거 반영
 
 ### P2. 품질/테스트
 - [ ] 엔티티 캡슐화 (현재 스캐폴딩상 public 필드)

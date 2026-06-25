@@ -300,6 +300,29 @@ doc/16 severity 의 window-한정 spanScore 를 스캔 간 이력으로 보강. 
 - **무회귀**: 전부 가산/파생, 편의 ctor, ddl-auto 컬럼(warningsJson·totalDropped 기존 0/null). 무스펙/무params/무dropped=현행. doc/18 sync=technical_writer.
 - **범위 밖**: spec query-param 정의 캐노니컬 확장, THRESHOLD/spec_source 실데이터 보정(D24 보류 연계), Shadow confidence ETag 버킷화(pre-existing).
 
+### D35. 멀티 스펙 업로드 (여러 문서 병합) (doc/26)
+doc/14(D21) 후속. 한 도메인의 여러 스펙 문서를 하나의 canonical 집합으로 병합. **단일=병합of1=현행 무회귀.**
+- **데이터 모델**: `SpecRecord` +`specName`(host 내 문서 식별, null→"default"). PK=id 유지(이미 멀티행). host active set = specName 별 최신 active(여러 active 허용). upload(host,name,content)=같은 name 이전 active 만 비활성+신규(문서 단위 upsert, 다른 name 보존). 기존 데이터 specName null→default→현행.
+- **병합**: `loadActiveCanonical` = `SpecCanonicalizer.canonicalize(∪ active)`(dedupe method+host+template·deprecated OR·정렬 재사용). **결정성 보강**: union pre-sort(host,template,method,sourceRef)→비-deprecated 충돌 first 가 결정적(현 insertion-order 의존 제거) → 업로드 순서 무관 동일 merged. version/sourceRef 등 비-deprecated 충돌=**latest-upload-wins**(최신 specVersion 권위, §8.5 갱신)+deprecated OR(provenance 결합은 후속).
+- **합성 버전(host-level)** = merged canonical **콘텐츠 결정적 해시**. report.specVersion/SpecSource/matcherCache 키에 사용(per-record specVersion 은 이력 유지). add/update/delete 로 콘텐츠 변화 시만 변경, 동일 콘텐츠 재업로드=동일 버전(현 per-upload bump 보다 안정). upload/delete→matcherCache.invalidate(host)+합성버전 가드. ETag 콘텐츠 결정적·시간非의존(doc/24 일관).
+- **업로드 API**: SpecController +`name`(기본 default=현행 교체 호환)·`DELETE .../spec/{name}`·(선택)list. **P1=store/merge/apply+관리 최소**, 중앙 멀티-spec 오케스트레이션/auth=P4(D25). 교체 vs 추가 = 문서 단위 upsert(같은 name 교체/다른 name 추가).
+- **SpecSource(doc/25) 확장**: +`documents[{name,format,specVersion}]`(가산), warnings=문서별 union, specVersion=합성, format=단일이면 그것·다중 null. 단일-문서 소비자 호환.
+- **무회귀**: 단일 default=현행, upload 가 같은 name 만 비활성(다른 name 보존), 매처캐시/warnings/low_confidence/EndpointHistory(specKey 동일) 정합. 기존 SpecStore/JobService 테스트 default 경로 무변경.
+- **병합 전략 옵션(보강 2026-06-25, doc/26 §5 — 제안·사용자 확인 대기, dev 미착수; D36 데이터 모델 통합과 함께)**: 사용자 요구로 "항상 MERGE"에 모드 선택 추가. **권장안** — 위치: `DomainConfig.specMergeStrategy`(영속, 기본 MERGE, DomainController DTO 가산=엔드포인트 0). 모드 3종: **MERGE**(현행 flat union)·**SEPARATE**(업로드가 형제 비활성→새 문서가 권위 전체 목록=교체, pre-doc/26)·**VERSION_GROUPED**(매칭은 union 동일, version/specName 그룹으로 **결합 뷰만 분리**=경량, 병렬 인벤토리 미채택). 충돌: latest-upload-wins(비-deprecated)+deprecated OR. 무회귀: 기본 MERGE=현행, 모드 전환만 재병합·invalidate·bump; 전 모드 매칭셋·specKey·host 키 불변축으로 doc/15·24·25 정합. case×mode 표·권장요약 doc/26 §5/§9.
+- **범위 밖**: provenance(sourceRef 결합)·spec query-param 확장·중앙 멀티-spec 오케스트레이션(P4)·문서 간 호환성 경고(후속)·완전 독립 병렬 인벤토리(VERSION_GROUPED heavy 대안).
+
+### D36. 검출 SoT 테이블 + version 차원 + host 조회 (doc/26 통합 재설계) — 제안·확인 대기
+사용자 신규 요구로 멀티스펙(D35)이 데이터 모델 재설계로 확장. **제안·사용자 확인 대기(dev 미착수). 각 선택 권장안 명시.**
+- **검출 전용 테이블 `discovered_endpoint`(A)**: 검출 API 를 spec_record 와 **대칭 분리**한 정규화 SoT. 컬럼 host/method/pathTemplate(unique)·templateSource·endpointKind·version·firstSeen/lastSeen/lastScanAt·hits·statusDistJson·params(@Lob). 누적 upsert(firstSeen min/lastSeen max). 카디널리티 cap(5000)+retention prune(stale 삭제). **`EndpointHistory`(doc/24) 흡수**(firstSeen/lastSeen 이관, severity recency=discovered_endpoint.firstSeen) → endpoint_history 제거.
+- **SoT 분담**: spec_record=업로드 SoT / discovered_endpoint=검출 SoT(누적) / scan_result.reportJson=**파생 분류 뷰**(두 SoT⊕Classifier, /result ETag, 재생성 가능). 검출/업로드 중복 정리.
+- **version 차원(C, DB 반영)**: 검출=`discovered_endpoint.version` 컬럼(path `^v\d+$`/매칭 spec 도출, index (host,version)); 업로드=`spec_record.specName` 컬럼(문서/그룹)+canonical.version(endpoint). host 내 버전 그룹 조회.
+- **host 조회(신규 제약)**: 전 테이블 host 키/인덱스(discovered_endpoint host index+unique(host,method,template), spec_record host+specName, scan_result/domain_config PK host). host 단위 (검출∪업로드) 결합 조회·버전그룹. 논리 FK host.
+- **결합·불변(D)**: Classifier(discovered ∪ active spec) **불변** — Shadow/Active/Zombie/Unused, 두 출처 분리 유지. 결합 Discovery 응답=host 단위 하나의 목록(+VERSION_GROUPED 그룹 구조). **분류 범위 권장=per-scan 유지(무회귀)+누적 카탈로그 결합 뷰 신설(둘 다)**; 누적-분류는 staleness 처리 필요라 확인 후.
+- **무회귀/마이그레이션(E)**: 기본 MERGE+단일=현행. ddl-auto 신규 테이블(기존 무영향). EndpointHistory→discovered_endpoint **재구축 이관 권장**(콜드스타트=현행 severity, doc/24 폴백). ETag 결정적·시간非의존(lastSeen 은 카탈로그 표시만, ETag 비포함; severity→band·params→이름집합 투영 doc/24/25 유지).
+- **단계화**: 1)데이터모델(A/C) 2)멀티스펙+모드(B,D35) 3)결합·버전그룹(C/D). 권장 요약 doc/26 §9.
+- doc/18 sync(discovered_endpoint·spec_name·endpoint_history 제거)=technical_writer 후속.
+- **진행(2026-06-25)**: 사용자 확정(3모드·EndpointHistory 흡수·한 PR 전체, 단계별 커밋 누적). **1단계(데이터모델 A/C) 구현 완료**(브랜치 `feature/multi-spec-merge`, build 그린 tests=297, 커밋·리뷰 대기) — `discovered_endpoint` 엔티티/repo, 누적 upsert+cap(5000)/retention(180d) prune, version 도출(path `^v\d+$`→spec.version), `spec_record.specName` 컬럼, **EndpointHistory→discovered_endpoint.firstSeen 흡수**(severity recency=검출 signature 키, endpoint_history/observedTimes/EndpointObservation 제거, 콜드스타트=현행 무회귀). 2·3단계는 리뷰 후 별도 지시.
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.

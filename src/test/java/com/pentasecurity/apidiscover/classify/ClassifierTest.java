@@ -439,8 +439,9 @@ class ClassifierTest {
         Finding.Zombie cold = (Finding.Zombie) byClass(
                 classifier.classifyWithMetrics(List.of(d), depSpec, m, new ApiScorer(), ApiHintMatcher.NONE)
                         .findings(), Classification.ZOMBIE).get(0);
-        // de() ts=EPOCH → lastSeen=EPOCH. 이력 최초 = 100일 전 → lifespan 100일(≥SAT)
-        Map<String, Instant> prior = Map.of("GET|*|/v2/old", Instant.EPOCH.minusSeconds(100L * 86_400));
+        // de() ts=EPOCH → lastSeen=EPOCH. 이력 최초 = 100일 전 → lifespan 100일(≥SAT).
+        // 키 = 검출 signature(doc/26 §8 — discovered_endpoint.firstSeen 에서 로드), spec 키 아님
+        Map<String, Instant> prior = Map.of(d.signature(), Instant.EPOCH.minusSeconds(100L * 86_400));
         Finding.Zombie hot = (Finding.Zombie) byClass(
                 classifier.classifyWithMetrics(List.of(d), depSpec, m, new ApiScorer(), ApiHintMatcher.NONE, prior)
                         .findings(), Classification.ZOMBIE).get(0);
@@ -450,19 +451,6 @@ class ClassifierTest {
         assertThat(hot.severity().band()).isEqualTo(SeverityBand.MEDIUM);
         assertThat(hot.confidence()).isEqualTo(1.0);   // confidence·estimated 불변(severity 만 보강)
         assertThat(hot.estimated()).isFalse();
-    }
-
-    @Test
-    void observedTimesProjectsSpecMatchedEndpointsOnly() {
-        // observedTimes = spec 매칭(observedSpec)만 → spec-bound 이력 기록(doc/24 §3). 미매칭 Shadow 미포함
-        List<CanonicalEndpoint> depSpec = List.of(ce("GET", "/v2/old", true));
-        var m = new EndpointMatcher(depSpec);
-        var result = classifier.classifyWithMetrics(List.of(
-                de("GET", "/v2/old", TemplateSource.SPEC, EndpointKind.UNKNOWN, 10, "2xx", 1),  // spec 매칭
-                de("POST", "/api/debug", TemplateSource.INFERRED, EndpointKind.UNKNOWN, 100, "2xx", 5)), // 미매칭 Shadow
-                depSpec, m, new ApiScorer(), ApiHintMatcher.NONE);
-
-        assertThat(result.observedTimes()).containsOnlyKeys("GET|*|/v2/old"); // spec 키만
     }
 
     // --- Active/Zombie param 후보 (doc/25 §B) ---

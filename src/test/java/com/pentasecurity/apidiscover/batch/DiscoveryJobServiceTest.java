@@ -18,9 +18,9 @@ import com.pentasecurity.apidiscover.config.SensitiveKeyProperties;
 import com.pentasecurity.apidiscover.domain.ClassificationConfig;
 import com.pentasecurity.apidiscover.domain.ClassificationConfigRepository;
 import com.pentasecurity.apidiscover.domain.DomainClassificationConfigRepository;
+import com.pentasecurity.apidiscover.domain.DiscoveredEndpointRecord;
+import com.pentasecurity.apidiscover.domain.DiscoveredEndpointRepository;
 import com.pentasecurity.apidiscover.domain.DomainConfigRepository;
-import com.pentasecurity.apidiscover.domain.EndpointHistory;
-import com.pentasecurity.apidiscover.domain.EndpointHistoryRepository;
 import com.pentasecurity.apidiscover.model.ClassificationProfile;
 import com.pentasecurity.apidiscover.domain.ScanResult;
 import com.pentasecurity.apidiscover.domain.ScanResultRepository;
@@ -65,17 +65,20 @@ class DiscoveryJobServiceTest {
     private final EffectiveClassificationResolver resolver =
             new EffectiveClassificationResolver(globalClsRepo, domainClsRepo, objectMapper);
 
-    // cross-scan 이력 — stateful mock(저장분을 findById 로 반환) → entrenchment/merge 재스캔 테스트 (doc/24)
-    private final java.util.Map<String, EndpointHistory> histStore = new java.util.HashMap<>();
-    private final EndpointHistoryRepository historyRepo = statefulHistory(histStore);
+    // cross-scan 검출 SoT — stateful mock(저장분을 findByHost 로 반환) → entrenchment/누적 재스캔 테스트 (doc/24·26)
+    private final java.util.List<DiscoveredEndpointRecord> discStore = new java.util.ArrayList<>();
+    private final DiscoveredEndpointRepository discoveredRepo = statefulDiscovered(discStore);
 
-    private static EndpointHistoryRepository statefulHistory(java.util.Map<String, EndpointHistory> store) {
-        EndpointHistoryRepository repo = mock(EndpointHistoryRepository.class);
-        when(repo.findById(any())).thenAnswer(inv -> Optional.ofNullable(store.get(inv.getArgument(0))));
+    private static DiscoveredEndpointRepository statefulDiscovered(java.util.List<DiscoveredEndpointRecord> store) {
+        DiscoveredEndpointRepository repo = mock(DiscoveredEndpointRepository.class);
+        when(repo.findByHost(any())).thenAnswer(inv -> store.stream()
+                .filter(r -> r.host.equals(inv.getArgument(0))).toList());
         when(repo.save(any())).thenAnswer(inv -> {
-            EndpointHistory h = inv.getArgument(0);
-            store.put(h.host, h);
-            return h;
+            DiscoveredEndpointRecord r = inv.getArgument(0);
+            store.removeIf(e -> e.host.equals(r.host) && e.method.equals(r.method)
+                    && e.pathTemplate.equals(r.pathTemplate)); // upsert(host,method,template)
+            store.add(r);
+            return r;
         });
         return repo;
     }
@@ -94,7 +97,7 @@ class DiscoveryJobServiceTest {
             scanRepo,
             mock(DomainConfigRepository.class),
             mock(WatermarkRepository.class),
-            historyRepo,
+            discoveredRepo,
             mock(LokiClient.class),
             mock(LokiQueryBuilder.class),
             objectMapper,
@@ -272,7 +275,7 @@ class DiscoveryJobServiceTest {
                         new RefererSignalExtractor(new PathNormalizer())),
                 specStore, new EndpointMatcherCache(), new Classifier(new ApiScorer()), resolver,
                 new ReportBuilder(), scanRepo, mock(DomainConfigRepository.class), mock(WatermarkRepository.class),
-                mock(EndpointHistoryRepository.class), mock(LokiClient.class), mock(LokiQueryBuilder.class),
+                mock(DiscoveredEndpointRepository.class), mock(LokiClient.class), mock(LokiQueryBuilder.class),
                 objectMapper, props());
         ScanResult active = acrmService.analyze(HOST, lines, window);
         assertThat(active.reportJson).contains("\"status\":\"ACTIVE\"");
@@ -282,7 +285,7 @@ class DiscoveryJobServiceTest {
     }
 
     @Test
-    void crossScanReScanSameDataYieldsSameEtagAndRecordsSpecOnlyHistory() {
+    void crossScanReScanSameDataYieldsSameEtagAndAccumulatesDiscovered() {
         SpecRecord rec = new SpecRecord();
         rec.specVersion = 1L;
         when(specStore.activeMeta(HOST)).thenReturn(Optional.of(rec));
@@ -294,10 +297,12 @@ class DiscoveryJobServiceTest {
         List<String> lines = List.of(line("GET", "/v2/old", 200), line("GET", "/v2/old", 200));
         ScanResult s1 = service.analyze(HOST, lines, window);
         assertThat(s1.zombie).isEqualTo(1);
-        assertThat(histStore).containsKey(HOST);                        // spec-only 이력 기록 (doc/24 §3)
-        assertThat(histStore.get(HOST).historyJson).contains("/v2/old");
+        // 검출 SoT 누적(doc/26 §2) — 검출 endpoint 기록(spec 매칭 무관) + version=v2(path ^v\d+$ 도출, §4)
+        assertThat(discStore).filteredOn(r -> r.host.equals(HOST) && r.pathTemplate.equals("/v2/old"))
+                .singleElement()
+                .satisfies(r -> assertThat(r.version).isEqualTo("v2"));
 
-        // 재스캔(동일 데이터+이력): now 무의존·lifespan 동일 → 동일 version (doc/24 §5)
+        // 재스캔(동일 데이터+누적 firstSeen): now 무의존·lifespan 동일 → 동일 version (doc/24 §5, doc/26 §8)
         ScanResult s2 = service.analyze(HOST, lines, window);
         assertThat(s2.version).isEqualTo(s1.version);
     }
@@ -446,7 +451,7 @@ class DiscoveryJobServiceTest {
         var cappedService = new DiscoveryJobService(new LogLineParser(NORM, ParseProperties.defaults()), cappedInventory, specStore,
                 new EndpointMatcherCache(), new Classifier(new ApiScorer()), resolver, new ReportBuilder(), scanRepo,
                 mock(DomainConfigRepository.class), mock(WatermarkRepository.class),
-                mock(EndpointHistoryRepository.class), mock(LokiClient.class),
+                mock(DiscoveredEndpointRepository.class), mock(LokiClient.class),
                 mock(LokiQueryBuilder.class), objectMapper, props());
 
         ScanResult result = cappedService.analyze(HOST, List.of(

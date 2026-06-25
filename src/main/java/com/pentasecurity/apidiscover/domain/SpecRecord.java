@@ -23,6 +23,9 @@ public class SpecRecord {
 
     public String host;
 
+    /** host 내 문서 식별(멀티 스펙, doc/26 §3). null→"default" 로 해석. 멀티문서 upsert 동작은 2단계. */
+    public String specName;
+
     @Enumerated(EnumType.STRING)
     public SpecFormat format;
 

@@ -9,10 +9,10 @@ import com.pentasecurity.apidiscover.classify.Classifier;
 import com.pentasecurity.apidiscover.classify.EffectiveClassification;
 import com.pentasecurity.apidiscover.classify.EffectiveClassificationResolver;
 import com.pentasecurity.apidiscover.config.ApiDiscoverProperties;
+import com.pentasecurity.apidiscover.domain.DiscoveredEndpointRecord;
+import com.pentasecurity.apidiscover.domain.DiscoveredEndpointRepository;
 import com.pentasecurity.apidiscover.domain.DomainConfig;
 import com.pentasecurity.apidiscover.domain.DomainConfigRepository;
-import com.pentasecurity.apidiscover.domain.EndpointHistory;
-import com.pentasecurity.apidiscover.domain.EndpointHistoryRepository;
 import com.pentasecurity.apidiscover.domain.ScanResult;
 import com.pentasecurity.apidiscover.domain.ScanResultRepository;
 import com.pentasecurity.apidiscover.domain.SpecRecord;
@@ -26,7 +26,6 @@ import com.pentasecurity.apidiscover.match.EndpointMatcherCache;
 import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
 import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
 import com.pentasecurity.apidiscover.model.DiscoveryReport;
-import com.pentasecurity.apidiscover.model.EndpointObservation;
 import com.pentasecurity.apidiscover.model.Finding;
 import com.pentasecurity.apidiscover.model.ParsedRequest;
 import com.pentasecurity.apidiscover.model.SpecSource;
@@ -41,9 +40,11 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -64,7 +65,7 @@ public class DiscoveryJobService {
     private final ScanResultRepository scanRepo;
     private final DomainConfigRepository domainRepo;
     private final WatermarkRepository watermarkRepo;
-    private final EndpointHistoryRepository endpointHistoryRepo;
+    private final DiscoveredEndpointRepository discoveredRepo;
     private final LokiClient lokiClient;
     private final LokiQueryBuilder queryBuilder;
     private final ObjectMapper objectMapper;
@@ -80,7 +81,7 @@ public class DiscoveryJobService {
                                ScanResultRepository scanRepo,
                                DomainConfigRepository domainRepo,
                                WatermarkRepository watermarkRepo,
-                               EndpointHistoryRepository endpointHistoryRepo,
+                               DiscoveredEndpointRepository discoveredRepo,
                                LokiClient lokiClient,
                                LokiQueryBuilder queryBuilder,
                                ObjectMapper objectMapper,
@@ -95,7 +96,7 @@ public class DiscoveryJobService {
         this.scanRepo = scanRepo;
         this.domainRepo = domainRepo;
         this.watermarkRepo = watermarkRepo;
-        this.endpointHistoryRepo = endpointHistoryRepo;
+        this.discoveredRepo = discoveredRepo;
         this.lokiClient = lokiClient;
         this.queryBuilder = queryBuilder;
         this.objectMapper = objectMapper;
@@ -163,11 +164,16 @@ public class DiscoveryJobService {
         List<DiscoveredEndpoint> discovered = inventory.endpoints();
         // effective 분류 설정(전역+도메인 병합) 해석 → scorer/hints 주입 (doc/10 §6). 설정 부재 시 무회귀.
         EffectiveClassification eff = classificationResolver.resolve(host);
-        // cross-scan 이력 로드 → Zombie severity entrenchment 입력 (doc/24 §7). 콜드스타트=빈 map=현행.
-        Map<String, EndpointObservation> priorHistory = loadHistory(host);
+        // cross-scan recency: 검출 SoT(discovered_endpoint) 로드 → Zombie severity entrenchment 입력
+        // (doc/24 §7, doc/26 §8 — EndpointHistory 흡수). 콜드스타트=빈 map=현행 무회귀. signature 키.
+        Map<String, DiscoveredEndpointRecord> priorDiscovered = loadDiscovered(host, window);
         Map<String, Instant> priorFirstSeen = new HashMap<>();
-        priorHistory.forEach((k, obs) -> priorFirstSeen.put(k, obs.firstSeen()));
-        // findings + non_api dropped 메트릭 + observedTimes 동시 산출 (doc/12 §1, doc/24)
+        priorDiscovered.forEach((sig, rec) -> {
+            if (rec.firstSeen != null) {
+                priorFirstSeen.put(sig, rec.firstSeen);
+            }
+        });
+        // findings + non_api dropped 메트릭 동시 산출 (doc/12 §1, doc/24·26)
         ClassificationResult classified =
                 classifier.classifyWithMetrics(discovered, spec, matcher, eff.scorer(), eff.hints(), priorFirstSeen);
         List<Finding> findings = classified.findings();
@@ -182,8 +188,8 @@ public class DiscoveryJobService {
                 specSource);
 
         ScanResult result = persist(host, report);
-        // 이력 merge(min firstSeen / max lastSeen) 후 save (doc/24 §7). spec 매칭만 → spec-bound.
-        saveHistory(host, mergeHistory(priorHistory, classified.observedTimes()));
+        // 검출 SoT 누적 upsert(firstSeen min/lastSeen max/스냅샷) + cap·retention prune (doc/26 §2).
+        upsertDiscovered(host, priorDiscovered, discovered, matcher, window);
         return result;
     }
 
@@ -200,45 +206,98 @@ public class DiscoveryJobService {
         }
     }
 
-    /** EndpointHistory 로드 → Map&lt;specKey, EndpointObservation&gt;. 행 없음/파싱 실패 → 빈 map(콜드스타트=현행). */
-    private Map<String, EndpointObservation> loadHistory(String host) {
-        return endpointHistoryRepo.findById(host)
-                .map(h -> h.historyJson)
-                .map(this::parseHistory)
-                .orElseGet(HashMap::new);
-    }
+    // 검출 SoT 누적 가드 (doc/26 §2). cap=host template 상한(doc/13 동일 5000), retention=stale prune 기준.
+    // ponytail: 상수(현 규모 충분). 도메인별 override 필요 시 @ConfigurationProperties seam(후속).
+    private static final long TEMPLATE_CAP = 5000L;
+    private static final Duration RETENTION = Duration.ofDays(180);
+    private static final Pattern VERSION_SEGMENT = Pattern.compile("^v\\d+$", Pattern.CASE_INSENSITIVE);
 
-    private Map<String, EndpointObservation> parseHistory(String json) {
-        if (json == null || json.isBlank()) {
-            return new HashMap<>();
+    /** 검출 SoT 로드(host) — recency 입력 + upsert 기준. retention prune 후 signature→record 맵 (doc/26 §2). */
+    private Map<String, DiscoveredEndpointRecord> loadDiscovered(String host, LogWindow window) {
+        if (window != null && window.to() != null) {
+            // stale(lastSeen < scanEnd − retention) prune — 데이터 ts 기준(now 미사용), 스캐너 noise 누적 방지
+            discoveredRepo.deleteByHostAndLastSeenBefore(host, window.to().minus(RETENTION));
         }
-        try {
-            return objectMapper.readValue(json, new TypeReference<HashMap<String, EndpointObservation>>() {});
-        } catch (JsonProcessingException e) {
-            // 손상 이력 → 빈 이력으로 폴백(콜드스타트). 분류는 진행, 다음 save 가 정상 이력으로 덮어씀.
-            log.warn("corrupt endpoint_history JSON — treating as empty (cold start)");
-            return new HashMap<>();
+        Map<String, DiscoveredEndpointRecord> out = new HashMap<>();
+        for (DiscoveredEndpointRecord rec : discoveredRepo.findByHost(host)) {
+            out.put(signatureOf(rec), rec);
         }
-    }
-
-    /** prior ∪ current: firstSeen=min, lastSeen=max (firstSeen 단조 비감소 → lifespan 단조 비감소, doc/24 §7). */
-    private static Map<String, EndpointObservation> mergeHistory(
-            Map<String, EndpointObservation> prior, Map<String, EndpointObservation> current) {
-        Map<String, EndpointObservation> out = new HashMap<>(prior);
-        current.forEach((k, cur) -> out.merge(k, cur, (p, c) -> new EndpointObservation(
-                earliest(p.firstSeen(), c.firstSeen()), latest(p.lastSeen(), c.lastSeen()))));
         return out;
     }
 
-    private void saveHistory(String host, Map<String, EndpointObservation> history) {
-        if (history.isEmpty()) {
-            return; // spec 매칭 endpoint 없음 → 기록할 이력 없음
+    /**
+     * 스캔 discovered → discovered_endpoint 누적 upsert (firstSeen min/lastSeen max/최신 윈도우 스냅샷, doc/26 §2).
+     * prior = loadDiscovered 맵 재사용(단건 재조회 회피). cap 초과 신규 identity 는 drop(기존 갱신은 항상).
+     */
+    private void upsertDiscovered(String host, Map<String, DiscoveredEndpointRecord> prior,
+                                  List<DiscoveredEndpoint> discovered, EndpointMatcher matcher, LogWindow window) {
+        Instant scanEnd = (window != null) ? window.to() : null;
+        long count = prior.size();
+        int dropped = 0;
+        for (DiscoveredEndpoint d : discovered) {
+            DiscoveredEndpointRecord rec = prior.get(d.signature());
+            if (rec == null) {
+                if (count >= TEMPLATE_CAP) {
+                    dropped++; // cap: 신규 identity 만 제한 — 스캐너 noise 무한 성장 방지
+                    continue;
+                }
+                rec = new DiscoveredEndpointRecord();
+                rec.host = host;
+                rec.method = d.method();
+                rec.pathTemplate = d.pathTemplate();
+                count++;
+            }
+            DiscoveredEndpoint.Metrics m = d.metrics();
+            rec.firstSeen = earliest(rec.firstSeen, (m != null) ? m.firstSeen() : null);
+            rec.lastSeen = latest(rec.lastSeen, (m != null) ? m.lastSeen() : null);
+            rec.lastScanAt = scanEnd;
+            rec.hits = (m != null) ? m.hits() : 0L;
+            rec.statusDistJson = toJson((m != null && m.statusDist() != null) ? m.statusDist() : Map.of());
+            rec.hadQuery = d.hadQuery();
+            rec.nonBrowserUa = d.nonBrowserUa();
+            rec.paramsJson = toJson(d.params());
+            rec.templateSource = (d.templateSource() != null) ? d.templateSource().name() : null;
+            rec.endpointKind = (d.endpointKind() != null) ? d.endpointKind().name() : null;
+            rec.kindConfidence = d.kindConfidence();
+            rec.version = deriveVersion(d, matcher);
+            discoveredRepo.save(rec);
         }
-        EndpointHistory h = endpointHistoryRepo.findById(host).orElseGet(EndpointHistory::new);
-        h.host = host;
-        h.historyJson = toJson(history);
-        h.updatedAt = Instant.now(); // bookkeeping 메타데이터(ETag/severity 무관 — lifespan 은 데이터 ts)
-        endpointHistoryRepo.save(h);
+        if (dropped > 0) {
+            log.warn("discovered_endpoint cap {} reached for host={} — {} new identities dropped",
+                    TEMPLATE_CAP, host, dropped);
+        }
+    }
+
+    /** 검출 version 도출: path ^v\d+$ 세그먼트(doc/16) → 매칭 spec.version → null (doc/26 §4). */
+    private static String deriveVersion(DiscoveredEndpoint d, EndpointMatcher matcher) {
+        String pathV = pathVersion(d.pathTemplate());
+        if (pathV != null) {
+            return pathV;
+        }
+        return matcher.match(d.method(), d.host(), d.pathTemplate())
+                .map(CanonicalEndpoint::version).orElse(null);
+    }
+
+    /** 첫 ^v\d+$ 세그먼트(소문자 정규화). 없으면 null (doc/16 VersionZombieInference 동일 인식). */
+    private static String pathVersion(String template) {
+        if (template == null) {
+            return null;
+        }
+        String body = template.startsWith("/") ? template.substring(1) : template;
+        if (body.isEmpty()) {
+            return null;
+        }
+        for (String seg : body.split("/", -1)) {
+            if (VERSION_SEGMENT.matcher(seg).matches()) {
+                return seg.toLowerCase(Locale.ROOT);
+            }
+        }
+        return null;
+    }
+
+    /** 검출 record → DiscoveredEndpoint.signature 동일 포맷 키 "{METHOD} {host} {template}" (priorFirstSeen 키). */
+    private static String signatureOf(DiscoveredEndpointRecord rec) {
+        return rec.method + " " + rec.host + " " + rec.pathTemplate;
     }
 
     private static Instant earliest(Instant a, Instant b) {
