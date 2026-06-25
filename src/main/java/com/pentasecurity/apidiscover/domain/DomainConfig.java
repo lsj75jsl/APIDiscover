@@ -1,10 +1,13 @@
 // 분석 대상 도메인 설정 엔티티 (doc/07 §3.1). 중앙 API 로 세팅, DB 영속
 package com.pentasecurity.apidiscover.domain;
 
+import com.pentasecurity.apidiscover.model.SpecMergeStrategy;
 import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
 import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
@@ -31,6 +34,10 @@ public class DomainConfig {
 
     /** ISO-8601 Duration 문자열(예 "PT1H") 또는 null(전역 기본 사용). */
     public String intervalOverride;
+
+    /** 멀티 스펙 병합 전략 (doc/26 §5). ddl-auto 시 기존 행 null → 읽을 때 MERGE 로 해석(SpecStore). */
+    @Enumerated(EnumType.STRING)
+    public SpecMergeStrategy specMergeStrategy = SpecMergeStrategy.MERGE;
 
     public Instant createdAt;
     public Instant updatedAt;

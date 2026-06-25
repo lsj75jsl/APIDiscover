@@ -7,7 +7,6 @@ import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
 import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
 import com.pentasecurity.apidiscover.model.DroppedNonApi;
 import com.pentasecurity.apidiscover.model.EndpointKind;
-import com.pentasecurity.apidiscover.model.EndpointObservation;
 import com.pentasecurity.apidiscover.model.Finding;
 import com.pentasecurity.apidiscover.model.ParamCandidates;
 import com.pentasecurity.apidiscover.model.PreflightSignal;
@@ -84,8 +83,9 @@ public class Classifier {
     }
 
     /**
-     * 6-arg: cross-scan 이력(priorFirstSeen: specKey→이력상 최초 firstSeen)으로 Zombie severity entrenchment 보강(doc/24 §7).
-     * 빈 map → 콜드스타트(현행). observedTimes(이력 merge 입력)도 함께 산출.
+     * 6-arg: cross-scan 이력(priorFirstSeen: 검출 signature "{METHOD} {host} {template}"→이력상 최초 firstSeen)으로
+     * Zombie severity entrenchment 보강(doc/24 §7, doc/26 §8 — discovered_endpoint.firstSeen 에서 로드).
+     * 빈 map → 콜드스타트(현행).
      */
     public ClassificationResult classifyWithMetrics(List<DiscoveredEndpoint> discovered,
                                                     List<CanonicalEndpoint> spec,
@@ -143,7 +143,8 @@ public class Classifier {
                 if (!preflightActive) {
                     // DORMANT genuine(M2): spec-match 한정 observed (미매칭은 Shadow 안 만듦 — 불변식 보존)
                     matcher.match(d.method(), d.host(), d.pathTemplate())
-                            .ifPresent(ce -> observedSpec.computeIfAbsent(key(ce), k -> new Evidence()).add(d));
+                            .ifPresent(ce -> observedSpec.computeIfAbsent(key(ce), k -> new Evidence())
+                                    .add(d, priorFirstSeen.get(d.signature())));
                     continue;
                 }
                 // ACTIVE genuine → 아래 일반 매칭/게이트 로직으로 fall through (매칭→Active, 미매칭→Shadow)
@@ -151,7 +152,8 @@ public class Classifier {
             Optional<CanonicalEndpoint> matched = matcher.match(d.method(), d.host(), d.pathTemplate());
             if (matched.isPresent()) {
                 // Active/Zombie 는 2차 (스펙 권위, 게이트 우회). 매칭 d 메트릭을 Evidence 에 누적(severity 용)
-                observedSpec.computeIfAbsent(key(matched.get()), k -> new Evidence()).add(d);
+                observedSpec.computeIfAbsent(key(matched.get()), k -> new Evidence())
+                        .add(d, priorFirstSeen.get(d.signature()));
                 continue;
             }
             // 문서에 없음 → ApiScorer 게이트 (doc/08, doc/09 §2.2). 전달된 scorer 사용(doc/10 §6)
@@ -185,7 +187,7 @@ public class Classifier {
             if (s.deprecated()) {
                 if (observed) {
                     // 명시 deprecated Zombie: confidence 1.0·estimated=false (무회귀) + severity 가산(이력 entrenchment 포함)
-                    Instant prior = priorFirstSeen.getOrDefault(key(s), ev.firstSeen);
+                    Instant prior = ev.entrenchedFirstSeen != null ? ev.entrenchedFirstSeen : ev.firstSeen;
                     findings.add(new Finding.Zombie(s.host(), s.method(), s.pathTemplate(), 1.0,
                             ZombieSeverity.of(ev, prior), false, s.sourceRef(), "문서에 deprecated 표기, 그러나 트래픽 발생",
                             specParams(ev, s)));
@@ -193,7 +195,7 @@ public class Classifier {
                 // deprecated && !observed → Deprecated-clean: 조치 불필요, Finding 미발행
             } else if (observed && estimatedZombies.contains(s)) {
                 // 버전 추정 Zombie: confidence 0.6·estimated=true (doc/16 §1, 명시보다 낮게)
-                Instant prior = priorFirstSeen.getOrDefault(key(s), ev.firstSeen);
+                Instant prior = ev.entrenchedFirstSeen != null ? ev.entrenchedFirstSeen : ev.firstSeen;
                 findings.add(new Finding.Zombie(s.host(), s.method(), s.pathTemplate(), 0.6,
                         ZombieSeverity.of(ev, prior), true, s.sourceRef(),
                         "신버전 active, 구버전 트래픽 지속 — deprecated 미표기", specParams(ev, s)));
@@ -213,11 +215,8 @@ public class Classifier {
         PreflightSignal preflightSignal = preflightActive
                 ? new PreflightSignal(SignalStatus.ACTIVE, acrmPresentOptions)
                 : PreflightSignal.NONE;
-        // 이력 merge 입력: spec 매칭(observedSpec)만 — specKey→{firstSeen,lastSeen} (doc/24 §3 spec-bound)
-        Map<String, EndpointObservation> observedTimes = new HashMap<>();
-        observedSpec.forEach((k, ev) -> observedTimes.put(k, new EndpointObservation(ev.firstSeen, ev.lastSeen)));
         return new ClassificationResult(
-                findings, new DroppedNonApi(excluded, webForm, lowScore), preflightSignal, observedTimes);
+                findings, new DroppedNonApi(excluded, webForm, lowScore), preflightSignal);
     }
 
     /** Shadow 신뢰도 (doc/04 §4.1). 기본 1.0 에서 감산, [0,1] clamp. */

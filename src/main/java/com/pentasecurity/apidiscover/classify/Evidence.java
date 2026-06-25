@@ -23,12 +23,19 @@ final class Evidence {
     long total;
     Instant firstSeen;
     Instant lastSeen;
+    /** 이력상 최초 firstSeen(discovered_endpoint 누적, signature 단위 min) — Zombie severity entrenchment 입력(doc/24·26 §8). 없으면 null=콜드스타트. */
+    Instant entrenchedFirstSeen;
     /** query param 이름 → 누적(여러 host/관측 union). path 후보는 spec 템플릿에서 별도 산출(Classifier). */
     private final Map<String, QueryAccum> queryParams = new LinkedHashMap<>();
 
-    void add(DiscoveredEndpoint d) {
+    /** priorFirstSeen = 이 d 의 cross-scan 이력상 firstSeen(discovered_endpoint, 없으면 null). 여러 d 합산 시 min. */
+    void add(DiscoveredEndpoint d, Instant priorFirstSeen) {
         if (d == null) {
             return;
+        }
+        if (priorFirstSeen != null
+                && (entrenchedFirstSeen == null || priorFirstSeen.isBefore(entrenchedFirstSeen))) {
+            entrenchedFirstSeen = priorFirstSeen;
         }
         addMetrics(d.metrics());
         if (d.params() != null) {

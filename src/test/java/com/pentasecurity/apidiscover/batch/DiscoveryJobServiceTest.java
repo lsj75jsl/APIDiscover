@@ -3,6 +3,7 @@ package com.pentasecurity.apidiscover.batch;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -18,9 +19,9 @@ import com.pentasecurity.apidiscover.config.SensitiveKeyProperties;
 import com.pentasecurity.apidiscover.domain.ClassificationConfig;
 import com.pentasecurity.apidiscover.domain.ClassificationConfigRepository;
 import com.pentasecurity.apidiscover.domain.DomainClassificationConfigRepository;
+import com.pentasecurity.apidiscover.domain.DiscoveredEndpointRecord;
+import com.pentasecurity.apidiscover.domain.DiscoveredEndpointRepository;
 import com.pentasecurity.apidiscover.domain.DomainConfigRepository;
-import com.pentasecurity.apidiscover.domain.EndpointHistory;
-import com.pentasecurity.apidiscover.domain.EndpointHistoryRepository;
 import com.pentasecurity.apidiscover.model.ClassificationProfile;
 import com.pentasecurity.apidiscover.domain.ScanResult;
 import com.pentasecurity.apidiscover.domain.ScanResultRepository;
@@ -65,18 +66,28 @@ class DiscoveryJobServiceTest {
     private final EffectiveClassificationResolver resolver =
             new EffectiveClassificationResolver(globalClsRepo, domainClsRepo, objectMapper);
 
-    // cross-scan 이력 — stateful mock(저장분을 findById 로 반환) → entrenchment/merge 재스캔 테스트 (doc/24)
-    private final java.util.Map<String, EndpointHistory> histStore = new java.util.HashMap<>();
-    private final EndpointHistoryRepository historyRepo = statefulHistory(histStore);
+    // cross-scan 검출 SoT — stateful mock(저장분을 findByHost 로 반환) → entrenchment/누적 재스캔 테스트 (doc/24·26)
+    private final java.util.List<DiscoveredEndpointRecord> discStore = new java.util.ArrayList<>();
+    private final DiscoveredEndpointRepository discoveredRepo = statefulDiscovered(discStore);
 
-    private static EndpointHistoryRepository statefulHistory(java.util.Map<String, EndpointHistory> store) {
-        EndpointHistoryRepository repo = mock(EndpointHistoryRepository.class);
-        when(repo.findById(any())).thenAnswer(inv -> Optional.ofNullable(store.get(inv.getArgument(0))));
+    private static DiscoveredEndpointRepository statefulDiscovered(java.util.List<DiscoveredEndpointRecord> store) {
+        DiscoveredEndpointRepository repo = mock(DiscoveredEndpointRepository.class);
+        when(repo.findByHost(any())).thenAnswer(inv -> store.stream()
+                .filter(r -> r.host.equals(inv.getArgument(0))).toList());
         when(repo.save(any())).thenAnswer(inv -> {
-            EndpointHistory h = inv.getArgument(0);
-            store.put(h.host, h);
-            return h;
+            DiscoveredEndpointRecord r = inv.getArgument(0);
+            store.removeIf(e -> e.host.equals(r.host) && e.method.equals(r.method)
+                    && e.pathTemplate.equals(r.pathTemplate)); // upsert(host,method,template)
+            store.add(r);
+            return r;
         });
+        // retention prune — stale(lastSeen < cutoff) 삭제(불변식2). cutoff 는 service 가 window.to()−180d 로 산정.
+        doAnswer(inv -> {
+            String host = inv.getArgument(0);
+            Instant cutoff = inv.getArgument(1);
+            store.removeIf(e -> e.host.equals(host) && e.lastSeen != null && e.lastSeen.isBefore(cutoff));
+            return null;
+        }).when(repo).deleteByHostAndLastSeenBefore(any(), any());
         return repo;
     }
 
@@ -94,7 +105,7 @@ class DiscoveryJobServiceTest {
             scanRepo,
             mock(DomainConfigRepository.class),
             mock(WatermarkRepository.class),
-            historyRepo,
+            discoveredRepo,
             mock(LokiClient.class),
             mock(LokiQueryBuilder.class),
             objectMapper,
@@ -158,7 +169,34 @@ class DiscoveryJobServiceTest {
 
         assertThat(result.active).isEqualTo(1);
         assertThat(result.shadow).isZero();
-        assertThat(result.specVersion).isEqualTo(5L);
+        // specVersion = merged canonical 콘텐츠 합성 해시(doc/26 §8) — per-record 5L 아님. 스펙 존재→non-zero.
+        assertThat(result.specVersion).isNotZero();
+    }
+
+    @Test
+    void sameSpecContentReuploadDoesNotBumpEtagDespitePerRecordVersion() {
+        // P3-2: 동일 콘텐츠 재업로드(per-record specVersion 1→2) → 합성 content 버전 동일 → ETag 무bump.
+        // SpecSource.documents[].specVersion(monotonic)은 리포트 body 진단용, ETag 투영서 제외.
+        var canonical = List.of(new CanonicalEndpoint("GET", "/v2/users/{id}", null, false, null, "ref"));
+        when(specStore.loadActiveCanonical(HOST)).thenReturn(canonical);
+        when(scanRepo.findById(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.save(any(ScanResult.class))).thenAnswer(inv -> inv.getArgument(0));
+        List<String> traffic = List.of(line("GET", "/v2/users/1", 200), line("GET", "/v2/users/2", 200));
+
+        SpecRecord v1 = new SpecRecord();
+        v1.specVersion = 1L;
+        v1.format = SpecFormat.OPENAPI;
+        when(specStore.activeMeta(HOST)).thenReturn(Optional.of(v1));
+        ScanResult a = service.analyze(HOST, traffic, window);
+
+        SpecRecord v2 = new SpecRecord(); // 재업로드: 동일 콘텐츠, per-record 버전만 2
+        v2.specVersion = 2L;
+        v2.format = SpecFormat.OPENAPI;
+        when(specStore.activeMeta(HOST)).thenReturn(Optional.of(v2));
+        ScanResult b = service.analyze(HOST, traffic, window);
+
+        assertThat(a.active).isEqualTo(1);
+        assertThat(a.version).isEqualTo(b.version); // per-record 1→2 임에도 content-stable → 무bump
     }
 
     @Test
@@ -272,7 +310,7 @@ class DiscoveryJobServiceTest {
                         new RefererSignalExtractor(new PathNormalizer())),
                 specStore, new EndpointMatcherCache(), new Classifier(new ApiScorer()), resolver,
                 new ReportBuilder(), scanRepo, mock(DomainConfigRepository.class), mock(WatermarkRepository.class),
-                mock(EndpointHistoryRepository.class), mock(LokiClient.class), mock(LokiQueryBuilder.class),
+                mock(DiscoveredEndpointRepository.class), mock(LokiClient.class), mock(LokiQueryBuilder.class),
                 objectMapper, props());
         ScanResult active = acrmService.analyze(HOST, lines, window);
         assertThat(active.reportJson).contains("\"status\":\"ACTIVE\"");
@@ -282,7 +320,7 @@ class DiscoveryJobServiceTest {
     }
 
     @Test
-    void crossScanReScanSameDataYieldsSameEtagAndRecordsSpecOnlyHistory() {
+    void crossScanReScanSameDataYieldsSameEtagAndAccumulatesDiscovered() {
         SpecRecord rec = new SpecRecord();
         rec.specVersion = 1L;
         when(specStore.activeMeta(HOST)).thenReturn(Optional.of(rec));
@@ -294,12 +332,36 @@ class DiscoveryJobServiceTest {
         List<String> lines = List.of(line("GET", "/v2/old", 200), line("GET", "/v2/old", 200));
         ScanResult s1 = service.analyze(HOST, lines, window);
         assertThat(s1.zombie).isEqualTo(1);
-        assertThat(histStore).containsKey(HOST);                        // spec-only 이력 기록 (doc/24 §3)
-        assertThat(histStore.get(HOST).historyJson).contains("/v2/old");
+        // 검출 SoT 누적(doc/26 §2) — 검출 endpoint 기록(spec 매칭 무관) + version=v2(path ^v\d+$ 도출, §4)
+        assertThat(discStore).filteredOn(r -> r.host.equals(HOST) && r.pathTemplate.equals("/v2/old"))
+                .singleElement()
+                .satisfies(r -> assertThat(r.version).isEqualTo("v2"));
 
-        // 재스캔(동일 데이터+이력): now 무의존·lifespan 동일 → 동일 version (doc/24 §5)
+        // 재스캔(동일 데이터+누적 firstSeen): now 무의존·lifespan 동일 → 동일 version (doc/24 §5, doc/26 §8)
         ScanResult s2 = service.analyze(HOST, lines, window);
         assertThat(s2.version).isEqualTo(s1.version);
+    }
+
+    @Test
+    void retentionPrunesStaleDiscoveredByWindowBoundaryNotNowAndIsIdempotent() {
+        // doc/26 §2 불변식: stale(lastSeen < window.to()−180d) 삭제 / active(> cutoff) 보존. cutoff 는 데이터 윈도우 기준(now() 비의존).
+        when(specStore.activeMeta(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.findById(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.save(any(ScanResult.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // window.to()=2020-01-01 → cutoff = to−180d ≈ 2019-07-05. now()=2026 라면 둘 다 prune 됐을 것
+        // → /recent(2019-12, > cutoff) 보존이 cutoff=window.to()−180d(=데이터 경계, now() 비의존) 임을 증명.
+        Instant to = Instant.parse("2020-01-01T00:00:00Z");
+        LogWindow w = new LogWindow(to.minusSeconds(3600), to);
+        discStore.add(seedDiscovered("GET", "/stale", Instant.parse("2019-01-01T00:00:00Z")));  // < cutoff → prune
+        discStore.add(seedDiscovered("GET", "/recent", Instant.parse("2019-12-01T00:00:00Z"))); // > cutoff → 보존
+
+        service.analyze(HOST, List.of(), w); // 무트래픽 — prune 만 검증(upsert 무영향)
+        assertThat(discStore).extracting(r -> r.pathTemplate).containsExactly("/recent"); // stale 삭제·recent 보존
+
+        // 동일 윈도우 재스캔: recent 여전히 > cutoff → 보존, 중복 없음(idempotent)
+        service.analyze(HOST, List.of(), w);
+        assertThat(discStore).extracting(r -> r.pathTemplate).containsExactly("/recent");
     }
 
     @Test
@@ -446,7 +508,7 @@ class DiscoveryJobServiceTest {
         var cappedService = new DiscoveryJobService(new LogLineParser(NORM, ParseProperties.defaults()), cappedInventory, specStore,
                 new EndpointMatcherCache(), new Classifier(new ApiScorer()), resolver, new ReportBuilder(), scanRepo,
                 mock(DomainConfigRepository.class), mock(WatermarkRepository.class),
-                mock(EndpointHistoryRepository.class), mock(LokiClient.class),
+                mock(DiscoveredEndpointRepository.class), mock(LokiClient.class),
                 mock(LokiQueryBuilder.class), objectMapper, props());
 
         ScanResult result = cappedService.analyze(HOST, List.of(
@@ -524,6 +586,17 @@ class DiscoveryJobServiceTest {
     }
 
     // --- helpers ---
+
+    /** discStore 사전 적재용 검출 record(prune 경계 테스트). firstSeen=lastSeen 동일. */
+    private static DiscoveredEndpointRecord seedDiscovered(String method, String template, Instant lastSeen) {
+        DiscoveredEndpointRecord r = new DiscoveredEndpointRecord();
+        r.host = HOST;
+        r.method = method;
+        r.pathTemplate = template;
+        r.firstSeen = lastSeen;
+        r.lastSeen = lastSeen;
+        return r;
+    }
 
     private static ParsedRequest pr(String requestId) {
         return new ParsedRequest("GET", "/x", List.of(), 200, HOST, "ip", "ua",

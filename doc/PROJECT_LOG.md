@@ -5,6 +5,57 @@
 
 ---
 
+## 2026-06-25 세션 23 — 멀티스펙 3단계: 결합 Discovery 뷰 + 버전 그룹 (doc/26 §4/§6/§7, D35/D36)
+
+### 한 일
+- **결합 Discovery 뷰**: `batch/CombinedDiscoveryService.forHost(host)` — 누적 `discovered_endpoint` 행을 `DiscoveredEndpoint` 로 재구성(∪) + active spec canonical → Classifier(불변 5-arg classify, 게이트 동일)로 Shadow/Active/Zombie/Unused 산출. per-scan /result(최근 윈도우)와 별개의 누적 카탈로그 뷰(둘 다, doc/26 §6 권장). `model/CombinedDiscovery`(host/specVersion/mode/findings/versionGroups/specSource) + `api/CombinedDiscoveryController` `GET /api/v1/domains/{host}/discovery`.
+- **버전 그룹(VERSION_GROUPED)**: 매칭은 union(MERGE 동일) 그대로, 결합 뷰만 version 라벨별 분리. `model/VersionTag.ofPath`(path `^v\d+$`, 1단계 deriveVersion 도 이 util 로 통일) ∪ spec endpoint version → `CombinedDiscovery.VersionGroup`(라벨 정렬). 그 외 모드 flat(versionGroups 빈 list).
+- **SpecSource 멀티문서 확장(2단계 이월)**: `SpecSource` +`documents[]`(SpecDocument: specName/format/specVersion) + 3-arg 하위호환 ctor. `SpecStore.specSourceFrom`(specName 정렬 결정적, format 단일/혼합 null, warnings union, documents) + `activeRecords`/static `parseWarnings`. per-scan analyze 도 specSourceFrom 사용(activeRecords 미가용 시 activeMeta 단건 폴백 → 테스트 무변경).
+
+### 결과
+- build BUILD SUCCESSFUL, **tests=310 failures=0 skipped=1**(+5: 카탈로그 분류·무스펙 Shadow·VERSION_GROUPED 그룹분리·flat 무그룹·SpecSource documents). 컴파일·@SpringBootTest 정상.
+- 무회귀: Classifier 로직 무변경(결합 뷰는 입력만 누적 카탈로그), 기본 MERGE+단일=현행 결합 동치, VERSION_GROUPED 외 flat, ETag 결정적·시간非의존(결합 뷰에 lastSeen 비노출·findings severity→band·params 투영 유지). 기존 SpecSource 3-arg 호출부(EMPTY·ReportBuilderTest) 하위호환 ctor 로 무변경.
+- 한계: 카탈로그가 distinctClients/p50·p95/acrm 미보유(§2 카탈로그 경량)→결합 뷰 Shadow confidence 근사(분류 자체 무영향). 원 카탈로그 list REST(/discovered·/spec)=결합 뷰로 충족·중앙 노출 P4 생략.
+
+### 통합 최종 리뷰 P3 2건 반영(2026-06-25)
+- **P3-2(ETag 정밀)**: per-scan ETag 의 specSource 입력에서 `documents[].specVersion`(per-record monotonic) 제외 → `specSourceEtagView`(format/warnings/문서 name·format 만). 합성 content 버전은 `report.specVersion`(별도 입력)이 반영 → 동일 콘텐츠 재업로드 무bump(2단계 content-stable 복원). persist 주석 정정. 회귀 테스트 `sameSpecContentReuploadDoesNotBumpEtagDespitePerRecordVersion` 추가(tests=311).
+- **P3-1(acrm 한계 문서화)**: doc/26 §11 에 '결합 카탈로그 뷰 OPTIONS confidence=M3 dormant 가정, M3-ACTIVE 충실성 위해 `discovered_endpoint.acrmPresentCount` 저장은 후속' 명시(코드 무변경, 과한 선구현 회피).
+
+### 다음 단계
+- 브랜치 `feature/multi-spec-merge` 커밋(누적, 1~3단계+최종 P3 완료). **이후: doc/18 sync(technical_writer) + 최종 빌드 + 1 PR 머지**(D28 — 머지 시 parent TASKS·설계문서 완료 동기).
+
+## 2026-06-25 세션 22 — 멀티스펙 2단계: 멀티 문서 + 병합 모드 (doc/26 §3/§5/§8, D35)
+
+### 한 일
+- **병합 전략 설정**: `model/SpecMergeStrategy{MERGE,SEPARATE,VERSION_GROUPED}` + `DomainConfig.specMergeStrategy`(@Enumerated STRING, 기본 MERGE, ddl-auto null→읽을 때 MERGE) + `DomainDtos.DomainUpsert/DomainView` 가산 필드 + `DomainController.apply/toView`(null→MERGE 유지, 미지정 PUT 이 모드 안 지움).
+- **SpecStore 모드 분기**: `upload(host,name,content)` 신설(+`upload(host,content)`=default 위임=현행 무회귀). 모드별 기존 active 비활성화 — SEPARATE=host 전체 교체, MERGE/VERSION_GROUPED=같은 specName 만(형제 문서 유지). null specName(기존행)=default 정규화. `DomainConfigRepository` 주입(mode 조회).
+- **결정적 merge**: `SpecCanonicalizer.merge(List<VersionedCanonical>)` — (method,host,template) dedupe + deprecated OR + 비-deprecated latest-upload-wins(최신 specVersion, tie sourceRef 큰 값). group+max+OR 교환법칙→업로드/문서 순서 무관 동일 SET. 단일 문서=canonicalize 동치(무회귀). `loadActiveCanonical`=∪ active docs merge(findByHostAndActiveIsTrue).
+- **합성 spec 버전**: `SpecStore.syntheticVersion(canonical, om)`=merged canonical SHA-256 해시(EtagUtil 앞 16hex=64bit→long, ETag 와 동일 알고리즘·코드베이스 일관). `DiscoveryJobService` 가 per-record specVersion 대신 합성버전을 report.specVersion/SpecSource/matcherCache 키로 사용 — 동일 콘텐츠=동일 버전(안정), 콘텐츠 변화 시만 bump. 무스펙=0. (P3-1: CRC32→SHA-256 통일.)
+
+### 결과
+- build BUILD SUCCESSFUL, **tests=305 failures=0 skipped=1**(+7: 모드 3종·재업로드 교체·merge 순서무관/deprecated OR·합성버전 안정). 기존 SpecStore/JobService default 경로 무변경(단일=현행). @SpringBootTest 컨텍스트 정상(SpecStore +DomainConfigRepository 주입).
+- 무회귀: 기본 MERGE+단일 문서=현행 동치, SpecCanonicalizer 단일 경로 보존, ETag 결정적·시간非의존(합성버전=콘텐츠 해시). DiscoveryJobServiceTest specVersion 단언 1건(per-record 5L→non-zero 합성)으로 갱신.
+- 한계(stage 3): 멀티문서 SpecSource format/warnings **union·documents[]** 미구현(현재 합성버전+latest active 메타). SpecController name 파라미터 REST 노출 미포함(서비스 계층만). 버전그룹 뷰=3단계.
+
+### 다음 단계
+- 브랜치 `feature/multi-spec-merge` 커밋(누적)·리뷰 대기. 리뷰 후 3단계(결합·버전그룹 C/D) 별도 지시.
+
+## 2026-06-25 세션 21 — 멀티스펙 1단계: 검출 SoT 데이터 모델 (doc/26 §2/§4/§8, D35/D36)
+
+### 한 일
+- **신규 검출 SoT**: `domain/DiscoveredEndpointRecord`(@Entity `discovered_endpoint`, host index+unique(host,method,path_template)+(host,version) index, id PK=spec_record 스타일) + `DiscoveredEndpointRepository`(findByHost/findByHostAndVersion/findByHostAndMethodAndPathTemplate/deleteByHostAndLastSeenBefore). 컬럼: identity+templateSource+endpointKind+kindConfidence+version+firstSeen/lastSeen/lastScanAt+hits+statusDistJson+hadQuery/nonBrowserUa/paramsJson(@Lob).
+- **누적 upsert**: `DiscoveryJobService.analyze` — 스캔 전 `loadDiscovered`(retention prune 180d=데이터 ts 기준 + findByHost→signature 맵), persist 후 `upsertDiscovered`(firstSeen min/lastSeen max/최신 윈도우 스냅샷, cap 5000=신규 identity 제한). version 도출(path `^v\d+$` 세그먼트→매칭 spec.version→null).
+- **EndpointHistory 흡수(D36)**: severity recency 를 `discovered_endpoint.firstSeen`(검출 signature 키)로 전환 — `Evidence.entrenchedFirstSeen`(add 시 prior 누적 min), Classifier 2차 Zombie 가 ev.entrenchedFirstSeen 사용. `EndpointHistory` 엔티티/repo·`model/EndpointObservation`·`ClassificationResult.observedTimes` 제거(orphan).
+- **spec_record**: +`specName` 컬럼(null→"default" 해석, 스키마/컬럼만 — 멀티문서 upsert 는 2단계).
+
+### 결과
+- `JAVA_HOME=…/java-21 ./gradlew build` BUILD SUCCESSFUL, **tests=297 failures=0 skipped=1**(observedTimes 단위 테스트 1건 제거=298→297). @SpringBootTest 컨텍스트가 ddl-auto 로 `discovered_endpoint` 생성→엔티티 매핑 H2 검증.
+- 무회귀: 콜드스타트(빈 discovered_endpoint)=현행 severity. ETag 무영향(discovered_endpoint 는 ETag 입력 아님 → lastSeen 자동 제외, doc/26 §8). 재스캔 동일 데이터→lifespan 0→동일 version 유지.
+- 문서: doc/26 §10 1단계 [x], doc/24 §3 EndpointHistory 흡수 갱신 주석, TASKS 1단계 subitem [x](부모는 2·3단계 잔여로 [ ]), DECISIONS D36 진행 기록.
+
+### 다음 단계
+- 브랜치 `feature/multi-spec-merge` 커밋(누적)·리뷰 대기. 리뷰 후 2단계(멀티스펙+모드 B/D35) 별도 지시. doc/18 sync(discovered_endpoint·spec_name·endpoint_history 제거)=technical_writer 후속.
+
 ## 2026-06-24 세션 20 — $type taxonomy 실 Loki 샘플링 (research 0.4, doc/21 §A)
 
 ### 한 일

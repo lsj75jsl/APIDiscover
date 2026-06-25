@@ -32,6 +32,8 @@ entrenchmentBonus = W·clamp01( (log10(lifespanDays+1) − log10(GRACE+1))
 
 ## 3. 이력 영속 (scope #1)
 
+> **갱신 2026-06-25 (doc/26 §8, D36 — EndpointHistory 흡수)**: 이 절의 `EndpointHistory`(@Lob historyJson, spec-bound, specKey 키)는 **검출 SoT `discovered_endpoint`(doc/26)로 흡수·제거**됐다. recency(firstSeen/lastSeen)는 이제 `discovered_endpoint`(host,method,pathTemplate 누적)에 저장되고, Zombie severity entrenchment 는 **검출 signature(`"{METHOD} {host} {template}"`) 키로 매칭 endpoint 의 누적 firstSeen 을 조회**(Evidence.entrenchedFirstSeen)한다. 콜드스타트 폴백·band 투영·now() 불사용·재구축 이관(무회귀)은 **동일하게 유지**. 아래 원안은 이력으로 보존.
+
 - **신규 엔티티 `EndpointHistory`**(`@Table` 신규) — `@Id host` + **`@Lob String historyJson`** + `Instant updatedAt`. `historyJson` = `Map<specKey, {firstSeen, lastSeen}>`(Jackson 왕복).
   - specKey = `Classifier.key(spec)` = `"METHOD|host|template"`(host=null→`*`). 스캔 간 안정 키.
   - **`@Lob String` JSON 채택**(정규화 테이블 아님): doc/11/D17 컨벤션(JSONB 미사용, H2/PG 이식)·per-host 접근(스캔 단위)·`ScanResult.findById` 와 동일 패턴. 정규화(엔드포인트당 행)는 규모 확대 시 대안(§6).
