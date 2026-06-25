@@ -51,7 +51,10 @@
 - [ ] 엔티티 캡슐화 (현재 스캐폴딩상 public 필드)
 - [ ] `@Lob String` JSON 컬럼 PostgreSQL TEXT 매핑 실검증(canonical/report/classification 공통)
 - [ ] 통합 테스트 (Testcontainers: 실제 PostgreSQL/JPA, REST API e2e, 조건부 GET 304) — `→ 의존:` 위 PostgreSQL 매핑 검증과 함께
-- [ ] **(신규, D37 F2 플래그)** catch-all `{var+}` dead code(파서 미생성·segCount 버킷팅 차단으로 도달 불가) — 정리 vs 의도 확인
+- [ ] **(D37 F2 후속)** catch-all `{var+}` dead code 제거 **(설계 완료 → DECISIONS D39, doc/04 §1.1 — 구현 완료 2026-06-25, build 그린 tests=319 불변, 브랜치 `feature/catch-all-deadcode-cleanup` 커밋 보류·리뷰 대기)**
+  - [x] `EndpointMatcher` `isCatchAll` 분기(compile `.+`)+헬퍼 삭제 — `{var+}`→`isVariable` `[^/]+` 일관(동작 불변: 도달 가능 시 `.+`≡`[^/]+`, 타 사용처·테스트 0 grep 확인)
+  - [x] doc/04 §1.1 catch-all '미지원' 갱신(파서 미생성+segCount 버킷팅 충돌, 진짜 지원=버킷팅 재설계 별도 기능)
+  - [x] 회귀 — 기존 `EndpointMatcherTest` green(catch-all 도달 불가라 결과 동일), tests=319 불변
 
 ### P3. 운영/인프라 (자체 운영)
 - [ ] off-peak 시간대 제한

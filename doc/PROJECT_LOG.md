@@ -5,6 +5,19 @@
 
 ---
 
+## 2026-06-25 세션 26 — catch-all {var+} dead code 제거 (D39, D37 F2, doc/04 §1.1)
+
+### 한 일
+- `EndpointMatcher.compile` 의 `isCatchAll(seg)→rx.append(".+")` 분기 + `isCatchAll` 헬퍼 삭제. `{var+}` 류 토큰은 이제 `isVariable`→`[^/]+`(단일 세그먼트 변수)로 일관 처리(catch-all 특별취급 제거).
+- doc/04 §1.1 은 이미 catch-all '현재 미지원(D37 F2/D39)' 명시 + 단일 세그먼트=`{var}`([^/]+) 동치 기술 — 코드 제거 후 상태와 일치(추가 편집 불요).
+
+### 결과
+- build BUILD SUCCESSFUL, **tests=319 failures=0 skipped=1**(불변). 무회귀 근거: 3종 파서가 `{var+}` 미생성→`isCatchAll` 항상 false(분기 dead) / segCount 버킷팅이 다중 세그먼트 `.+` 구조적 차단 / 도달 가능(동일 segCount) 케이스에선 `.+`≡`[^/]+`(단일 세그먼트엔 슬래시 없음) → 제거해도 매칭 결과 불변. 타 사용처·전용 테스트 0(grep 확인).
+- vestigial half-implemented 제거(코드 −9줄). 진짜 catch-all 지원은 segCount 버킷팅 재설계 필요한 별도 기능(실수요 시 별도 항목, doc/04 §1.1 보존).
+
+### 다음 단계
+- 커밋 보류(리뷰 후). 리뷰 후 커밋·PR.
+
 ## 2026-06-25 세션 25 — base-path-strip: false Shadow/Unused 방지 (doc/27, D38, D37 F1)
 
 ### 한 일
