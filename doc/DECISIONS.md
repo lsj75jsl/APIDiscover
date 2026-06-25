@@ -350,6 +350,18 @@ doc/04 §7 9 케이스를 회귀로 잠금(순수 테스트, 프로덕션 무변
 - **설계 결함 명시(#4)**: catch-all 은 doc/04 §1.1 에 '옵션'으로 문서화됐으나 `.+` 구현이 **segCount 버킷팅과 충돌**(가변 세그먼트 수 매칭 불가)해 처음부터 비기능. 진짜 catch-all 지원은 **버킷팅 재설계**(템플릿 segCount 이상 버킷 스캔 등)가 필요한 **별도 기능** — 이번은 vestigial 제거만. doc/04 §1.1 을 '미지원'으로 갱신.
 - **(b) 미채택**: 도달 불가·비기능 코드 유지는 오해 유발(catch-all 작동 오인). 설계 지식은 doc/04 §1.1·본 결정에 보존. (catch-all 실수요 발생 시 별도 기능 항목으로.)
 
+### D40. Testcontainers(PostgreSQL) 통합 테스트 — podman 연결·Ryuk·게이팅 (doc/28) — 채택(구현·머지 완료)
+H2 단위테스트가 못 잡는 **실 PG 매핑/동작**을 검증(L52 `@Lob String`→`text` + L53 JPA/REST/304 e2e). **묶음 단일 PR**. **무회귀(빌드 green) 최우선**.
+- **podman 연결(권장)**: `tasks.withType<Test>` 에서 `DOCKER_HOST` 주입 — `unix://$XDG_RUNTIME_DIR/podman/podman.sock`(uid 하드코딩 금지·XDG 파생), **가드**(DOCKER_HOST 기설정·소켓 부재 시 미개입→실docker/無docker 무영향). 리포 커밋·재현 가능. 대안 `~/.testcontainers.properties`(uid 하드코딩·per-dev)·베이스클래스 static init(로딩순서 취약) 미채택.
+- **Ryuk 비활성**(`TESTCONTAINERS_RYUK_DISABLED=true`): rootless podman 호환 마찰(소켓 mount) 회피. 트레이드오프 — 정상종료 정리는 Testcontainers shutdown hook 이 수행, Ryuk 은 강제 kill 백스톱일 뿐 → 누수는 ephemeral CI + `podman prune` 로 무해. 단순성 우선.
+- **게이팅(권장)**: `@Testcontainers(disabledWithoutDocker = true)` — docker/podman 부재 시 클래스 auto-skip(빌드 green), 기존 319 H2 단위테스트 무영향, gradle/sourceSet 변경 0. 대안 `assumeTrue(isDockerAvailable)`·`@Tag`·별도 sourceSet 는 후속/병용(선택).
+- **패턴/ddl-auto**: `@SpringBootTest`+`@ServiceConnection` 싱글톤 `postgres:16-alpine`(로컬 pull), `ddl-auto=create-drop`(마이그레이션 없어 validate 불가, ephemeral 에 Hibernate 가 엔티티→PG DDL 직접 생성=L52 검증대상), `@MockBean LokiClient`(운영 Loki 실호출 차단, doc/11 선례).
+- **검증 대상**: ① `@Lob String` **9컬럼**(classification 4·report 1·canonical/spec 2·discovered 2) `information_schema.data_type='text'` 단언 + 대용량 round-trip ② `raw_doc`(@Lob **byte[]**) 는 별도(통상 `oid` 매핑 → `text` 단언 금지, round-trip+실타입 기록) ③ `GET /discovery` e2e ④ `GET /result` 304.
+- **현행 버그 고정 금지(D37 원칙)**: 9컬럼이 `text` 아닌 `oid`/`bytea`/`varchar` 로 나오면 **실결함** → 테스트 느슨화 금지, 엔티티 수정(`columnDefinition="text"`/`@JdbcTypeCode`) 별도 보고 후 해소. 테스트 가치 = 분기 노출.
+- **구현 결과(2026-06-25, 실결함 확정·수정)**: 9컬럼 전부 PG `oid`(large object) 매핑이었고, 비트랜잭션 경로(`CombinedDiscoveryService.forHost` → `/discovery`)에서 `Unable to access lob stream`(auto-commit LOB) 발생 = 실 운영 결함. D37 원칙대로 테스트 유지하고 5엔티티(`ClassificationConfig`·`DomainClassificationConfig`·`ScanResult`·`SpecRecord`·`DiscoveredEndpointRecord`) 9 String 필드 `@Lob`→`@Column(columnDefinition = "text")` 수정 → PG `text`·정상 `setString` 바인딩(LOB stream 없음)·H2 호환(`text` alias, totalDropped 와 동일 columnDefinition 패스스루 선례). `raw_doc`(@Lob byte[])은 범위 밖 — 실측 `oid` 유지(round-trip 만 검증).
+  - **수정 방식 선택 근거**: `@JdbcTypeCode(SqlTypes.LONGVARCHAR)` → PG `varchar(32600)`(유한, 대용량 초과)·`LONG32VARCHAR` → 바인딩 시 PG 드라이버 `Unknown Types value`(seeder insert 부팅 실패) 둘 다 부적합. `@Column(columnDefinition="text")` 만 text·정상 바인딩·H2/PG 양립 충족.
+  - **검증**: PG 통합테스트 13건 실행·green(skip 0), 총 332 실패 0(skip 1=LokiLive), bogus `DOCKER_HOST` 로 클래스 auto-skip(무회귀 게이팅 확인). doc/18 스키마(@Lob String 컬럼 정의) text 반영은 technical_writer 후속.
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.

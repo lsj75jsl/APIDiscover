@@ -44,6 +44,10 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.batch:spring-batch-test")
     testImplementation("org.springframework.security:spring-security-test")
+    // Testcontainers(PG 통합 테스트, doc/28). 버전은 Spring Boot BOM 이 관리(미명시).
+    testImplementation("org.springframework.boot:spring-boot-testcontainers")
+    testImplementation("org.testcontainers:junit-jupiter")
+    testImplementation("org.testcontainers:postgresql")
 }
 
 tasks.withType<Test> {
@@ -51,4 +55,13 @@ tasks.withType<Test> {
     // 실 Loki 통합 테스트 가드용 -Dloki.live 전달 (평소 build 에는 영향 없음)
     System.getProperty("loki.live")?.let { systemProperty("loki.live", it) }
     testLogging { showStandardStreams = true }
+    // rootless podman 소켓 자동 연결(doc/28 §2). uid 하드코딩 없이 XDG_RUNTIME_DIR 파생, 가드:
+    // DOCKER_HOST 기설정·소켓 부재 시 미개입 → 실docker/無docker 환경 무영향(빌드 무회귀).
+    if (System.getenv("DOCKER_HOST") == null) {
+        val xdg = System.getenv("XDG_RUNTIME_DIR")
+        if (xdg != null && file("$xdg/podman/podman.sock").exists()) {
+            environment("DOCKER_HOST", "unix://$xdg/podman/podman.sock")
+            environment("TESTCONTAINERS_RYUK_DISABLED", "true")
+        }
+    }
 }

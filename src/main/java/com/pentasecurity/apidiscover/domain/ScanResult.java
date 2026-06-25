@@ -4,7 +4,6 @@ package com.pentasecurity.apidiscover.domain;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
-import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
 import java.time.Instant;
 
@@ -31,7 +30,7 @@ public class ScanResult {
     public Instant windowTo;
 
     /** 전체 리포트(JSON 직렬화, doc/01 §4). */
-    @Lob
+    @Column(columnDefinition = "text") // PG text 매핑(@Lob String→oid 회피, doc/28 D40/D37)
     public String reportJson;
 
     // summary (doc/01 §4)

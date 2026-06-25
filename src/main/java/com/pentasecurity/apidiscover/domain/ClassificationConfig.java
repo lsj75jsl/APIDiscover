@@ -2,15 +2,15 @@
 package com.pentasecurity.apidiscover.domain;
 
 import com.pentasecurity.apidiscover.model.ClassificationProfile;
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
-import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
 import java.time.Instant;
 
-// NOTE: 스캐폴딩 단순화를 위해 public 필드 사용(TODO: 캡슐화). 벤더 JSON 타입 미사용 — @Lob String(H2/PG 이식).
+// NOTE: 스캐폴딩 단순화를 위해 public 필드 사용(TODO: 캡슐화). 벤더 JSON 타입 미사용 — @Column(columnDefinition="text")로 PG text 매핑(@Lob String→oid·LOB 결함 회피, doc/28 D40/D37).
 @Entity
 @Table(name = "classification_config")
 public class ClassificationConfig {
@@ -26,11 +26,11 @@ public class ClassificationConfig {
     public Double thresholdOverride;
 
     /** nullable — Map&lt;String,Double&gt;(CUSTOM 한정 가중치 override, key=Weights 필드명). */
-    @Lob
+    @Column(columnDefinition = "text") // PG text 매핑(@Lob String→oid 회피, doc/28 D40/D37)
     public String customWeightsJson;
 
     /** nullable — MatcherConfig(전역) 직렬화. */
-    @Lob
+    @Column(columnDefinition = "text") // PG text 매핑(@Lob String→oid 회피, doc/28 D40/D37)
     public String matcherJson;
 
     public Instant updatedAt;
