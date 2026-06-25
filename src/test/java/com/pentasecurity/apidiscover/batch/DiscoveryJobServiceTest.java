@@ -76,11 +76,11 @@ class DiscoveryJobServiceTest {
     private static DiscoveredEndpointRepository statefulDiscovered(java.util.List<DiscoveredEndpointRecord> store) {
         DiscoveredEndpointRepository repo = mock(DiscoveredEndpointRepository.class);
         when(repo.findByHost(any())).thenAnswer(inv -> store.stream()
-                .filter(r -> r.host.equals(inv.getArgument(0))).toList());
+                .filter(r -> r.getHost().equals(inv.getArgument(0))).toList());
         when(repo.save(any())).thenAnswer(inv -> {
             DiscoveredEndpointRecord r = inv.getArgument(0);
-            store.removeIf(e -> e.host.equals(r.host) && e.method.equals(r.method)
-                    && e.pathTemplate.equals(r.pathTemplate)); // upsert(host,method,template)
+            store.removeIf(e -> e.getHost().equals(r.getHost()) && e.getMethod().equals(r.getMethod())
+                    && e.getPathTemplate().equals(r.getPathTemplate())); // upsert(host,method,template)
             store.add(r);
             return r;
         });
@@ -88,7 +88,7 @@ class DiscoveryJobServiceTest {
         doAnswer(inv -> {
             String host = inv.getArgument(0);
             Instant cutoff = inv.getArgument(1);
-            store.removeIf(e -> e.host.equals(host) && e.lastSeen != null && e.lastSeen.isBefore(cutoff));
+            store.removeIf(e -> e.getHost().equals(host) && e.getLastSeen() != null && e.getLastSeen().isBefore(cutoff));
             return null;
         }).when(repo).deleteByHostAndLastSeenBefore(any(), any());
         return repo;
@@ -128,11 +128,11 @@ class DiscoveryJobServiceTest {
                 line("GET", "/users/2?x=2", 200),
                 line("GET", "/users/3?x=3", 200)), window);
 
-        assertThat(result.discovered).isEqualTo(1);   // /users/{id} 1건
-        assertThat(result.shadow).isEqualTo(1);
-        assertThat(result.active).isZero();
-        assertThat(result.version).isNotBlank();
-        assertThat(result.reportJson).contains("\"shadow\"");
+        assertThat(result.getDiscovered()).isEqualTo(1);   // /users/{id} 1건
+        assertThat(result.getShadow()).isEqualTo(1);
+        assertThat(result.getActive()).isZero();
+        assertThat(result.getVersion()).isNotBlank();
+        assertThat(result.getReportJson()).contains("\"shadow\"");
     }
 
     @Test
@@ -142,9 +142,9 @@ class DiscoveryJobServiceTest {
         when(scanRepo.save(any(ScanResult.class))).thenAnswer(inv -> inv.getArgument(0));
         // 전역 설정: /users exclude → /users/{id} 가 DROP_EXCLUDED → Shadow 0 (설정이 결과에 반영, e2e)
         ClassificationConfig global = new ClassificationConfig();
-        global.id = 1L;
-        global.profile = ClassificationProfile.MIDDLE;
-        global.matcherJson = "{\"excludePathPrefixes\":[\"/users\"]}";
+        global.setId(1L);
+        global.setProfile(ClassificationProfile.MIDDLE);
+        global.setMatcherJson("{\"excludePathPrefixes\":[\"/users\"]}");
         when(globalClsRepo.findById(1L)).thenReturn(Optional.of(global));
 
         ScanResult result = service.analyze(HOST, List.of(
@@ -152,14 +152,14 @@ class DiscoveryJobServiceTest {
                 line("GET", "/users/2?x=2", 200),
                 line("GET", "/users/3?x=3", 200)), window);
 
-        assertThat(result.discovered).isEqualTo(1); // 인벤토리엔 존재
-        assertThat(result.shadow).isZero();          // exclude 설정 반영 → 미보고(무회귀 대비 차이)
+        assertThat(result.getDiscovered()).isEqualTo(1); // 인벤토리엔 존재
+        assertThat(result.getShadow()).isZero();          // exclude 설정 반영 → 미보고(무회귀 대비 차이)
     }
 
     @Test
     void specMakesMatchedTrafficActive() {
         SpecRecord active = new SpecRecord();
-        active.specVersion = 5L;
+        active.setSpecVersion(5L);
         when(specStore.activeMeta(HOST)).thenReturn(Optional.of(active));
         when(specStore.loadActiveCanonical(HOST)).thenReturn(List.of(
                 new CanonicalEndpoint("GET", "/users/{id}", null, false, null, "ref")));
@@ -170,10 +170,10 @@ class DiscoveryJobServiceTest {
                 line("GET", "/users/1", 200),
                 line("GET", "/users/2", 200)), window);
 
-        assertThat(result.active).isEqualTo(1);
-        assertThat(result.shadow).isZero();
+        assertThat(result.getActive()).isEqualTo(1);
+        assertThat(result.getShadow()).isZero();
         // specVersion = merged canonical 콘텐츠 합성 해시(doc/26 §8) — per-record 5L 아님. 스펙 존재→non-zero.
-        assertThat(result.specVersion).isNotZero();
+        assertThat(result.getSpecVersion()).isNotZero();
     }
 
     @Test
@@ -187,26 +187,26 @@ class DiscoveryJobServiceTest {
         List<String> traffic = List.of(line("GET", "/v2/users/1", 200), line("GET", "/v2/users/2", 200));
 
         SpecRecord v1 = new SpecRecord();
-        v1.specVersion = 1L;
-        v1.format = SpecFormat.OPENAPI;
+        v1.setSpecVersion(1L);
+        v1.setFormat(SpecFormat.OPENAPI);
         when(specStore.activeMeta(HOST)).thenReturn(Optional.of(v1));
         ScanResult a = service.analyze(HOST, traffic, window);
 
         SpecRecord v2 = new SpecRecord(); // 재업로드: 동일 콘텐츠, per-record 버전만 2
-        v2.specVersion = 2L;
-        v2.format = SpecFormat.OPENAPI;
+        v2.setSpecVersion(2L);
+        v2.setFormat(SpecFormat.OPENAPI);
         when(specStore.activeMeta(HOST)).thenReturn(Optional.of(v2));
         ScanResult b = service.analyze(HOST, traffic, window);
 
-        assertThat(a.active).isEqualTo(1);
-        assertThat(a.version).isEqualTo(b.version); // per-record 1→2 임에도 content-stable → 무bump
+        assertThat(a.getActive()).isEqualTo(1);
+        assertThat(a.getVersion()).isEqualTo(b.getVersion()); // per-record 1→2 임에도 content-stable → 무bump
     }
 
     @Test
     void basePathStripReattachesStrippedTrafficCorrectingFalseShadow() {
         // doc/27: 스펙 basePath 결합(/v2/users/{id}), 프록시 /v2 strip → 관측 /users/N. basePathStrip 으로 교정.
         SpecRecord rec = new SpecRecord();
-        rec.specVersion = 1L;
+        rec.setSpecVersion(1L);
         when(specStore.activeMeta(HOST)).thenReturn(Optional.of(rec));
         when(specStore.loadActiveCanonical(HOST)).thenReturn(List.of(
                 new CanonicalEndpoint("GET", "/v2/users/{id}", null, false, null, "ref")));
@@ -217,24 +217,24 @@ class DiscoveryJobServiceTest {
 
         // (대조) basePathStrip 미설정(null) → /users/{id} 미매칭 Shadow + /v2/users/{id} Unused (현행 무회귀)
         ScanResult off = service.analyze(HOST, stripped, window);
-        assertThat(off.active).isZero();
-        assertThat(off.shadow).isEqualTo(1); // false Shadow
-        assertThat(off.unused).isEqualTo(1); // false Unused
+        assertThat(off.getActive()).isZero();
+        assertThat(off.getShadow()).isEqualTo(1); // false Shadow
+        assertThat(off.getUnused()).isEqualTo(1); // false Unused
 
         // basePathStrip=/v2 → at-match 재부착(/v2/users/{id}) → Active, false Shadow/Unused 해소
         DomainConfig cfg = new DomainConfig();
-        cfg.host = HOST;
-        cfg.basePathStrip = "/v2";
+        cfg.setHost(HOST);
+        cfg.setBasePathStrip("/v2");
         when(domainRepo.findById(HOST)).thenReturn(Optional.of(cfg));
         ScanResult on = service.analyze(HOST, stripped, window);
-        assertThat(on.active).isEqualTo(1);
-        assertThat(on.shadow).isZero();
-        assertThat(on.unused).isZero();
+        assertThat(on.getActive()).isEqualTo(1);
+        assertThat(on.getShadow()).isZero();
+        assertThat(on.getUnused()).isZero();
 
         // findings 변화 → ETag bump(정당); 동일 데이터 재스캔 → 동일 version(결정적·시간非의존)
-        assertThat(on.version).isNotEqualTo(off.version);
+        assertThat(on.getVersion()).isNotEqualTo(off.getVersion());
         ScanResult on2 = service.analyze(HOST, stripped, window);
-        assertThat(on2.version).isEqualTo(on.version);
+        assertThat(on2.getVersion()).isEqualTo(on.getVersion());
     }
 
     @Test
@@ -244,10 +244,10 @@ class DiscoveryJobServiceTest {
         when(scanRepo.save(any(ScanResult.class))).thenAnswer(inv -> inv.getArgument(0));
 
         List<String> lines = List.of(line("GET", "/users/1", 200));
-        String v1 = service.analyze(HOST, lines, window).version;
+        String v1 = service.analyze(HOST, lines, window).getVersion();
         // 다른 윈도우(시간대)라도 findings 내용이 같으면 version 동일 (doc/07 §8)
         LogWindow later = new LogWindow(Instant.EPOCH.plusSeconds(7200), Instant.EPOCH.plusSeconds(10800));
-        String v2 = service.analyze(HOST, lines, later).version;
+        String v2 = service.analyze(HOST, lines, later).getVersion();
 
         assertThat(v1).isEqualTo(v2);
     }
@@ -262,8 +262,8 @@ class DiscoveryJobServiceTest {
         ScanResult result = service.analyze(HOST, List.of(
                 line("GET", "/page", 200), line("GET", "/page", 200)), window);
 
-        assertThat(result.shadow).isZero();
-        assertThat(result.reportJson)
+        assertThat(result.getShadow()).isZero();
+        assertThat(result.getReportJson())
                 .contains("\"droppedNonApi\"")
                 .contains("\"lowScore\":1")
                 .contains("\"total\":1"); // 파생 total JSON 출현
@@ -284,17 +284,17 @@ class DiscoveryJobServiceTest {
 
         // 스캔 B: /page exclude 설정 → DROP_EXCLUDED, dropped=(1,0,0). findings 동일(둘 다 Shadow 0)·dropped 분포만 변경
         ClassificationConfig g = new ClassificationConfig();
-        g.id = 1L;
-        g.profile = ClassificationProfile.MIDDLE;
-        g.matcherJson = "{\"excludePathPrefixes\":[\"/page\"]}";
+        g.setId(1L);
+        g.setProfile(ClassificationProfile.MIDDLE);
+        g.setMatcherJson("{\"excludePathPrefixes\":[\"/page\"]}");
         when(globalClsRepo.findById(1L)).thenReturn(Optional.of(g));
         resolver.invalidateAll();
         ScanResult b = service.analyze(HOST, lines, window);
 
-        assertThat(a.shadow).isZero();
-        assertThat(b.shadow).isZero();
-        assertThat(a.discovered).isEqualTo(b.discovered); // summary 동일
-        assertThat(a.version).isNotEqualTo(b.version);     // dropped 분포 변화가 ETag 에 반영 (doc/12 §4)
+        assertThat(a.getShadow()).isZero();
+        assertThat(b.getShadow()).isZero();
+        assertThat(a.getDiscovered()).isEqualTo(b.getDiscovered()); // summary 동일
+        assertThat(a.getVersion()).isNotEqualTo(b.getVersion());     // dropped 분포 변화가 ETag 에 반영 (doc/12 §4)
     }
 
     @Test
@@ -306,13 +306,13 @@ class DiscoveryJobServiceTest {
         // 스캔 A: /probe/1·/probe/2 전부 404(INFERRED /probe/{id}) → 비실재 hard-drop. droppedNonExistent=1, reportJson 노출
         ScanResult a = service.analyze(HOST, List.of(
                 line("GET", "/probe/1", 404), line("GET", "/probe/2", 404)), window);
-        assertThat(a.reportJson).contains("\"droppedNonExistent\"").contains("\"notFound\":1");
+        assertThat(a.getReportJson()).contains("\"droppedNonExistent\"").contains("\"notFound\":1");
 
         // 스캔 B: /probe/2 가 200(실재) → 100%-404 아님 → drop 0. notFound=0 + ETag 다름(실재성 분포 변화 반영, doc/19 §4)
         ScanResult b = service.analyze(HOST, List.of(
                 line("GET", "/probe/1", 404), line("GET", "/probe/2", 200)), window);
-        assertThat(b.reportJson).contains("\"notFound\":0");
-        assertThat(a.version).isNotEqualTo(b.version);
+        assertThat(b.getReportJson()).contains("\"notFound\":0");
+        assertThat(a.getVersion()).isNotEqualTo(b.getVersion());
     }
 
     @Test
@@ -323,7 +323,7 @@ class DiscoveryJobServiceTest {
 
         // line() 헬퍼는 referer="-"(null)·정적 미경유 → endpoint_kind referer 신호 DORMANT, reportJson 에 노출 (doc/20 §5)
         ScanResult r = service.analyze(HOST, List.of(line("GET", "/x", 200)), window);
-        assertThat(r.reportJson).contains("\"endpointKindSignal\"").contains("\"status\":\"DORMANT\"");
+        assertThat(r.getReportJson()).contains("\"endpointKindSignal\"").contains("\"status\":\"DORMANT\"");
     }
 
     @Test
@@ -338,7 +338,7 @@ class DiscoveryJobServiceTest {
 
         // 기본 파서(idx=-1) → acrm 무시 → DORMANT (무회귀)
         ScanResult dormant = service.analyze(HOST, lines, window);
-        assertThat(dormant.reportJson).contains("\"preflightSignal\"").contains("\"status\":\"DORMANT\"");
+        assertThat(dormant.getReportJson()).contains("\"preflightSignal\"").contains("\"status\":\"DORMANT\"");
 
         // acrm 파서(idx=20) → acrm 읽음 → ACTIVE
         var acrmService = new DiscoveryJobService(new LogLineParser(NORM, new ParseProperties(20)),
@@ -351,16 +351,16 @@ class DiscoveryJobServiceTest {
                 mock(DiscoveredEndpointRepository.class), mock(LokiClient.class), mock(LokiQueryBuilder.class),
                 objectMapper, props());
         ScanResult active = acrmService.analyze(HOST, lines, window);
-        assertThat(active.reportJson).contains("\"status\":\"ACTIVE\"");
+        assertThat(active.getReportJson()).contains("\"status\":\"ACTIVE\"");
 
         // status 전환(DORMANT→ACTIVE)이 ETag 에 반영 (doc/23 §9.5)
-        assertThat(dormant.version).isNotEqualTo(active.version);
+        assertThat(dormant.getVersion()).isNotEqualTo(active.getVersion());
     }
 
     @Test
     void crossScanReScanSameDataYieldsSameEtagAndAccumulatesDiscovered() {
         SpecRecord rec = new SpecRecord();
-        rec.specVersion = 1L;
+        rec.setSpecVersion(1L);
         when(specStore.activeMeta(HOST)).thenReturn(Optional.of(rec));
         when(specStore.loadActiveCanonical(HOST)).thenReturn(List.of(
                 new CanonicalEndpoint("GET", "/v2/old", null, true, null, "ref"))); // deprecated → Zombie
@@ -369,15 +369,15 @@ class DiscoveryJobServiceTest {
 
         List<String> lines = List.of(line("GET", "/v2/old", 200), line("GET", "/v2/old", 200));
         ScanResult s1 = service.analyze(HOST, lines, window);
-        assertThat(s1.zombie).isEqualTo(1);
+        assertThat(s1.getZombie()).isEqualTo(1);
         // 검출 SoT 누적(doc/26 §2) — 검출 endpoint 기록(spec 매칭 무관) + version=v2(path ^v\d+$ 도출, §4)
-        assertThat(discStore).filteredOn(r -> r.host.equals(HOST) && r.pathTemplate.equals("/v2/old"))
+        assertThat(discStore).filteredOn(r -> r.getHost().equals(HOST) && r.getPathTemplate().equals("/v2/old"))
                 .singleElement()
-                .satisfies(r -> assertThat(r.version).isEqualTo("v2"));
+                .satisfies(r -> assertThat(r.getVersion()).isEqualTo("v2"));
 
         // 재스캔(동일 데이터+누적 firstSeen): now 무의존·lifespan 동일 → 동일 version (doc/24 §5, doc/26 §8)
         ScanResult s2 = service.analyze(HOST, lines, window);
-        assertThat(s2.version).isEqualTo(s1.version);
+        assertThat(s2.getVersion()).isEqualTo(s1.getVersion());
     }
 
     @Test
@@ -395,20 +395,20 @@ class DiscoveryJobServiceTest {
         discStore.add(seedDiscovered("GET", "/recent", Instant.parse("2019-12-01T00:00:00Z"))); // > cutoff → 보존
 
         service.analyze(HOST, List.of(), w); // 무트래픽 — prune 만 검증(upsert 무영향)
-        assertThat(discStore).extracting(r -> r.pathTemplate).containsExactly("/recent"); // stale 삭제·recent 보존
+        assertThat(discStore).extracting(r -> r.getPathTemplate()).containsExactly("/recent"); // stale 삭제·recent 보존
 
         // 동일 윈도우 재스캔: recent 여전히 > cutoff → 보존, 중복 없음(idempotent)
         service.analyze(HOST, List.of(), w);
-        assertThat(discStore).extracting(r -> r.pathTemplate).containsExactly("/recent");
+        assertThat(discStore).extracting(r -> r.getPathTemplate()).containsExactly("/recent");
     }
 
     @Test
     void reportExposesSpecSourceWarningsAndLowConfidenceFlag() {
         // §A: 업로드 시 영속된 warnings → specSource 로 로드(재파싱 없음), low_confidence 플래그 노출
         SpecRecord rec = new SpecRecord();
-        rec.specVersion = 2L;
-        rec.format = SpecFormat.OPENAPI;
-        rec.warningsJson = "[\"row 3 skipped: missing method\"]";
+        rec.setSpecVersion(2L);
+        rec.setFormat(SpecFormat.OPENAPI);
+        rec.setWarningsJson("[\"row 3 skipped: missing method\"]");
         when(specStore.activeMeta(HOST)).thenReturn(Optional.of(rec));
         when(specStore.loadActiveCanonical(HOST)).thenReturn(List.of(
                 new CanonicalEndpoint("GET", "/v2/old", null, true, null, "ref"))); // deprecated → Zombie
@@ -417,15 +417,15 @@ class DiscoveryJobServiceTest {
 
         ScanResult r = service.analyze(HOST, List.of(
                 line("GET", "/v2/old", 200), line("GET", "/v2/old", 200)), window);
-        assertThat(r.reportJson).contains("\"specSource\"").contains("missing method").contains("\"low_confidence\"");
+        assertThat(r.getReportJson()).contains("\"specSource\"").contains("missing method").contains("\"low_confidence\"");
     }
 
     @Test
     void activeParamsQueryCountChangeDoesNotBumpEtag() {
         // §B.3: query param count 만 다른 두 스캔 → ETag 이름집합 투영 동일 → 무bump
         SpecRecord rec = new SpecRecord();
-        rec.specVersion = 1L;
-        rec.format = SpecFormat.OPENAPI;
+        rec.setSpecVersion(1L);
+        rec.setFormat(SpecFormat.OPENAPI);
         when(specStore.activeMeta(HOST)).thenReturn(Optional.of(rec));
         when(specStore.loadActiveCanonical(HOST)).thenReturn(List.of(
                 new CanonicalEndpoint("GET", "/v2/users/{id}", null, false, null, "ref"))); // Active
@@ -437,8 +437,8 @@ class DiscoveryJobServiceTest {
         ScanResult b = service.analyze(HOST, List.of(
                 line("GET", "/v2/users/1?expand=full", 200), line("GET", "/v2/users/2?expand=full", 200),
                 line("GET", "/v2/users/3?expand=full", 200), line("GET", "/v2/users/4?expand=full", 200)), window);
-        assertThat(a.active).isEqualTo(1);
-        assertThat(a.version).isEqualTo(b.version); // expand count 2 vs 4, 이름집합 {expand} 동일 → 무bump
+        assertThat(a.getActive()).isEqualTo(1);
+        assertThat(a.getVersion()).isEqualTo(b.getVersion()); // expand count 2 vs 4, 이름집합 {expand} 동일 → 무bump
     }
 
     @Test
@@ -453,14 +453,14 @@ class DiscoveryJobServiceTest {
                 line("GET", "/page", 200), line("GET", "/page", 200),
                 line("GET", "/probe/1", 404), line("GET", "/probe/2", 404)), window);
 
-        assertThat(r.totalDropped).isEqualTo(2); // 1(lowScore) + 0 + 1(nonExistent)
-        assertThat(r.reportJson).contains("\"droppedNonApi\"").contains("\"droppedNonExistent\""); // 상세 불변
+        assertThat(r.getTotalDropped()).isEqualTo(2); // 1(lowScore) + 0 + 1(nonExistent)
+        assertThat(r.getReportJson()).contains("\"droppedNonApi\"").contains("\"droppedNonExistent\""); // 상세 불변
     }
 
     @Test
     void zombieSeverityCreepWithinBandDoesNotBumpEtag() {
         SpecRecord rec = new SpecRecord();
-        rec.specVersion = 1L;
+        rec.setSpecVersion(1L);
         when(specStore.activeMeta(HOST)).thenReturn(Optional.of(rec));
         when(specStore.loadActiveCanonical(HOST)).thenReturn(List.of(
                 new CanonicalEndpoint("GET", "/v2/old", null, true, null, "ref")));
@@ -472,8 +472,8 @@ class DiscoveryJobServiceTest {
                 line("GET", "/v2/old", 200), line("GET", "/v2/old", 200)), window);
         ScanResult b = service.analyze(HOST, List.of(
                 line("GET", "/v2/old", 200), line("GET", "/v2/old", 200), line("GET", "/v2/old", 200)), window);
-        assertThat(a.zombie).isEqualTo(1);
-        assertThat(a.version).isEqualTo(b.version);
+        assertThat(a.getZombie()).isEqualTo(1);
+        assertThat(a.getVersion()).isEqualTo(b.getVersion());
     }
 
     @Test
@@ -485,7 +485,7 @@ class DiscoveryJobServiceTest {
         // $type=document 2건 → corpus 히스토그램 reportJson 노출 (doc/21 Tier1)
         ScanResult r = service.analyze(HOST, List.of(
                 lineT("GET", "/p1", 200, "document"), lineT("GET", "/p2", 200, "document")), window);
-        assertThat(r.reportJson).contains("\"typeDistribution\"").contains("\"document\"");
+        assertThat(r.getReportJson()).contains("\"typeDistribution\"").contains("\"document\"");
     }
 
     @Test
@@ -508,8 +508,8 @@ class DiscoveryJobServiceTest {
                 lineT("GET", "/x", 200, "document"), lineT("GET", "/x", 200, "document"),
                 lineT("GET", "/x", 200, "document"), lineT("GET", "/x", 200, "xhr")), window);
 
-        assertThat(a.version).isEqualTo(b.version);    // count 변동 → 무bump
-        assertThat(a.version).isNotEqualTo(c.version);  // 신규 $type 키 → bump
+        assertThat(a.getVersion()).isEqualTo(b.getVersion());    // count 변동 → 무bump
+        assertThat(a.getVersion()).isNotEqualTo(c.getVersion());  // 신규 $type 키 → bump
     }
 
     @Test
@@ -524,8 +524,8 @@ class DiscoveryJobServiceTest {
                 line("POST", "/api/orders/2?expand=full", 200),
                 line("POST", "/api/orders/3?expand=full", 200)), window);
 
-        assertThat(result.shadow).isEqualTo(1);
-        assertThat(result.reportJson)
+        assertThat(result.getShadow()).isEqualTo(1);
+        assertThat(result.getReportJson())
                 .contains("\"params\"")
                 .contains("\"expand\"")           // query param 후보
                 .contains("\"token\":\"{id}\"");  // path param 후보 (PathParam 직렬화)
@@ -555,8 +555,8 @@ class DiscoveryJobServiceTest {
                 line("GET", "/c/x", 200)), window);
 
         // droppedByLimit 가 reportJson(=ETag 입력)에 임베드 → 상한 이벤트가 결과 콘텐츠에 반영 (doc/13 §4.2)
-        assertThat(result.reportJson).contains("\"droppedByLimit\"").contains("\"templates\":1");
-        assertThat(result.version).isNotBlank();
+        assertThat(result.getReportJson()).contains("\"droppedByLimit\"").contains("\"templates\":1");
+        assertThat(result.getVersion()).isNotBlank();
     }
 
     @Test
@@ -570,24 +570,24 @@ class DiscoveryJobServiceTest {
 
         // v1: spec 에 /users/{id} → 트래픽 매칭 → Active
         SpecRecord v1 = new SpecRecord();
-        v1.specVersion = 1L;
+        v1.setSpecVersion(1L);
         when(specStore.activeMeta(HOST)).thenReturn(Optional.of(v1));
         when(specStore.loadActiveCanonical(HOST)).thenReturn(List.of(
                 new CanonicalEndpoint("GET", "/users/{id}", null, false, null, "ref")));
         ScanResult r1 = service.analyze(HOST, traffic, window);
-        assertThat(r1.active).isEqualTo(1);
-        assertThat(r1.shadow).isZero();
+        assertThat(r1.getActive()).isEqualTo(1);
+        assertThat(r1.getShadow()).isZero();
 
         // v2(버전 변경): spec 이 /orders/{id} 로 교체 → 동일 host·매처 캐시는 (host,specVersion) 키라 재빌드
         SpecRecord v2 = new SpecRecord();
-        v2.specVersion = 2L;
+        v2.setSpecVersion(2L);
         when(specStore.activeMeta(HOST)).thenReturn(Optional.of(v2));
         when(specStore.loadActiveCanonical(HOST)).thenReturn(List.of(
                 new CanonicalEndpoint("GET", "/orders/{id}", null, false, null, "ref")));
         ScanResult r2 = service.analyze(HOST, traffic, window);
         // 새 매처(v2) 반영: /users 는 더 이상 매칭 안 됨 → Shadow. stale v1 매처였다면 Active 였을 것
-        assertThat(r2.active).isZero();
-        assertThat(r2.shadow).isEqualTo(1);
+        assertThat(r2.getActive()).isZero();
+        assertThat(r2.getShadow()).isEqualTo(1);
     }
 
     @Test
@@ -628,11 +628,11 @@ class DiscoveryJobServiceTest {
     /** discStore 사전 적재용 검출 record(prune 경계 테스트). firstSeen=lastSeen 동일. */
     private static DiscoveredEndpointRecord seedDiscovered(String method, String template, Instant lastSeen) {
         DiscoveredEndpointRecord r = new DiscoveredEndpointRecord();
-        r.host = HOST;
-        r.method = method;
-        r.pathTemplate = template;
-        r.firstSeen = lastSeen;
-        r.lastSeen = lastSeen;
+        r.setHost(HOST);
+        r.setMethod(method);
+        r.setPathTemplate(template);
+        r.setFirstSeen(lastSeen);
+        r.setLastSeen(lastSeen);
         return r;
     }
 

@@ -20,17 +20,17 @@ class DomainClassificationConfigRepositoryTest {
         assertThat(repo.findById("api.example.com")).isEmpty();
 
         DomainClassificationConfig d = new DomainClassificationConfig();
-        d.host = "api.example.com";
-        d.profile = ClassificationProfile.LOW;
-        d.thresholdOverride = 0.5;
-        d.matcherJson = "{\"excludePathPrefixes\":[\"/legacy\"],\"includeWebForms\":false}";
-        d.updatedAt = Instant.EPOCH;
+        d.setHost("api.example.com");
+        d.setProfile(ClassificationProfile.LOW);
+        d.setThresholdOverride(0.5);
+        d.setMatcherJson("{\"excludePathPrefixes\":[\"/legacy\"],\"includeWebForms\":false}");
+        d.setUpdatedAt(Instant.EPOCH);
         repo.save(d);
 
         assertThat(repo.findById("api.example.com")).get().satisfies(x -> {
-            assertThat(x.profile).isEqualTo(ClassificationProfile.LOW);
-            assertThat(x.thresholdOverride).isEqualTo(0.5);
-            assertThat(x.matcherJson).contains("/legacy");
+            assertThat(x.getProfile()).isEqualTo(ClassificationProfile.LOW);
+            assertThat(x.getThresholdOverride()).isEqualTo(0.5);
+            assertThat(x.getMatcherJson()).contains("/legacy");
         });
         // 다른 host 는 부재(행 없음 = 전역 사용)
         assertThat(repo.findById("other.example.com")).isEmpty();

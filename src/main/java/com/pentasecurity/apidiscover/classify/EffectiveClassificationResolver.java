@@ -69,22 +69,22 @@ public class EffectiveClassificationResolver {
         DomainClassificationConfig domain = domainRepo.findById(host).orElse(null);
         try {
             // always-validate (doc/10 §4): profile 무관하게 항상 파싱·검증. 값 적용은 CUSTOM 일 때만(검증과 적용 분리, §3).
-            Map<String, Double> globalWeights = parseWeights(global != null ? global.customWeightsJson : null);
-            Map<String, Double> domainWeights = parseWeights(domain != null ? domain.customWeightsJson : null);
+            Map<String, Double> globalWeights = parseWeights(global != null ? global.getCustomWeightsJson() : null);
+            Map<String, Double> domainWeights = parseWeights(domain != null ? domain.getCustomWeightsJson() : null);
             ApiScorer.validateWeightOverrides(globalWeights);
             ApiScorer.validateWeightOverrides(domainWeights);
-            ApiScorer.validateThreshold(global != null ? global.thresholdOverride : null);
-            ApiScorer.validateThreshold(domain != null ? domain.thresholdOverride : null);
+            ApiScorer.validateThreshold(global != null ? global.getThresholdOverride() : null);
+            ApiScorer.validateThreshold(domain != null ? domain.getThresholdOverride() : null);
 
             ClassificationProfile profile = firstNonNull(
-                    domain != null ? domain.profile : null,
-                    global != null ? global.profile : null,
+                    domain != null ? domain.getProfile() : null,
+                    global != null ? global.getProfile() : null,
                     ClassificationProfile.MIDDLE);
 
             // threshold: 도메인 > 전역 > preset (어떤 프로파일에서도 override 가능, §3)
             Double thresholdOverride = firstNonNull(
-                    domain != null ? domain.thresholdOverride : null,
-                    global != null ? global.thresholdOverride : null);
+                    domain != null ? domain.getThresholdOverride() : null,
+                    global != null ? global.getThresholdOverride() : null);
 
             // weights: preset(profile), CUSTOM 일 때만 MIDDLE 베이스 + global∪domain override(키별 domain 승, §3)
             ApiScorer.Weights base = ApiScorer.presetWeights(toApiProfile(profile));
@@ -134,8 +134,8 @@ public class EffectiveClassificationResolver {
 
     /** 전역 매처: 없으면 NONE(빈+TRUE). 있으면 파싱 후 includeWebForms=null→TRUE 정규화(억제 opt-in, §5). */
     private MatcherConfig globalMatcher(ClassificationConfig global) {
-        MatcherConfig m = (global != null && global.matcherJson != null)
-                ? parseMatcher(global.matcherJson, "global")
+        MatcherConfig m = (global != null && global.getMatcherJson() != null)
+                ? parseMatcher(global.getMatcherJson(), "global")
                 : MatcherConfig.NONE;
         if (m.includeWebForms() == null) {
             // includeWebForms 만 TRUE 로 정규화 — 나머지 필드(optionsOperationPrefixes 포함) 전부 보존(6-arg)
@@ -147,8 +147,8 @@ public class EffectiveClassificationResolver {
 
     /** 도메인 매처: 없으면 빈+null(상속). includeWebForms 정규화 안 함(null=전역 상속). */
     private MatcherConfig domainMatcher(DomainClassificationConfig domain) {
-        return (domain != null && domain.matcherJson != null)
-                ? parseMatcher(domain.matcherJson, "domain:" + domain.host)
+        return (domain != null && domain.getMatcherJson() != null)
+                ? parseMatcher(domain.getMatcherJson(), "domain:" + domain.getHost())
                 : new MatcherConfig(List.of(), List.of(), List.of(), List.of(), null);
     }
 

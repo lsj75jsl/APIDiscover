@@ -5,6 +5,20 @@
 
 ---
 
+## 2026-06-25 세션 28 — 엔티티 캡슐화 (P2 마무리, doc/29 D41)
+
+### 한 일
+- 7 `@Entity`(약 63 public 필드)를 private + getter/setter 로 캡슐화. **블래스트 반경 오름차순 5스테이지**, 각 스테이지 끝 `./gradlew build` green 확인: ① Watermark(2) ② ClassificationConfig(6)·DomainClassificationConfig(6) ③ DomainConfig(8) ④ SpecRecord(11)·ScanResult(14) ⑤ DiscoveredEndpointRecord(16).
+- **JPA 불변 핵심(§2)**: 애너테이션을 **필드에 그대로 유지**(getter 이동 금지) → field access 유지 → 매핑/DDL/ddl-auto/컬럼타입·`@ElementCollection`·`@Lob byte[]`·`columnDefinition="text"` 9필드·`@GeneratedValue`·`@Enumerated`·필드 초기화자 전부 불변. boolean=`isX()`(isEnabled/isActive/isHadQuery/isNonBrowserUa). 자동생성 id 2개(SpecRecord·DiscoveredEndpointRecord) **setter 미노출**(getter만). equals/hashCode 무신설. Lombok 미도입(신규 의존 0).
+- call-site 치환: main·test 다수 파일. 컴파일러 에러(파일·라인·필드·엔티티)를 파싱해 해당 위치만 getter/setter 로 바꾸는 보조 스크립트로 안전 치환(메서드콜·타 엔티티 동명필드 오변환은 컴파일러가 검출). 쓰기=setX/읽기=getX 구분, 쓰기+읽기 혼재 라인도 정확 처리.
+
+### 결과
+- 최종 `./gradlew build` **BUILD SUCCESSFUL, 총 332 실패 0 skip 1**(=LokiLive 불변), `PostgresIntegrationTest` podman **13건 실행·통과 skip 0**(=PG DDL 생성 동일 = 매핑 불변 증거). 엔티티 public 필드 잔존 0, `setId` 0건 확인.
+- **테스트 기대값/단언 변경 0**(대입 구문 형태만 getter/setter 로). 단 `SpecStoreTest` stateful mock helper 1곳은 생성 id setter 제거(D41 §4)에 따라 가짜 id 부여 라인만 제거 — identity 기반 add-once 유지, id 값은 어디서도 미단언.
+
+### 다음 단계
+- 커밋 금지(매니저 리뷰 후 일괄 커밋·PR·머지). build green 까지. 머지 시 부모 항목 Done. doc/18 무영향(스키마 불변). P2 품질/테스트 버킷의 마지막 항목.
+
 ## 2026-06-25 세션 27 — Testcontainers(PostgreSQL) 통합 테스트 + @Lob String→text 실결함 수정 (doc/28, D40, D37)
 
 ### 한 일

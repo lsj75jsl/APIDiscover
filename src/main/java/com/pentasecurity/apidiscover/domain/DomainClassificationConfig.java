@@ -10,29 +10,78 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
 
-// NOTE: 스캐폴딩 단순화를 위해 public 필드 사용(TODO: 캡슐화). 행 부재 = "전역 사용"(희소).
+// 캡슐화 완료(doc/29 D41): private 필드 + 접근자. 애너테이션은 필드 유지 → JPA field access 불변.
+// 행 부재 = "전역 사용"(희소).
 @Entity
 @Table(name = "domain_classification_config")
 public class DomainClassificationConfig {
 
     /** 1:1 DomainConfig.host. */
     @Id
-    public String host;
+    private String host;
 
     /** nullable = 전역 프로파일 상속. */
     @Enumerated(EnumType.STRING)
-    public ClassificationProfile profile;
+    private ClassificationProfile profile;
 
     /** nullable = 전역/preset 임계 상속. */
-    public Double thresholdOverride;
+    private Double thresholdOverride;
 
     /** nullable — Map&lt;String,Double&gt;(CUSTOM 한정 가중치 override). */
     @Column(columnDefinition = "text") // PG text 매핑(@Lob String→oid 회피, doc/28 D40/D37)
-    public String customWeightsJson;
+    private String customWeightsJson;
 
     /** nullable — MatcherConfig(도메인 override, includeWebForms nullable). */
     @Column(columnDefinition = "text") // PG text 매핑(@Lob String→oid 회피, doc/28 D40/D37)
-    public String matcherJson;
+    private String matcherJson;
 
-    public Instant updatedAt;
+    private Instant updatedAt;
+
+    public String getHost() {
+        return host;
+    }
+
+    public void setHost(String host) {
+        this.host = host;
+    }
+
+    public ClassificationProfile getProfile() {
+        return profile;
+    }
+
+    public void setProfile(ClassificationProfile profile) {
+        this.profile = profile;
+    }
+
+    public Double getThresholdOverride() {
+        return thresholdOverride;
+    }
+
+    public void setThresholdOverride(Double thresholdOverride) {
+        this.thresholdOverride = thresholdOverride;
+    }
+
+    public String getCustomWeightsJson() {
+        return customWeightsJson;
+    }
+
+    public void setCustomWeightsJson(String customWeightsJson) {
+        this.customWeightsJson = customWeightsJson;
+    }
+
+    public String getMatcherJson() {
+        return matcherJson;
+    }
+
+    public void setMatcherJson(String matcherJson) {
+        this.matcherJson = matcherJson;
+    }
+
+    public Instant getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public void setUpdatedAt(Instant updatedAt) {
+        this.updatedAt = updatedAt;
+    }
 }

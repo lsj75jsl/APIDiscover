@@ -27,13 +27,13 @@ public class SpecController {
     @PutMapping
     public SpecMetaView upload(@PathVariable String host, @RequestBody byte[] content) {
         SpecRecord r = specStore.upload(host, content);
-        return new SpecMetaView(r.format, r.specVersion, r.endpointCount, r.uploadedAt);
+        return new SpecMetaView(r.getFormat(), r.getSpecVersion(), r.getEndpointCount(), r.getUploadedAt());
     }
 
     @GetMapping
     public SpecMetaView meta(@PathVariable String host) {
         return specStore.activeMeta(host)
-                .map(r -> new SpecMetaView(r.format, r.specVersion, r.endpointCount, r.uploadedAt))
+                .map(r -> new SpecMetaView(r.getFormat(), r.getSpecVersion(), r.getEndpointCount(), r.getUploadedAt()))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no spec"));
     }
 }

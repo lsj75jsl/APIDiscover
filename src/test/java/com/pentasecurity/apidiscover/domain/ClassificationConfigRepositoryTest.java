@@ -23,24 +23,24 @@ class ClassificationConfigRepositoryTest {
     @Test
     void singleRowUpsertOnFixedPk() {
         ClassificationConfig c = new ClassificationConfig();
-        c.id = 1L;
-        c.profile = ClassificationProfile.HIGH;
-        c.thresholdOverride = 0.8;
-        c.customWeightsJson = "{\"apiSegment\":0.9}";
-        c.matcherJson = "{\"apiPathPrefixes\":[\"/api\"]}";
-        c.updatedAt = Instant.EPOCH;
+        c.setId(1L);
+        c.setProfile(ClassificationProfile.HIGH);
+        c.setThresholdOverride(0.8);
+        c.setCustomWeightsJson("{\"apiSegment\":0.9}");
+        c.setMatcherJson("{\"apiPathPrefixes\":[\"/api\"]}");
+        c.setUpdatedAt(Instant.EPOCH);
         repo.save(c);
 
         ClassificationConfig loaded = repo.findById(1L).orElseThrow();
-        assertThat(loaded.profile).isEqualTo(ClassificationProfile.HIGH);
-        assertThat(loaded.thresholdOverride).isEqualTo(0.8);
-        assertThat(loaded.customWeightsJson).contains("apiSegment");
-        assertThat(loaded.matcherJson).contains("/api");
+        assertThat(loaded.getProfile()).isEqualTo(ClassificationProfile.HIGH);
+        assertThat(loaded.getThresholdOverride()).isEqualTo(0.8);
+        assertThat(loaded.getCustomWeightsJson()).contains("apiSegment");
+        assertThat(loaded.getMatcherJson()).contains("/api");
 
         // 같은 고정 PK 재저장 → 단일행 유지(upsert)
-        c.profile = ClassificationProfile.LOW;
+        c.setProfile(ClassificationProfile.LOW);
         repo.save(c);
         assertThat(repo.count()).isEqualTo(1);
-        assertThat(repo.findById(1L).orElseThrow().profile).isEqualTo(ClassificationProfile.LOW);
+        assertThat(repo.findById(1L).orElseThrow().getProfile()).isEqualTo(ClassificationProfile.LOW);
     }
 }

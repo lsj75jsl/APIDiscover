@@ -84,30 +84,30 @@ public class SpecStore {
 
         String name = normalizeName(specName);
         long nextVersion = repo.findFirstByHostOrderBySpecVersionDesc(host)
-                .map(prev -> prev.specVersion + 1)
+                .map(prev -> prev.getSpecVersion() + 1)
                 .orElse(1L);
 
         // 모드별 기존 active 비활성화 (doc/26 §5). null specName(기존행)=default 로 해석.
         SpecMergeStrategy mode = mode(host);
         boolean replaceAll = (mode == SpecMergeStrategy.SEPARATE);
         for (SpecRecord prev : repo.findByHostAndActiveIsTrue(host)) {
-            if (replaceAll || name.equals(normalizeName(prev.specName))) {
-                prev.active = false;
+            if (replaceAll || name.equals(normalizeName(prev.getSpecName()))) {
+                prev.setActive(false);
                 repo.save(prev);
             }
         }
 
         SpecRecord record = new SpecRecord();
-        record.host = host;
-        record.specName = name;
-        record.format = format;
-        record.specVersion = nextVersion;
-        record.rawDoc = content;
-        record.canonicalJson = writeCanonical(canonical);
-        record.warningsJson = writeWarnings(parsed.warnings());
-        record.endpointCount = canonical.size();
-        record.uploadedAt = Instant.now();
-        record.active = true;
+        record.setHost(host);
+        record.setSpecName(name);
+        record.setFormat(format);
+        record.setSpecVersion(nextVersion);
+        record.setRawDoc(content);
+        record.setCanonicalJson(writeCanonical(canonical));
+        record.setWarningsJson(writeWarnings(parsed.warnings()));
+        record.setEndpointCount(canonical.size());
+        record.setUploadedAt(Instant.now());
+        record.setActive(true);
 
         SpecRecord saved = repo.save(record);
         // 업로드(콘텐츠 변화) → 구버전 matcher 슬롯 해제(doc/15 §2). 새 합성버전은 version-miss 로 자동 재빌드.
@@ -126,7 +126,7 @@ public class SpecStore {
         }
         List<SpecCanonicalizer.VersionedCanonical> docs = new ArrayList<>(actives.size());
         for (SpecRecord r : actives) {
-            docs.add(new SpecCanonicalizer.VersionedCanonical(r.specVersion, readCanonical(r.canonicalJson)));
+            docs.add(new SpecCanonicalizer.VersionedCanonical(r.getSpecVersion(), readCanonical(r.getCanonicalJson())));
         }
         return SpecCanonicalizer.merge(docs);
     }
@@ -150,7 +150,7 @@ public class SpecStore {
     /** 도메인 병합 전략(없거나 null → MERGE=현행, doc/26 §5). */
     private SpecMergeStrategy mode(String host) {
         return domainRepo.findById(host)
-                .map(c -> c.specMergeStrategy)
+                .map(c -> c.getSpecMergeStrategy())
                 .filter(Objects::nonNull)
                 .orElse(SpecMergeStrategy.MERGE);
     }
@@ -174,18 +174,18 @@ public class SpecStore {
             return SpecSource.EMPTY;
         }
         List<SpecRecord> sorted = records.stream()
-                .sorted(Comparator.comparing((SpecRecord r) -> normalizeName(r.specName))
-                        .thenComparingLong(r -> r.specVersion))
+                .sorted(Comparator.comparing((SpecRecord r) -> normalizeName(r.getSpecName()))
+                        .thenComparingLong(r -> r.getSpecVersion()))
                 .toList();
-        SpecFormat format = sorted.get(0).format;
+        SpecFormat format = sorted.get(0).getFormat();
         LinkedHashSet<String> warnings = new LinkedHashSet<>();
         List<SpecSource.SpecDocument> docs = new ArrayList<>(sorted.size());
         for (SpecRecord r : sorted) {
-            if (r.format != format) {
+            if (r.getFormat() != format) {
                 format = null; // 혼합 포맷 → null (doc/26 §9)
             }
-            warnings.addAll(parseWarnings(r.warningsJson, om));
-            docs.add(new SpecSource.SpecDocument(normalizeName(r.specName), r.format, r.specVersion));
+            warnings.addAll(parseWarnings(r.getWarningsJson(), om));
+            docs.add(new SpecSource.SpecDocument(normalizeName(r.getSpecName()), r.getFormat(), r.getSpecVersion()));
         }
         return new SpecSource(specVersion, format, new ArrayList<>(warnings), docs);
     }

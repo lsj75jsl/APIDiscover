@@ -54,10 +54,10 @@ class ClassificationControllerTest {
 
     private void registerDomain(String host) {
         DomainConfig d = new DomainConfig();
-        d.host = host;
-        d.enabled = true;
-        d.createdAt = Instant.EPOCH;
-        d.updatedAt = Instant.EPOCH;
+        d.setHost(host);
+        d.setEnabled(true);
+        d.setCreatedAt(Instant.EPOCH);
+        d.setUpdatedAt(Instant.EPOCH);
         domainRepo.save(d);
     }
 
@@ -241,10 +241,10 @@ class ClassificationControllerTest {
         registerDomain("shop.example.com");
         // out-of-band: 컨트롤러 검증 우회하고 손상된 전역 설정(threshold 범위 밖) 직접 저장
         ClassificationConfig bad = new ClassificationConfig();
-        bad.id = 1L;
-        bad.profile = ClassificationProfile.MIDDLE;
-        bad.thresholdOverride = 2.0; // 범위 밖
-        bad.updatedAt = Instant.EPOCH;
+        bad.setId(1L);
+        bad.setProfile(ClassificationProfile.MIDDLE);
+        bad.setThresholdOverride(2.0); // 범위 밖
+        bad.setUpdatedAt(Instant.EPOCH);
         globalRepo.save(bad);
         resolver.invalidateAll();
 

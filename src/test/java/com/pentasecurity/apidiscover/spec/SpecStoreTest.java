@@ -67,11 +67,11 @@ class SpecStoreTest {
 
         SpecRecord saved = store.upload(HOST, OPENAPI);
 
-        assertThat(saved.specVersion).isEqualTo(1L);
-        assertThat(saved.active).isTrue();
-        assertThat(saved.format).isEqualTo(SpecFormat.OPENAPI);
-        assertThat(saved.endpointCount).isEqualTo(2);
-        assertThat(saved.canonicalJson).contains("/v2/users/{id}");
+        assertThat(saved.getSpecVersion()).isEqualTo(1L);
+        assertThat(saved.isActive()).isTrue();
+        assertThat(saved.getFormat()).isEqualTo(SpecFormat.OPENAPI);
+        assertThat(saved.getEndpointCount()).isEqualTo(2);
+        assertThat(saved.getCanonicalJson()).contains("/v2/users/{id}");
     }
 
     @Test
@@ -88,18 +88,18 @@ class SpecStoreTest {
     @Test
     void secondUploadIncrementsVersionAndDeactivatesPrevious() {
         SpecRecord prev = new SpecRecord();
-        prev.host = HOST;
-        prev.specVersion = 3L;
-        prev.active = true;
+        prev.setHost(HOST);
+        prev.setSpecVersion(3L);
+        prev.setActive(true);
         when(repo.findFirstByHostOrderBySpecVersionDesc(HOST)).thenReturn(Optional.of(prev));
         when(repo.findByHostAndActiveIsTrue(HOST)).thenReturn(List.of(prev));
         when(repo.save(any(SpecRecord.class))).thenAnswer(inv -> inv.getArgument(0));
 
         SpecRecord saved = store.upload(HOST, OPENAPI);
 
-        assertThat(saved.specVersion).isEqualTo(4L);
-        assertThat(saved.active).isTrue();
-        assertThat(prev.active).isFalse(); // 이전 활성 버전 비활성화
+        assertThat(saved.getSpecVersion()).isEqualTo(4L);
+        assertThat(saved.isActive()).isTrue();
+        assertThat(prev.isActive()).isFalse(); // 이전 활성 버전 비활성화
     }
 
     @Test
@@ -130,7 +130,7 @@ class SpecStoreTest {
         s.upload(HOST, "users", openapi("/users/{id}"));
         s.upload(HOST, "orders", openapi("/orders/{id}")); // 다른 name → 형제 유지
 
-        assertThat(db).filteredOn(r -> r.active).extracting(r -> r.specName)
+        assertThat(db).filteredOn(r -> r.isActive()).extracting(r -> r.getSpecName())
                 .containsExactlyInAnyOrder("users", "orders");
         assertThat(s.loadActiveCanonical(HOST)).extracting(CanonicalEndpoint::pathTemplate)
                 .containsExactlyInAnyOrder("/users/{id}", "/orders/{id}"); // union (stateful repo)
@@ -144,7 +144,7 @@ class SpecStoreTest {
         s.upload(HOST, "users", openapi("/users/{id}"));
         s.upload(HOST, "orders", openapi("/orders/{id}")); // SEPARATE → users 도 비활성(전체 교체)
 
-        assertThat(db).filteredOn(r -> r.active).extracting(r -> r.specName)
+        assertThat(db).filteredOn(r -> r.isActive()).extracting(r -> r.getSpecName())
                 .containsExactly("orders"); // 최신 1개만 active
     }
 
@@ -156,7 +156,7 @@ class SpecStoreTest {
         s.upload(HOST, "v1", openapi("/v1/users/{id}"));
         s.upload(HOST, "v2", openapi("/v2/users/{id}")); // 공존(그룹 뷰는 3단계)
 
-        assertThat(db).filteredOn(r -> r.active).hasSize(2);
+        assertThat(db).filteredOn(r -> r.isActive()).hasSize(2);
     }
 
     @Test
@@ -167,7 +167,7 @@ class SpecStoreTest {
         s.upload(HOST, "users", openapi("/users/{id}"));
         s.upload(HOST, "users", openapi("/users/{userId}")); // 같은 name 재업로드 → 교체
 
-        assertThat(db).filteredOn(r -> r.active).hasSize(1); // 같은 name 이전본 비활성
+        assertThat(db).filteredOn(r -> r.isActive()).hasSize(1); // 같은 name 이전본 비활성
     }
 
     // --- 결정적 merge (doc/26 §5: dedupe + deprecated OR + latest-wins, 순서 무관) ---
@@ -229,14 +229,14 @@ class SpecStoreTest {
     private static SpecStore storeWith(List<SpecRecord> db, SpecMergeStrategy mode) {
         SpecRecordRepository r = mock(SpecRecordRepository.class);
         when(r.findFirstByHostOrderBySpecVersionDesc(any())).thenAnswer(inv -> db.stream()
-                .filter(x -> x.host.equals(inv.getArgument(0)))
-                .max(Comparator.comparingLong(x -> x.specVersion)));
+                .filter(x -> x.getHost().equals(inv.getArgument(0)))
+                .max(Comparator.comparingLong(x -> x.getSpecVersion())));
         when(r.findByHostAndActiveIsTrue(any())).thenAnswer(inv -> db.stream()
-                .filter(x -> x.host.equals(inv.getArgument(0)) && x.active).toList());
+                .filter(x -> x.getHost().equals(inv.getArgument(0)) && x.isActive()).toList());
         when(r.save(any(SpecRecord.class))).thenAnswer(inv -> {
             SpecRecord rec = inv.getArgument(0);
-            if (rec.id == null && !db.contains(rec)) {
-                rec.id = (long) (db.size() + 1);
+            // 생성 id 는 setter 미노출(D41) → 흉내 안 냄. identity 기반 add-once(id 값은 미사용·미단언).
+            if (rec.getId() == null && !db.contains(rec)) {
                 db.add(rec);
             }
             return rec;
@@ -244,8 +244,8 @@ class SpecStoreTest {
         DomainConfigRepository dRepo = mock(DomainConfigRepository.class);
         if (mode != null) {
             DomainConfig cfg = new DomainConfig();
-            cfg.host = HOST;
-            cfg.specMergeStrategy = mode;
+            cfg.setHost(HOST);
+            cfg.setSpecMergeStrategy(mode);
             when(dRepo.findById(HOST)).thenReturn(Optional.of(cfg));
         }
         return new SpecStore(r, new SpecFormatDetector(), new ObjectMapper(), mock(EndpointMatcherCache.class),
