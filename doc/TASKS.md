@@ -51,14 +51,7 @@
 > (현재 비어 있음 — 매칭 회귀테스트·F1/F2·@Lob→text 실검증·Testcontainers·엔티티 캡슐화 완료, Done 참조. Docker 의존 항목은 host podman 으로 해소.)
 
 ### P3. 운영/인프라 (자체 운영)
-- [ ] **(신규, doc/31 B)** CLI CSV 내보내기 — `--adc.cli.export-domain=<domain>` → 결합 Discovery CSV **(설계 완료 → doc/31 / DECISIONS D43, PR2)** — *구현 완료(build green 357, 머지 시 Done)*
-  - [x] CLI 모드 분기(`SpringApplicationBuilder.web(NONE).profiles("cli")`) + `@EnableScheduling`→`SchedulingConfig(@Profile("!cli"))` 분리(서버 동일 활성, 구조 테스트로 고정)
-  - [x] `CliExportRunner`(CommandLineRunner, @Profile cli, export()→exit code/run()→System.exit) + `DomainCsvWriter`(forHost→15컬럼·source 파생·RFC4180·first/last_seen discovered join 공란·score 범위밖)
-  - [x] 출력 `adc.cli.output-dir`(PGDATA 밖 `/exports`, `CliProperties`) + 테스트(포맷·이스케이프·5 status·join 공란·미존재 exit 비0) 10건
-- [ ] **(신규, doc/31 C)** Docker/podman 테스트 배포 — app+postgres pod + `/opt/adc` **(설계 완료 → doc/31 / DECISIONS D43, PR2)** — *구현 완료(podman build 성공, 머지 시 Done)*
-  - [x] Dockerfile(멀티스테이지 bootJar→temurin:21-jre, `-x test`, `*-SNAPSHOT.jar` glob) + `.dockerignore` + `application-container.yml`(PG·ddl-auto update·Loki LAN, env override)
-  - [x] `adc.yaml`(podman play kube, 2컨테이너 pod, app `localhost:5432`, PGDATA `/opt/adc`(pgdata 서브디렉터리) hostPath, exports 분리)
-  - [x] 배포/실행/CLI 절차 문서(`doc/32-container-deploy-runbook.md`, 운영 Loki 부하·off-peak 문구) + 검증=`podman build` 성공까지(컨테이너 기동·`/discovery`·LAN Loki 도달은 운영 Loki 주의로 배포 시 §6, 미수행)
+- [ ] **(배포 후속, doc/32 §6)** 테스트서버 실배포 검증 — `podman play kube adc.yaml` 기동·`/discovery`·CLI CSV 실생성·LAN Loki(192.168.8.100) 도달·실 `label_format` coalesce(`-Dloki.live`) — 운영 Loki off-peak 주의로 매니저/사용자 테스트서버 수행
 - [ ] off-peak 시간대 제한
 - [ ] 부하/운영 메트릭 (쿼리수·바이트·429) Actuator/Micrometer 노출 + 알람 — doc/12 `DroppedNonApi`·doc/13 `DroppedByLimit` 카운트 재사용 가능
 - [ ] Spring Batch JobRepository 실연결 (현재 `@Scheduled`만, `batch.job.enabled=false`)
@@ -79,6 +72,11 @@
 ---
 
 ## Done
+
+### CLI CSV 내보내기(B) + Docker/podman 테스트 배포(C) (2026-06-25, doc/31·32 / DECISIONS D43, PR #23) — tests=357(347+10) 실패0 skip2(live 게이트), podman build 성공
+- [x] B CLI — `main()` `--adc.cli.export-domain=` 분기(web NONE·profiles cli), `@EnableScheduling`→`SchedulingConfig(@Profile("!cli"))` 분리(서버 동일 활성·무회귀). `DomainCsvWriter` 15컬럼(source 파생=sealed Finding switch 망라·RFC4180·discovered join·score 범위밖), `CliExportRunner` exit 0/2/3/4. Loki 무접촉.
+- [x] C Docker — Dockerfile 멀티스테이지(temurin:21-jdk→jre, `*-SNAPSHOT.jar` glob)+`.dockerignore`, `application-container.yml`(PG·ddl-auto update·Loki LAN, application.yml H2 불변), `adc.yaml`(podman play kube, app+postgres pod, netns localhost:5432, PGDATA `/opt/adc` 서브디렉터리=initdb 충돌 회피, exports `/opt/adc-exports` 분리), `doc/32` 런북.
+> 리뷰 P1=0 P2=0 P3=2(둘 다 doc-only: CSV "14행"→"15열", `podman run` 예시 `java -jar` 중복 제거) 교정. 운영 Loki 보호: 단위 미호출·검증 `podman build` 까지. 실배포·LAN Loki 도달·실 coalesce 는 doc/32 §6 후속(P3, 테스트서버). **이로써 3부 묶음(도메인 디스커버리+CLI+배포) 전체 완료.**
 
 ### 도메인 자동 디스커버리 (A) — Loki 서버측 집계·무삭제 업서트 (2026-06-25, doc/30 / DECISIONS D42, PR #22) — tests=347(332+15) 실패0 skip2(live 게이트)
 - [x] `LokiClient.queryInstant`(/loki/api/v1/query 벡터) — requestWithRetry URL 인자형 추출로 throttle/concurrency(max2)/백오프/timeout 재사용, queryRange 불변.
