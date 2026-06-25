@@ -130,12 +130,12 @@ class DiscoveredEndpointRecord {
 - [x] `model/SpecMergeStrategy`(MERGE/SEPARATE/VERSION_GROUPED) + `DomainConfig.specMergeStrategy`(기본 MERGE, ddl-auto null→읽을 때 MERGE) + `DomainController`/`DomainDtos` DTO 가산(엔드포인트 0). `SpecStore` 모드 분기 — `upload(host,name,content)`: SEPARATE=host 전체 비활성(교체), MERGE/VERSION_GROUPED=같은 specName 만 비활성(형제 유지). `upload(host,content)`=default 위임(현행 무회귀). null specName(기존행)=default 해석.
 - [x] `SpecCanonicalizer.merge(List<VersionedCanonical>)` 결정적 — dedupe(method,host,template)+deprecated OR+비-deprecated latest-upload-wins(최신 specVersion, tie sourceRef). group+max+OR 교환법칙→순서 무관. 단일 문서=canonicalize 동치(무회귀). `loadActiveCanonical`=∪ active docs merge. 합성 spec 버전=`SpecStore.syntheticVersion`(merged canonical SHA-256, EtagUtil 앞 16hex=64bit→long·ETag 와 동일 알고리즘)→`DiscoveryJobService` report.specVersion/SpecSource/matcherCache 키(동일 콘텐츠=동일 버전). 멀티문서 SpecSource format/warnings union·documents[] 은 3단계.
 
-**3단계 결합·버전그룹(C/D)**
-- [ ] host 결합 Discovery 뷰 — Classifier(discovered_endpoint ∪ active spec) 불변, 결합 목록 + VERSION_GROUPED 그룹 구조. `SpecSource`+documents(doc/25 확장).
-- [ ] (선택) `/discovered`·`/spec` host 조회 엔드포인트.
+**3단계 결합·버전그룹(C/D)** → 완료 2026-06-25 (커밋 보류·리뷰 대기)
+- [x] host 결합 Discovery 뷰 — `CombinedDiscoveryService.forHost` 가 누적 discovered_endpoint(재구성) ∪ active spec 을 Classifier(불변, 5-arg classify·게이트 동일)로 분류 → 결합 findings. VERSION_GROUPED 모드면 version 라벨(path `^v\d+$` ∪ spec endpoint version, `model/VersionTag`)별 그룹(`CombinedDiscovery.VersionGroup`), 그 외 flat. `model/CombinedDiscovery` + `GET /api/v1/domains/{host}/discovery`. `SpecSource`+documents/format-union/warnings-union(`SpecStore.specSourceFrom`) — 2단계 이월분 완료(per-scan 리포트도 동일 적용). per-scan /result 분류 불변(누적 뷰는 별도). 한계: 카탈로그는 distinctClients/p50·p95/acrm 미보유(§2)→결합 뷰 Shadow confidence 근사(분류 자체 무영향).
+- [ ] (선택) `/discovered`·`/spec` 원 카탈로그 list 엔드포인트 — 결합 뷰(`/discovery`)로 자체조회 충족, 원 카탈로그 REST·중앙 노출은 P4(D25)로 생략.
 
 **공통**
-- [ ] 테스트 — discovered_endpoint upsert/recency/cap·prune / 모드 case×mode / 결정성·합성버전 / 단일=현행 무회귀 / EndpointHistory 이관(severity 콜드스타트=현행) / host 결합 조회·버전그룹 / ETag 결정적(시간非의존).
+- [x] 테스트 — discovered_endpoint upsert/recency/cap·prune(1단계) / 모드 case×mode·결정성·합성버전(2단계) / 단일=현행 무회귀(전 단계) / EndpointHistory 이관 severity 콜드스타트=현행(1단계) / host 결합 조회·버전그룹(3단계) / ETag 결정적·시간非의존(전 단계). tests=310.
 - [ ] (doc/18 sync, technical_writer) `discovered_endpoint`·`spec_record.spec_name`·`endpoint_history` 제거 반영.
 
 ## 11. 범위 밖 / 후속

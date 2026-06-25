@@ -5,6 +5,21 @@
 
 ---
 
+## 2026-06-25 세션 23 — 멀티스펙 3단계: 결합 Discovery 뷰 + 버전 그룹 (doc/26 §4/§6/§7, D35/D36)
+
+### 한 일
+- **결합 Discovery 뷰**: `batch/CombinedDiscoveryService.forHost(host)` — 누적 `discovered_endpoint` 행을 `DiscoveredEndpoint` 로 재구성(∪) + active spec canonical → Classifier(불변 5-arg classify, 게이트 동일)로 Shadow/Active/Zombie/Unused 산출. per-scan /result(최근 윈도우)와 별개의 누적 카탈로그 뷰(둘 다, doc/26 §6 권장). `model/CombinedDiscovery`(host/specVersion/mode/findings/versionGroups/specSource) + `api/CombinedDiscoveryController` `GET /api/v1/domains/{host}/discovery`.
+- **버전 그룹(VERSION_GROUPED)**: 매칭은 union(MERGE 동일) 그대로, 결합 뷰만 version 라벨별 분리. `model/VersionTag.ofPath`(path `^v\d+$`, 1단계 deriveVersion 도 이 util 로 통일) ∪ spec endpoint version → `CombinedDiscovery.VersionGroup`(라벨 정렬). 그 외 모드 flat(versionGroups 빈 list).
+- **SpecSource 멀티문서 확장(2단계 이월)**: `SpecSource` +`documents[]`(SpecDocument: specName/format/specVersion) + 3-arg 하위호환 ctor. `SpecStore.specSourceFrom`(specName 정렬 결정적, format 단일/혼합 null, warnings union, documents) + `activeRecords`/static `parseWarnings`. per-scan analyze 도 specSourceFrom 사용(activeRecords 미가용 시 activeMeta 단건 폴백 → 테스트 무변경).
+
+### 결과
+- build BUILD SUCCESSFUL, **tests=310 failures=0 skipped=1**(+5: 카탈로그 분류·무스펙 Shadow·VERSION_GROUPED 그룹분리·flat 무그룹·SpecSource documents). 컴파일·@SpringBootTest 정상.
+- 무회귀: Classifier 로직 무변경(결합 뷰는 입력만 누적 카탈로그), 기본 MERGE+단일=현행 결합 동치, VERSION_GROUPED 외 flat, ETag 결정적·시간非의존(결합 뷰에 lastSeen 비노출·findings severity→band·params 투영 유지). 기존 SpecSource 3-arg 호출부(EMPTY·ReportBuilderTest) 하위호환 ctor 로 무변경.
+- 한계: 카탈로그가 distinctClients/p50·p95/acrm 미보유(§2 카탈로그 경량)→결합 뷰 Shadow confidence 근사(분류 자체 무영향). 원 카탈로그 list REST(/discovered·/spec)=결합 뷰로 충족·중앙 노출 P4 생략.
+
+### 다음 단계
+- 브랜치 `feature/multi-spec-merge` 커밋(누적, 1~3단계 완료). **이후: doc/18 sync(technical_writer) + 최종 리뷰 + 1 PR 머지**(D28 — 머지 시 parent TASKS·설계문서 완료 동기).
+
 ## 2026-06-25 세션 22 — 멀티스펙 2단계: 멀티 문서 + 병합 모드 (doc/26 §3/§5/§8, D35)
 
 ### 한 일

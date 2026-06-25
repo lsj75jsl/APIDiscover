@@ -10,10 +10,13 @@ import com.pentasecurity.apidiscover.domain.SpecRecordRepository;
 import com.pentasecurity.apidiscover.match.EndpointMatcherCache;
 import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
 import com.pentasecurity.apidiscover.model.SpecMergeStrategy;
+import com.pentasecurity.apidiscover.model.SpecSource;
 import com.pentasecurity.apidiscover.report.EtagUtil;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.EnumMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -25,6 +28,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class SpecStore {
 
     private static final TypeReference<List<CanonicalEndpoint>> CANONICAL_LIST =
+            new TypeReference<>() {};
+    private static final TypeReference<List<String>> WARNINGS_LIST =
             new TypeReference<>() {};
 
     private final SpecRecordRepository repo;
@@ -150,9 +155,51 @@ public class SpecStore {
                 .orElse(SpecMergeStrategy.MERGE);
     }
 
-    /** 활성 스펙 메타(없으면 empty). */
+    /** 활성 스펙 메타(없으면 empty). 멀티문서면 최신 버전 1건(존재 판정·단건 메타). */
     public Optional<SpecRecord> activeMeta(String host) {
         return repo.findFirstByHostAndActiveIsTrueOrderBySpecVersionDesc(host);
+    }
+
+    /** 활성 문서 집합(멀티 스펙). SpecSource documents·결합 뷰 입력 (doc/26 §4/§7). */
+    public List<SpecRecord> activeRecords(String host) {
+        return repo.findByHostAndActiveIsTrue(host);
+    }
+
+    /**
+     * 활성 문서 집합 → SpecSource (doc/26 §4 멀티문서 확장). specName 정렬로 결정적(ETag 안정).
+     * format=단일 포맷이면 그것·혼합 null, warnings=문서별 union(dedupe), documents=문서별 메타.
+     */
+    public static SpecSource specSourceFrom(long specVersion, List<SpecRecord> records, ObjectMapper om) {
+        if (records.isEmpty()) {
+            return SpecSource.EMPTY;
+        }
+        List<SpecRecord> sorted = records.stream()
+                .sorted(Comparator.comparing((SpecRecord r) -> normalizeName(r.specName))
+                        .thenComparingLong(r -> r.specVersion))
+                .toList();
+        SpecFormat format = sorted.get(0).format;
+        LinkedHashSet<String> warnings = new LinkedHashSet<>();
+        List<SpecSource.SpecDocument> docs = new ArrayList<>(sorted.size());
+        for (SpecRecord r : sorted) {
+            if (r.format != format) {
+                format = null; // 혼합 포맷 → null (doc/26 §9)
+            }
+            warnings.addAll(parseWarnings(r.warningsJson, om));
+            docs.add(new SpecSource.SpecDocument(normalizeName(r.specName), r.format, r.specVersion));
+        }
+        return new SpecSource(specVersion, format, new ArrayList<>(warnings), docs);
+    }
+
+    /** SpecRecord.warningsJson(List&lt;String&gt;) 파싱. null/손상 → 빈 list. */
+    public static List<String> parseWarnings(String json, ObjectMapper om) {
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            return om.readValue(json, WARNINGS_LIST);
+        } catch (JsonProcessingException e) {
+            return List.of();
+        }
     }
 
     private String writeCanonical(List<CanonicalEndpoint> canonical) {

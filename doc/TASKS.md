@@ -52,11 +52,11 @@
   - **2단계 — 멀티 스펙 + 모드(B)** → 구현 완료 2026-06-25, build 그린(tests=305), 브랜치 `feature/multi-spec-merge` 커밋(누적)·리뷰 대기
     - [x] `model/SpecMergeStrategy`+`DomainConfig.specMergeStrategy`(기본 MERGE, null→MERGE)+DomainController/DomainDtos DTO 가산. `SpecStore` 모드 분기(MERGE/VG=같은 specName 만 비활성·형제 유지/SEPARATE=전체 교체), `upload(host,name,content)`+default 위임
     - [x] `SpecCanonicalizer.merge` 결정적(dedupe+deprecated OR+비-deprecated latest-specVersion-wins·tie sourceRef·순서 무관)+합성 spec 버전(merged canonical SHA-256 해시, EtagUtil 일관·64bit)→matcherCache/report/SpecSource. 멀티문서 SpecSource +documents·warnings union 은 3단계
-  - **3단계 — 결합·버전그룹(C/D)**
-    - [ ] host 결합 Discovery 뷰 — Classifier(discovered_endpoint ∪ active spec) 불변(두 출처 분리), 결합 목록 + VERSION_GROUPED 버전 그룹 구조. 분류 범위=per-scan 유지(무회귀)+누적 카탈로그 결합 뷰 신설
-    - [ ] (선택) `/discovered`·`/spec` host 조회 엔드포인트
+  - **3단계 — 결합·버전그룹(C/D)** → 구현 완료 2026-06-25, build 그린(tests=310), 브랜치 `feature/multi-spec-merge` 커밋(누적)·리뷰 대기
+    - [x] host 결합 Discovery 뷰 — `CombinedDiscoveryService`(discovered_endpoint 재구성 ∪ active spec → Classifier 불변 5-arg → 결합 findings) + `model/CombinedDiscovery` + `GET /api/v1/domains/{host}/discovery`. VERSION_GROUPED=version 라벨 그룹(`VersionTag`), 그 외 flat. 분류 범위=per-scan 유지(무회귀)+누적 카탈로그 결합 뷰 신설(둘 다). `SpecSource`+documents/union(2단계 이월 완료)
+    - [ ] (선택) `/discovered`·`/spec` 원 카탈로그 list — 결합 뷰 `/discovery` 로 충족, 원 카탈로그 REST·중앙 노출 P4 생략(D25)
   - **공통**
-    - [ ] 테스트 — discovered_endpoint upsert/recency/cap·prune / 모드 case×mode·결정성·합성버전 / 단일=현행 무회귀 / EndpointHistory 이관(severity 콜드스타트=현행) / host 결합·버전그룹 / ETag 결정적(시간非의존)
+    - [x] 테스트 — discovered_endpoint upsert/recency/cap·prune / 모드 case×mode·결정성·합성버전 / 단일=현행 무회귀 / EndpointHistory 이관(severity 콜드스타트=현행) / host 결합·버전그룹 / ETag 결정적(시간非의존) — tests=310
     - [ ] (doc/18 sync, technical_writer) `discovered_endpoint`·`spec_record.spec_name`·`endpoint_history` 제거 반영
 
 ### P2. 품질/테스트

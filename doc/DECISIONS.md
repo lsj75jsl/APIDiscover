@@ -324,7 +324,8 @@ doc/14(D21) 후속. 한 도메인의 여러 스펙 문서를 하나의 canonical
 - **진행(2026-06-25)**: 사용자 확정(3모드·EndpointHistory 흡수·한 PR 전체, 단계별 커밋 누적). 브랜치 `feature/multi-spec-merge`, 단계별 커밋·리뷰 대기.
   - **1단계(데이터모델 A/C) 완료**(build 그린 tests=297→P3 보강 298) — `discovered_endpoint` 엔티티/repo, 누적 upsert+cap(5000)/retention(180d) prune, version 도출(path `^v\d+$`→spec.version), `spec_record.specName` 컬럼, **EndpointHistory→discovered_endpoint.firstSeen 흡수**(severity recency=검출 signature 키, endpoint_history/observedTimes/EndpointObservation 제거, 콜드스타트=현행 무회귀).
   - **2단계(멀티스펙+모드 B, D35) 완료**(build 그린 tests=305) — `model/SpecMergeStrategy`+`DomainConfig.specMergeStrategy`(기본 MERGE, null→MERGE)+DTO 가산. `SpecStore` 모드 분기(`upload(host,name,content)`: SEPARATE=전체 교체/MERGE·VG=같은 specName 만·형제 유지; default 위임=현행). `SpecCanonicalizer.merge` 결정적(dedupe+deprecated OR+비-deprecated latest-specVersion-wins·tie sourceRef·순서 무관, 단일=canonicalize 동치). 합성 spec 버전=merged canonical SHA-256(EtagUtil 앞 16hex=64bit→long, ETag 일관)→report/SpecSource/matcherCache(동일 콘텐츠=동일 버전). **한계**: 멀티문서 SpecSource format/warnings union·documents[]·SpecController name REST·버전그룹 뷰=3단계.
-  - 3단계는 리뷰 후 별도 지시.
+  - **3단계(결합·버전그룹 C/D, D36) 완료**(build 그린 tests=310) — `CombinedDiscoveryService`(누적 discovered_endpoint 재구성 ∪ active spec → Classifier 불변 5-arg → 결합 findings)+`model/CombinedDiscovery`+`GET /api/v1/domains/{host}/discovery`. VERSION_GROUPED=version 라벨(`VersionTag` path `^v\d+$` ∪ spec version) 그룹·그 외 flat. 분류 범위=per-scan 유지(무회귀)+누적 카탈로그 뷰 신설(둘 다). `SpecSource`+documents/format-union/warnings-union(`SpecStore.specSourceFrom`, 2단계 이월 완료). 한계: 카탈로그 distinctClients/p50·p95/acrm 미보유→결합 뷰 confidence 근사(분류 무영향), 원 카탈로그 list REST=결합 뷰로 충족·P4 생략.
+  - **구현 1~3단계 완료**. 잔여: doc/18 sync(technical_writer) + 최종 리뷰 + 1 PR 머지(D28).
 
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.

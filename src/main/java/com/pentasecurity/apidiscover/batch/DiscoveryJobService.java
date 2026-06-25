@@ -2,7 +2,6 @@
 package com.pentasecurity.apidiscover.batch;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pentasecurity.apidiscover.classify.ClassificationResult;
 import com.pentasecurity.apidiscover.classify.Classifier;
@@ -29,6 +28,7 @@ import com.pentasecurity.apidiscover.model.DiscoveryReport;
 import com.pentasecurity.apidiscover.model.Finding;
 import com.pentasecurity.apidiscover.model.ParsedRequest;
 import com.pentasecurity.apidiscover.model.SpecSource;
+import com.pentasecurity.apidiscover.model.VersionTag;
 import com.pentasecurity.apidiscover.normalize.InventoryBuilder;
 import com.pentasecurity.apidiscover.parse.LogLineParser;
 import com.pentasecurity.apidiscover.report.EtagUtil;
@@ -40,11 +40,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -154,10 +152,13 @@ public class DiscoveryJobService {
         // 합성 spec 버전 = merged canonical 콘텐츠 해시(doc/26 §8) — per-record specVersion 대신.
         // 동일 콘텐츠=동일 버전 → matcherCache 안정·ETag 결정적. 무스펙=0.
         long specVersion = spec.isEmpty() ? 0L : SpecStore.syntheticVersion(spec, objectMapper);
-        // 스펙 출처/파싱 경고(업로드 시 영속, 재파싱 없음) → 리포트 specSource (doc/25 §A.2).
-        // 멀티문서 format/warnings union·documents[] 은 3단계(SpecSource 확장); 여기선 합성버전+latest active 메타.
+        // 스펙 출처/경고/문서 메타 → 리포트 specSource (doc/25 §A.2, doc/26 §4 멀티문서 union+documents).
+        // activeRecords 미가용(테스트 mock 등) 시 activeMeta 단건으로 폴백.
         SpecSource specSource = active
-                .map(r -> new SpecSource(specVersion, r.format, parseWarnings(r.warningsJson)))
+                .map(meta -> {
+                    List<SpecRecord> recs = specStore.activeRecords(host);
+                    return SpecStore.specSourceFrom(specVersion, recs.isEmpty() ? List.of(meta) : recs, objectMapper);
+                })
                 .orElse(SpecSource.EMPTY);
         // (host, specVersion) 캐시 — 동일 버전 재스캔 시 matcher 재생성 제거. 없으면 supplier 로 빌드 (doc/15 §3)
         EndpointMatcher matcher = matcherCache.get(host, specVersion, () -> new EndpointMatcher(spec));
@@ -196,24 +197,10 @@ public class DiscoveryJobService {
         return result;
     }
 
-    /** SpecRecord.warningsJson(List&lt;String&gt;) 파싱. null/손상 → 빈 list (doc/25 §A.2). */
-    private List<String> parseWarnings(String json) {
-        if (json == null || json.isBlank()) {
-            return List.of();
-        }
-        try {
-            return objectMapper.readValue(json, new TypeReference<List<String>>() {});
-        } catch (JsonProcessingException e) {
-            log.warn("corrupt spec warningsJson — treating as empty");
-            return List.of();
-        }
-    }
-
     // 검출 SoT 누적 가드 (doc/26 §2). cap=host template 상한(doc/13 동일 5000), retention=stale prune 기준.
     // ponytail: 상수(현 규모 충분). 도메인별 override 필요 시 @ConfigurationProperties seam(후속).
     private static final long TEMPLATE_CAP = 5000L;
     private static final Duration RETENTION = Duration.ofDays(180);
-    private static final Pattern VERSION_SEGMENT = Pattern.compile("^v\\d+$", Pattern.CASE_INSENSITIVE);
 
     /** 검출 SoT 로드(host) — recency 입력 + upsert 기준. retention prune 후 signature→record 맵 (doc/26 §2). */
     private Map<String, DiscoveredEndpointRecord> loadDiscovered(String host, LogWindow window) {
@@ -273,29 +260,12 @@ public class DiscoveryJobService {
 
     /** 검출 version 도출: path ^v\d+$ 세그먼트(doc/16) → 매칭 spec.version → null (doc/26 §4). */
     private static String deriveVersion(DiscoveredEndpoint d, EndpointMatcher matcher) {
-        String pathV = pathVersion(d.pathTemplate());
+        String pathV = VersionTag.ofPath(d.pathTemplate());
         if (pathV != null) {
             return pathV;
         }
         return matcher.match(d.method(), d.host(), d.pathTemplate())
                 .map(CanonicalEndpoint::version).orElse(null);
-    }
-
-    /** 첫 ^v\d+$ 세그먼트(소문자 정규화). 없으면 null (doc/16 VersionZombieInference 동일 인식). */
-    private static String pathVersion(String template) {
-        if (template == null) {
-            return null;
-        }
-        String body = template.startsWith("/") ? template.substring(1) : template;
-        if (body.isEmpty()) {
-            return null;
-        }
-        for (String seg : body.split("/", -1)) {
-            if (VERSION_SEGMENT.matcher(seg).matches()) {
-                return seg.toLowerCase(Locale.ROOT);
-            }
-        }
-        return null;
     }
 
     /** 검출 record → DiscoveredEndpoint.signature 동일 포맷 키 "{METHOD} {host} {template}" (priorFirstSeen 키). */
