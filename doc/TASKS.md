@@ -51,9 +51,24 @@
 > (현재 비어 있음 — 매칭 회귀테스트·F1/F2·@Lob→text 실검증·Testcontainers·엔티티 캡슐화 완료, Done 참조. Docker 의존 항목은 host podman 으로 해소.)
 
 ### P3. 운영/인프라 (자체 운영)
-- [ ] Loki 도메인 목록 추출 (수집 중 access log 에서 API 도메인 열거 — DomainConfig 부트스트랩/디스커버리 용)
-      — **조사결과(2026-06-25)**: 도메인은 **Loki 라벨이 아님**(라벨 = `job`·`hostname`). 실제 API 도메인(Host 헤더)은 **로그 라인 내용**에 있어 `LogLineParser` F_HOST 필드로 파싱된다 → 라벨 조회로 공짜 추출 불가.
-      경량 추출안: 소량 윈도우(off-peak)·`page-limit` 내 로그 스캔 + host 필드 파싱·dedupe(LokiClient 부하보호 준수), 또는 `count by (host)` 서버측 집계로 전송량 축소. 엣지 `hostname` 라벨 목록(서버 인스턴스, 도메인과 다름)은 `/loki/api/v1/label/hostname/values` 로 경량 조회 가능.
+- [ ] Loki 도메인 목록 추출 — 도메인 자동 디스커버리 (access log 에서 API 도메인 열거 → DomainConfig 부트스트랩) **(설계 완료 → doc/30 / DECISIONS D42, 브랜치 feature/domain-discovery-deploy)**
+      — **조사결과(2026-06-25)**: 도메인은 **Loki 라벨이 아님**(라벨 = `job`·`hostname`). 실제 API 도메인(Host 헤더)은 **로그 라인 내용**에 있어 `LogLineParser` F_HOST 필드로 파싱된다 → 라벨 조회로 공짜 추출 불가. → **채택안(doc/30): 서버측 메트릭 집계**(`sum by(domain,hostname) count_over_time(... | pattern | label_format domain=coalesce(host,real_host) ...)`) — 라인 미수신·엣지 hostname 집합 동시 확보.
+  - [x] `LokiClient` instant 벡터 쿼리(`/loki/api/v1/query`) — `requestWithRetry` URL 인자형 추출로 throttle/concurrency/backoff 재사용(queryRange 불변). `MetricSample(labels,value)` 반환
+  - [x] `ApiDiscoverProperties.Discovery`(enabled/interval/window/bootstrap-window/initial-delay/max-domains-per-run/host-pattern) + application.yml 기본값
+  - [x] `DomainDiscoveryService` — LogQL 빌드·instant 쿼리·벡터→(domain→hostnames)·host FQDN 검증·max-domains 상한(카운트 desc)
+  - [x] 업서트(★무삭제·사용자설정 보존·hostnames 합집합) + `DomainConfig.discoveredAt`/`lastSeenAt` 가산(ddl-auto). PG 통합테스트 green=컬럼 반영
+  - [x] `DomainDiscoveryScheduler`(@Scheduled fixedDelay+initialDelay stagger, enabled 토글, 예외 격리) — 스캔과 분리
+  - [x] 윈도우(롤링 + 부트스트랩 1h 1회=빈 도메인 DB) + 필드포지션(DELIM/15/16) 교차검증 테스트(LogLineParser 상수 공유)
+  - [x] 테스트(벡터 파싱·coalesce LogQL·host 거름·상한·업서트 머지·무삭제·설정보존·부트스트랩 vs 롤링) 13건 green / 실 Loki `label_format` coalesce 확인=LokiLive 게이트 분리(`-Dloki.live`, 미실행). doc/18 sync 는 technical_writer 후속(`domain_config.discovered_at`/`last_seen_at`)
+  > Phase 1(A) 구현 완료(build green 346/실패0/skip2=loki.live 게이트만, 머지 시 부모 Done). B(CLI)·C(Docker)는 PR2 후속(아래 별 항목).
+- [ ] **(신규, doc/31 B)** CLI CSV 내보내기 — `--adc.cli.export-domain=<domain>` → 결합 Discovery CSV **(설계 완료 → doc/31 / DECISIONS D43, 동일 브랜치)**
+  - [ ] CLI 모드 분기(`SpringApplicationBuilder.web(NONE).profiles("cli")`) + `@EnableScheduling`→`SchedulingConfig(@Profile("!cli"))` 분리(서버 동일 활성)
+  - [ ] `CliExportRunner`(CommandLineRunner) + CSV writer(forHost→14컬럼·source 파생·RFC4180·first/last_seen discovered join·score 범위밖)
+  - [ ] 출력 `adc.cli.output-dir`(PGDATA 밖 `/exports`) + 테스트(포맷·이스케이프·5 status·미존재 exit 비0)
+- [ ] **(신규, doc/31 C)** Docker/podman 테스트 배포 — app+postgres pod + `/opt/adc` **(설계 완료 → doc/31 / DECISIONS D43, 동일 브랜치)**
+  - [ ] Dockerfile(멀티스테이지 bootJar→temurin:21-jre) + `application-container.yml`(PG·ddl-auto update·Loki LAN)
+  - [ ] `adc.yaml`(podman play kube, 2컨테이너 pod, app `localhost:5432`, PGDATA `/opt/adc` hostPath) 또는 pod 스크립트
+  - [ ] 배포/실행/CLI 절차 문서(운영 Loki 부하·off-peak) + (검증) build·기동·`/discovery`·CLI CSV·LAN Loki 도달
 - [ ] off-peak 시간대 제한
 - [ ] 부하/운영 메트릭 (쿼리수·바이트·429) Actuator/Micrometer 노출 + 알람 — doc/12 `DroppedNonApi`·doc/13 `DroppedByLimit` 카운트 재사용 가능
 - [ ] Spring Batch JobRepository 실연결 (현재 `@Scheduled`만, `batch.job.enabled=false`)

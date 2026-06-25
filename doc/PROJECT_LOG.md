@@ -5,6 +5,22 @@
 
 ---
 
+## 2026-06-25 세션 29 — 도메인 자동 디스커버리 Phase 1 (A, doc/30 D42)
+
+### 한 일 (A만 — B CLI·C Docker 는 PR2 후속, 미착수)
+- `LokiClient`: instant 벡터 쿼리 `queryInstant(logql, time)`(`/loki/api/v1/query`) 신설 + `MetricSample(labels,value)` record. `requestWithRetry` 를 **URL 인자형으로 추출** → query_range·instant 가 throttle/concurrency(max 2)/백오프/timeout 공유. **queryRange 동작 불변**(URL 빌드를 fetchChunk 로 이동).
+- `ApiDiscoverProperties.Discovery`(enabled/interval/window/bootstrap-window/initial-delay/max-domains-per-run/host-pattern) + application.yml 기본값(enabled true·10m·12m·1h·2m·200·FQDN 정규식).
+- `DomainDiscoveryService`: LogQL(`sum by(domain,hostname) count_over_time({job} | pattern <15 skip+host+real_host> | label_format domain=coalesce(host,real_host) | domain!=""!="-" [W])`) 빌드→instant→(domain→hostnames TreeSet)·도메인별 카운트 합산→FQDN 정규식 거름→카운트 desc max-domains 상한→**무삭제 업서트**(신규 INSERT/기존 hostnames 합집합+lastSeenAt 만, 사용자설정 basePathStrip·specMergeStrategy·enabled·intervalOverride 불변). coalesce 템플릿=LogLineParser line83 와 동일.
+- `DomainConfig.discoveredAt`/`lastSeenAt` 가산(ddl-auto) + 접근자. `DomainDiscoveryScheduler`(@Scheduled fixedDelay+initialDelay stagger, enabled 토글, 예외 격리) — 기존 per-domain 스캔과 분리.
+- 필드포지션 단일근거: `LogLineParser.DELIM/F_HOST=15/F_REAL_HOST=16` 를 public 으로 widen → LogQL pattern 을 이 상수로 빌드(드리프트 구조적 차단) + 교차검증 테스트.
+
+### 결과
+- `./gradlew build` **BUILD SUCCESSFUL, 총 346(332+14) 실패 0 skip 2**. skip 2 = **둘 다 `-Dloki.live` 게이트**(기존 LokiLive + 신규 `DomainDiscoveryLiveIntegrationTest` coalesce 확인) → **기본 빌드는 운영 Loki 미호출**. PostgresIntegrationTest podman 13건 green(DomainConfig 신규 컬럼 ddl-auto 반영). A 신규 단위테스트 13건 실행 green(벡터 파싱·FQDN 거름·상한·업서트 머지·무삭제·설정보존·부트스트랩 vs 롤링·LogQL coalesce·필드포지션 교차검증).
+- 운영 Loki 보호 준수: 서비스 테스트는 LokiClient mock, 실 Loki 확인은 게이트 분리(미실행 — 매니저가 배포 C 시점 조율).
+
+### 다음 단계
+- 커밋 금지(매니저 리뷰 후 PR1). doc/18 `domain_config.discovered_at`/`last_seen_at` sync=technical_writer 후속. A 머지 후 매니저가 PR2(B CLI·C Docker, doc/31 D43) 지시 예정.
+
 ## 2026-06-25 세션 28 — 엔티티 캡슐화 (P2 마무리, doc/29 D41)
 
 ### 한 일
