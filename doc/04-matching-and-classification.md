@@ -173,3 +173,23 @@ report = summarize(findings)                # 01 문서 §4 스키마
 | 구버전 트래픽(deprecated 미표기) | 버전 기반 Zombie 추정(§5, 저신뢰) |
 | 미문서 경로가 사실 HTML 페이지 | endpoint_kind=web_page 면 `undocumented_web_page` 로 분리(§4.1.1) |
 | 정적 자원이 프록시를 안 탐(CDN 오프로드) | endpoint_kind 신호 dormant → 적용 안 함, Shadow는 부재로 감점 안 함(02 §5.4) |
+
+### 7.1 회귀 테스트 매핑 (DECISIONS D37)
+
+§7 케이스별 **잠금 불변식 ↔ 잠그는 테스트 ↔ 상태**. 신규 테스트는 기존 클래스에 `// doc/04 §7 case N` 태그로 추가(중복 회피).
+
+| §7 케이스 | 계층 | 잠금 불변식 | 잠그는 테스트 | 상태 |
+|---|---|---|---|---|
+| host-agnostic | matcher | host=null 템플릿=모든 host 매칭, host-specific=자기 host 만 | `EndpointMatcherTest.hostAgnosticMatchesAnyHost/hostSpecificMatchesOnlyItsHost` | ✅ |
+| base path strip | (미구현) | 프록시 strip 시 템플릿/관측 정합 | — | ⚠️ **F1 미구현(플래그)** |
+| 동일 path 다른 method | matcher | method 포함 시그니처 → 별개 매칭 | `EndpointMatcherTest.methodMustMatch`(mismatch) + `sameTemplateDistinctMethodsMatchSeparately`(case3) | ✅ |
+| `/users/me` vs `{id}` | matcher | 정적 > 변수, **앞 세그먼트 우선** | `EndpointMatcherTest.staticSegmentWinsOverVariable` + `specificityFrontSegmentPriorityAndTie`(case4 앞세그·동률) | ✅ |
+| 통계 과병합 inferred | classify | `INFERRED` → shadowConfidence −0.1 + `inferred` 표기 | `ClassifierTest.shadowConfidenceDropsForFourxxOnly`(번들) + `inferredOnlyShadowLosesExactlyPointOneConfidence`(case5 −0.1 격리) | ✅ |
+| 404-only 탐침 | inventory/classify | 100%-404 INFERRED hard-drop / mostly-4xx soft −0.7 | `InventoryBuilderTest`·`ClassifierTest`(doc/19) | ✅ |
+| 구버전 트래픽 | classify | 신버전 active + 구버전 트래픽 → 추정 Zombie 0.6 | `VersionZombieInferenceTest`(doc/16) | ✅ |
+| 미문서 HTML | classify | endpoint_kind=WEB_PAGE → `undocumented_web_page`(Shadow 아님) | `ClassifierTest`(§4.1.1) | ✅ |
+| CDN dormant | normalize/classify | referer 신호 dormant → 미적용 · Shadow 부재 무감점 | `RefererSignalExtractorTest`(doc/20) | ✅ |
+
+**플래그(현행 미구현/버그 — 테스트로 '고정' 금지, 확인 필요)**:
+- **F1 base-path-strip**: doc/03 §2.2·§7 에 옵션 명시되나 **미구현**. `OpenApiSpecParser` 가 `basePath` 를 템플릿에 join → 프록시가 base path 를 strip 한 관측은 basePath-join 템플릿과 불일치 → **false Shadow**. 회귀 테스트 아님 → 한계 문서화/옵션 구현 검토(후속).
+- **F2 catch-all `{var+}`**: `EndpointMatcher` 에 `.+` 분기 존재하나 (a) 어떤 파서도 `{var+}` 미생성(**도달 불가**), (b) `segCount` 버킷팅이 다중 세그먼트 `.+` 매칭을 막음(도달 시 오동작). dead code 정리 vs 의도 확인(후속).
