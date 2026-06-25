@@ -35,6 +35,19 @@ public class EndpointMatcher {
         }
     }
 
+    /**
+     * base-path-strip 대응 4-arg (doc/27 §3). as-is 우선 매칭 → 미매칭 && stripPrefix 설정 시
+     * 프록시가 제거한 prefix 를 재부착(stripPrefix+path)해 1회 재시도. stripPrefix=null → as-is 만(현행 무회귀).
+     * canonical(basePath 결합) 불변·matcher 캐시 불변(strip 은 호출 파라미터).
+     */
+    public Optional<CanonicalEndpoint> match(String method, String host, String path, String stripPrefix) {
+        Optional<CanonicalEndpoint> hit = match(method, host, path);
+        if (hit.isEmpty() && stripPrefix != null && !stripPrefix.isBlank()) {
+            hit = match(method, host, stripPrefix + path); // 프록시 strip 관측에 prefix 재부착
+        }
+        return hit;
+    }
+
     /** 매칭되는 가장 구체적인 문서 엔드포인트(없으면 empty → Shadow 후보). */
     public Optional<CanonicalEndpoint> match(String method, String host, String path) {
         String m = method.toUpperCase(Locale.ROOT);

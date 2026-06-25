@@ -17,7 +17,8 @@ public final class DomainDtos {
             boolean enabled,
             List<String> hostnames,               // 엣지 서버(Loki hostname 라벨)
             String intervalOverride,              // ISO-8601 Duration 또는 null
-            SpecMergeStrategy specMergeStrategy   // null → MERGE(현행, doc/26 §5)
+            SpecMergeStrategy specMergeStrategy,  // null → MERGE(현행, doc/26 §5)
+            String basePathStrip                  // 프록시 strip base prefix, null=off(doc/27 §3)
     ) {}
 
     /** 도메인 조회 응답. */
@@ -27,6 +28,7 @@ public final class DomainDtos {
             List<String> hostnames,
             String intervalOverride,
             SpecMergeStrategy specMergeStrategy,  // 병합 전략(doc/26 §5)
+            String basePathStrip,                 // base-path-strip prefix(doc/27 §3, null=off)
             SpecMetaView spec                     // 활성 스펙 메타(없으면 null)
     ) {}
 

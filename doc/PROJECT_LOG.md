@@ -5,6 +5,23 @@
 
 ---
 
+## 2026-06-25 세션 25 — base-path-strip: false Shadow/Unused 방지 (doc/27, D38, D37 F1)
+
+### 한 일
+- **at-match additive strip**(파싱/canonical 불변, SoT 보존, 기본 off=무회귀):
+  - `EndpointMatcher.match(method,host,path,stripPrefix)` 4-arg 오버로드 — as-is 우선, 미매칭 && stripPrefix(non-blank) 시 `stripPrefix+path` **재부착(prepend)** 1회 재시도. 기존 3-arg 불변.
+  - `DomainConfig.basePathStrip`(String nullable, 기본 null=off) + `DomainDtos`/`DomainController` 가산(null=off, intervalOverride 동형 직접 대입). ddl-auto 컬럼.
+  - `Classifier.classifyWithMetrics`(6→7-arg, null 위임)/`classify`(5→6-arg) +stripPrefix → 1차 패스 matcher.match 2곳 전달. `DiscoveryJobService`·`CombinedDiscoveryService` 가 `DomainConfig.basePathStrip` 로드·주입.
+- **방향 확정**: doc/27 §3·D38·TASKS 는 **prepend**(관측=strip됨, 스펙=basePath 결합 → 관측에 prefix 재부착). 구현 요청 prose 의 "stripPrefix 제거" 와 반대였으나 F1 근본원인(관측이 이미 strip됨)상 prepend 가 정답 — 설계대로 구현, 보고서에 prose 불일치 명시.
+- doc/03 §2.2 갱신(parse-time 결합 토글 → at-match strip 으로 정제), doc/27 §6·TASKS subitem [x](doc/18 sync 만 잔여=technical_writer).
+
+### 결과
+- build BUILD SUCCESSFUL, **tests=319 failures=0 skipped=1**(+5: matcher 4건 strip재부착/as-is우선/null현행/잘못prefix무오판, e2e 1건 strip→Active·false Shadow/Unused 해소·null 대조·ETag bump·재스캔 동일).
+- 무회귀: 기본 null=as-is=현행 100%, as-is 우선(double-prefix·기존 매칭 불변), canonical/specVersion 불변(파싱 무변경), matcherCache(host,specVersion) 불변(strip=match 파라미터→무효화 불요). ETag: 설정 시 findings 변화 bump(정당)·재스캔 동일(결정적·시간非의존).
+
+### 다음 단계
+- 커밋 보류(리뷰 후). 리뷰 후 커밋·PR. doc/18 sync(`domain_config.base_path_strip`)=technical_writer 후속.
+
 ## 2026-06-25 세션 24 — 매칭 엣지 케이스 회귀 테스트 (doc/04 §7.1, D37)
 
 ### 한 일

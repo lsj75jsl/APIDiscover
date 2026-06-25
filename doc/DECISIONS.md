@@ -332,7 +332,16 @@ doc/04 §7 9 케이스를 회귀로 잠금(순수 테스트, 프로덕션 무변
 - **문서 위치(판단)**: 신규 doc 대신 **doc/04 §7.1 '회귀 테스트 매핑' 보강**(케이스↔불변식↔테스트↔상태 co-location, 가벼움).
 - **테스트 위치(판단)**: 신규 클래스 대신 **기존 클래스 확장**(EndpointMatcherTest/ClassifierTest) + `// doc/04 §7 case N` 태그(추적성·중복 회피).
 - **신규 테스트(미커버 갭)**: ① 동일 path 양 method 정의 → 각자 distinct 매칭(현 mismatch 만) ② INFERRED 단독 → shadowConfidence −0.1 격리(현 번들) ③ specificity front-segment 우선·동률(현 `/users/me` 1건). 나머지(host-agnostic·404-only·version-zombie·undocumented_web_page·dormant)=기존 커버 → 중복 회피.
-- **플래그(현행 미구현/버그 — 테스트로 고정 금지)**: **F1** base-path-strip(doc/03 §2.2·§7 명시) **미구현** — OpenApiSpecParser 가 basePath 를 템플릿에 join → 프록시 strip 관측은 불일치 → false Shadow. **F2** catch-all `{var+}` 분기가 매처에 있으나 파서 미생성(도달 불가) + segCount 버킷팅이 `.+` 다중세그먼트 차단(도달 시 오동작). → 둘 다 TASKS 후속(F1=한계/옵션, F2=dead code 정리 vs 의도), 회귀 테스트 아님.
+- **플래그(현행 미구현/버그 — 테스트로 고정 금지)**: **F1** base-path-strip(doc/03 §2.2·§7 명시) **미구현** — OpenApiSpecParser 가 basePath 를 템플릿에 join → 프록시 strip 관측은 불일치 → false Shadow. **F2** catch-all `{var+}` 분기가 매처에 있으나 파서 미생성(도달 불가) + segCount 버킷팅이 `.+` 다중세그먼트 차단(도달 시 오동작). → 둘 다 TASKS 후속(F1=한계/옵션, F2=dead code 정리 vs 의도), 회귀 테스트 아님. **F1 해소 설계 → D38/doc/27.**
+
+### D38. base-path-strip — false Shadow 방지 (D37 F1 해소, doc/27) — 제안·권장안
+프록시가 base path prefix 를 strip 하는 환경에서 basePath-결합 템플릿 vs strip 관측 불일치 → false Shadow/Unused. **(a) 옵션 구현 권장**(기본 off=무회귀), (b) 문서화만 미채택.
+- **옵션 위치/형태**: **`DomainConfig.basePathStrip`(String, nullable, 기본 null)** = 프록시가 제거한 base prefix(예 `/v2`)를 operator 명시. specMergeStrategy 와 동일 패턴(per-domain, DomainController DTO 가산). MatcherConfig 아님(그건 ApiHintMatcher 게이트용; basePathStrip 은 spec EndpointMatcher 라우팅). 자동 감지 미채택(fragile·strip≠basePath 케이스).
+- **적용 지점 = at-match additive**: canonical 불변(basePath 결합 유지, SoT 보존). `EndpointMatcher.match(...,stripPrefix)` 가 **as-is 우선, 미매칭+prefix 시 `stripPrefix+path` 재시도**. strip=match 호출 파라미터(matcher 비포함) → matcherCache(host,specVersion) 불변·변경 시 무효화 불요, 재파싱 불요(canonical 그대로). 멀티스펙(doc/26) merged 매칭에 도메인 레벨 일괄.
+- **doc/03 §2.2 정제**: 문서의 "parse-time join 토글" 대신 at-match strip prefix — 재파싱·SoT 손실 회피·임의 prefix 일반성. 목표 동일.
+- **비대칭/무회귀**: 기본 null=as-is=현행. 설정 시 가산(시도 추가만)→false Shadow→Active·false Unused→observed 교정, 기존 매칭 불변(as-is 우선). 잘못 prefix=opt-in operator 오류 한정.
+- **ETag**: canonical 불변→specVersion 무변경. 설정 시 findings 변화→ETag bump(정당·결정적·시간非의존, now 무관). basePathStrip 은 findings 반영이라 ETag 입력 별도 불요.
+- **무회귀**: 3-arg match 오버로드·null stripPrefix 하위호환. doc/18 sync(`domain_config.base_path_strip`)=technical_writer. 후속: 다중 prefix List·자동감지(미채택)·parse 토글(대안).
 
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.

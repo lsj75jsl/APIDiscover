@@ -70,6 +70,19 @@ public class Classifier {
     }
 
     /**
+     * 6-arg classify: +stripPrefix(base-path-strip, doc/27 §3). 결합 뷰 등 findings 만 필요할 때.
+     * stripPrefix=null → as-is(현행). 5-arg 는 null 위임(하위호환).
+     */
+    public List<Finding> classify(List<DiscoveredEndpoint> discovered,
+                                  List<CanonicalEndpoint> spec,
+                                  EndpointMatcher matcher,
+                                  ApiScorer scorer,
+                                  ApiHintMatcher hints,
+                                  String stripPrefix) {
+        return classifyWithMetrics(discovered, spec, matcher, scorer, hints, Map.of(), stripPrefix).findings();
+    }
+
+    /**
      * findings + non_api dropped 메트릭을 함께 산출(doc/12 §1). 게이트 ADMIT→Shadow, DROP_*→사유별 카운트.
      * dropped 대상: non-OPTIONS·spec 미매칭·게이트 DROP_*(OPTIONS·spec 매칭·ADMIT 은 제외).
      */
@@ -85,7 +98,7 @@ public class Classifier {
     /**
      * 6-arg: cross-scan 이력(priorFirstSeen: 검출 signature "{METHOD} {host} {template}"→이력상 최초 firstSeen)으로
      * Zombie severity entrenchment 보강(doc/24 §7, doc/26 §8 — discovered_endpoint.firstSeen 에서 로드).
-     * 빈 map → 콜드스타트(현행).
+     * 빈 map → 콜드스타트(현행). stripPrefix 없음(null) → at-match strip 미발동(현행, doc/27).
      */
     public ClassificationResult classifyWithMetrics(List<DiscoveredEndpoint> discovered,
                                                     List<CanonicalEndpoint> spec,
@@ -93,6 +106,20 @@ public class Classifier {
                                                     ApiScorer scorer,
                                                     ApiHintMatcher hints,
                                                     Map<String, Instant> priorFirstSeen) {
+        return classifyWithMetrics(discovered, spec, matcher, scorer, hints, priorFirstSeen, null);
+    }
+
+    /**
+     * 7-arg: +stripPrefix(base-path-strip, doc/27 §3). null → as-is 만(현행 무회귀).
+     * 설정 시 매처가 as-is 우선·미매칭+prefix 재부착(prepend) 재시도 → false Shadow/Unused 교정.
+     */
+    public ClassificationResult classifyWithMetrics(List<DiscoveredEndpoint> discovered,
+                                                    List<CanonicalEndpoint> spec,
+                                                    EndpointMatcher matcher,
+                                                    ApiScorer scorer,
+                                                    ApiHintMatcher hints,
+                                                    Map<String, Instant> priorFirstSeen,
+                                                    String stripPrefix) {
         List<Finding> findings = new ArrayList<>();
         int excluded = 0;
         int webForm = 0;
@@ -142,14 +169,14 @@ public class Classifier {
                 }
                 if (!preflightActive) {
                     // DORMANT genuine(M2): spec-match 한정 observed (미매칭은 Shadow 안 만듦 — 불변식 보존)
-                    matcher.match(d.method(), d.host(), d.pathTemplate())
+                    matcher.match(d.method(), d.host(), d.pathTemplate(), stripPrefix)
                             .ifPresent(ce -> observedSpec.computeIfAbsent(key(ce), k -> new Evidence())
                                     .add(d, priorFirstSeen.get(d.signature())));
                     continue;
                 }
                 // ACTIVE genuine → 아래 일반 매칭/게이트 로직으로 fall through (매칭→Active, 미매칭→Shadow)
             }
-            Optional<CanonicalEndpoint> matched = matcher.match(d.method(), d.host(), d.pathTemplate());
+            Optional<CanonicalEndpoint> matched = matcher.match(d.method(), d.host(), d.pathTemplate(), stripPrefix);
             if (matched.isPresent()) {
                 // Active/Zombie 는 2차 (스펙 권위, 게이트 우회). 매칭 d 메트릭을 Evidence 에 누적(severity 용)
                 observedSpec.computeIfAbsent(key(matched.get()), k -> new Evidence())
