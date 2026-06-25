@@ -134,6 +134,9 @@ class LokiClientTest {
                         Duration.ofMillis(5)),   // min-query-interval (빠른 스로틀/백오프)
                 new ApiDiscoverProperties.Schedule(Duration.ofHours(1), Duration.ofMinutes(10),
                         Duration.ofDays(7), "01:00-06:00"),
-                new ApiDiscoverProperties.Central("https://central.internal"));
+                new ApiDiscoverProperties.Central("https://central.internal"),
+                new ApiDiscoverProperties.Discovery(true, Duration.ofMinutes(10), Duration.ofMinutes(12),
+                        Duration.ofHours(1), Duration.ofMinutes(2), 200,
+                        "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$"));
     }
 }

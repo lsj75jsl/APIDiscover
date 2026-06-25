@@ -5,7 +5,7 @@ import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "apidiscover")
-public record ApiDiscoverProperties(Loki loki, Schedule schedule, Central central) {
+public record ApiDiscoverProperties(Loki loki, Schedule schedule, Central central, Discovery discovery) {
 
     /** Loki 접속 + 운영 부하 보호 설정. 인증은 사용하지 않는다(운영 정책). */
     public record Loki(
@@ -28,4 +28,15 @@ public record ApiDiscoverProperties(Loki loki, Schedule schedule, Central centra
 
     /** 중앙 서버 연동(웹훅 등) 설정. */
     public record Central(String baseUrl) {}
+
+    /** 도메인 자동 디스커버리 설정 (doc/30 §7). enabled=false 면 스케줄러 no-op(무회귀 토글). */
+    public record Discovery(
+            boolean enabled,
+            Duration interval,         // 롤링 주기
+            Duration window,           // interval + 오버랩
+            Duration bootstrapWindow,  // 첫 실행 1회
+            Duration initialDelay,     // 스캔 스케줄과 stagger offset
+            int maxDomainsPerRun,      // 폭증 가드(카운트 desc 상한)
+            String hostPattern         // FQDN 검증 정규식
+    ) {}
 }

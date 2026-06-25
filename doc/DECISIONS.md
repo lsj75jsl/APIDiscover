@@ -370,6 +370,27 @@ H2 단위테스트가 못 잡는 **실 PG 매핑/동작**을 검증(L52 `@Lob St
 - **setter 범위**: 전 필드 getter / `@GeneratedValue` 자동생성 id 2개(SpecRecord·DiscoveredEndpointRecord) 제외 전 필드 setter(자동생성 id=앱 미기록·field access → 불변 신호). 진짜 불변(생성자 강제·setter 제거)은 더 큰 재설계로 범위 밖. equals/hashCode 무신설(동작 변화·범위 밖).
 - **진행**: 엔티티 1개씩 스테이지 + 단계별 `build` green(리뷰·bisect·롤백), 단일 PR. 순서=블래스트 반경 오름차순(Watermark→config 쌍→DomainConfig→SpecRecord→ScanResult→DiscoveredEndpointRecord). churn 대부분은 테스트(~9파일, public 필드 직접 대입), IDE Encapsulate Fields 가 호출측까지 변환.
 
+### D42. 도메인 자동 디스커버리 — Loki 서버측 집계·coalesce·무삭제 업서트·가드 (doc/30) — 채택(A 구현·머지 완료)
+access log 에서 API 도메인을 자동 열거해 `DomainConfig` 부트스트랩/증분. 인프로세스 `@Scheduled`(별도 스케줄러), 원시 로그 미수신·서버측 메트릭 집계. P3.
+- **LogQL(서버측 집계)**: `sum by (domain, hostname)(count_over_time({job="access_log"} | pattern <필드15 host·16 real_host, DELIM ^|^> | label_format domain=<host 가 ""/"-"면 real_host 아니면 host, Go 템플릿> | domain!="" | domain!="-" [W]))`. coalesce = **LogLineParser line 83 `firstNonEmpty(nullIfDash(host),nullIfDash(real_host))` 와 동일**(full fidelity, 사용자 확정). `by (domain,hostname)` 로 도메인별 엣지 hostname 집합까지 확보 → `DomainConfig.hostnames` 자동채움. 응답=집계 벡터(라인 미전송), 단 서버 파싱 CPU 비용 실재→W 작게.
+- **LokiClient 확장**: instant 벡터 쿼리(`/loki/api/v1/query`) 메서드 신설, `requestWithRetry` URL 인자형 추출로 throttle/concurrency(max 2)/백오프/timeout **재사용**(우회 금지·queryRange 불변).
+- **스케줄러**: 신규 `DomainDiscoveryScheduler`(@Scheduled fixedDelay 기본 10분 + initialDelay stagger), 기존 per-domain 스캔과 분리·저우선(concurrencyGate 공유로 양보). 동적 주기는 fixedDelayString 으로 충분(런타임 동적=YAGNI).
+- **윈도우**: 롤링 W≈interval+오버랩, 부트스트랩 1h 1회(빈 DB/플래그, 사용자 확정) 후 롤링. DELIM/F_HOST=15/F_REAL_HOST=16 이 Java(LogLineParser)·LogQL 양쪽 중복 → doc/02 §1.1 단일근거 + 포지션 교차검증 테스트로 드리프트 차단.
+- **업서트(★무삭제·설정보존)**: 신규 INSERT(host+hostnames+기본값), 기존 UPDATE(hostnames 합집합·lastSeenAt 갱신만). **사용자 설정(basePathStrip·specMergeStrategy·enabled·intervalOverride) 덮어쓰기 금지, 도메인/설정 자동삭제 절대 금지**(수동만). `DomainConfig.discoveredAt`/`lastSeenAt` 가산(ddl-auto, lastSeenAt=윈도우 끝 데이터 ts). DomainConfig 직렬화 경로 없음→ETag 무관.
+- **P3-1(리뷰 2회 반영·정정)**: 설정 lost-update 방지 = `@DynamicUpdate` + **managed 엔티티 단일 트랜잭션**(둘 다 필요). 1차 시도(서비스 비-@Transactional·repo 기본 tx)는 무효였음 — findById/save 가 별 tx → detached → `save=em.merge` 가 stale 전 필드 복사 → 설정 컬럼 dirty → @DynamicUpdate 가 stale 값 UPDATE 포함 → 덮어씀(단일스레드 테스트가 가린 결함). 정정: 별도 빈 `DomainUpserter.@Transactional upsert()`(self-invocation 회피)로 `findById→mutate→커밋` 한 tx → entity managed → dirty-check 가 load 스냅샷 기준 → 설정 컬럼 비-dirty → @DynamicUpdate UPDATE 제외. `discover()` 는 비-@Transactional 유지(Loki tx 밖). `@Version` **미도입**(D18 §5 일관). 한계: 동시성 배제는 단일스레드 결정적 테스트 불가 → 구조+주석+실 PG 정상경로 통합테스트로 고정.
+- **가드(폭증 차단)**: ① 호스트 FQDN 정규식 검증(신규 — LogLineParser 는 `-`/빈값만 거르고 형식 미검증) ② max-domains-per-run 상한(카운트 desc) ③ 서버측 topk(선택) ④ 셀렉터 `{job="access_log"}` 단일→타임아웃 시 hostname 라벨 분할 폴백(측정 후).
+- **리스크(정직)**: 필드 레이아웃 LogQL 중복·`label_format` coalesce 실 Loki 1회 확인 필요·서버 파싱 CPU·LAN egress. 무회귀: 신규 가산만, `discovery.enabled=false`=완전 비활성.
+
+### D43. 테스트 배포 — CLI CSV 내보내기 + Docker/podman 패키징 (doc/31) — 제안·권장안
+동일 bootJar 의 CLI 모드로 한 도메인 결합 Discovery 를 CSV 로 내보내고(B), app+postgres 2컨테이너 pod 로 테스트 배포(C). P3. 사용자 확정: PG 컨테이너·PGDATA→`/opt/adc`·CLI 는 지금 1 명령만(YAGNI).
+- **CLI 모드(B)**: `--adc.cli.export-domain=<domain>` 감지 → `SpringApplicationBuilder.web(NONE).profiles("cli")`. `@EnableScheduling` 을 `SchedulingConfig(@Profile("!cli"))` 로 분리해 CLI 시 스케줄러/Loki 미기동(서버 모드 동일 활성=무회귀). `CliExportRunner`(CommandLineRunner) forHost→CSV→exit code. picocli 등 CLI 프레임워크 미도입(신규 의존 0, 단순 인자 분기만).
+- **CSV 스키마(architect 확정)**: 소스=`CombinedDiscoveryService.forHost`(List<Finding> 5 subtype). 컬럼=host·method·path_template·status·source(파생: Shadow→detected/Unused→spec/Active·Zombie→both/WebPage→detected)·confidence·severity·estimated·spec_ref·preflight_ambiguous·low_confidence·param_query·param_path·first_seen·last_seen. 헤더행·RFC4180. **first/last_seen 은 Finding 미보유→discovered_endpoint (method,host,template) join**(spec-only 공란). **score 미영속→범위 밖**.
+- **출력 위치(★PGDATA 충돌 회피)**: 확정 마운트 `-v /opt/adc:/var/lib/postgresql/data`(=/opt/adc 전체 PGDATA) → exports 를 그 내부(`/opt/adc/exports`)에 두면 initdb 충돌 → exports 는 **PGDATA 밖 별도 경로**(예 host `/opt/adc-exports`→`/exports`). 확정 PGDATA 마운트는 유지.
+- **토폴로지(★localhost 정정)**: podman **pod 는 netns 공유 → 컨테이너간 `localhost`**(컨테이너명 DNS `db` 미해석). app `SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5432/adc`. (manager `db:5432` 는 비-pod user-defined network 에서만 성립 → pod 선택 시 localhost. **pod+localhost 권장**.) 배포 산출물 = `podman play kube adc.yaml`(선언적, 추가 툴 불요) 권장 / pod 스크립트 대안 / podman-compose 비권장(툴 부재 가능).
+- **CLI DB 접속**: one-off `podman run --rm --pod adc -v /opt/adc-exports:/exports` (localhost:5432·서빙 무부하) 권장 / `podman exec` 대안.
+- **프로파일**: `application-container.yml`(PG driver·ddl-auto update·Loki LAN, doc/28 PR#20 PG text 검증), `SPRING_PROFILES_ACTIVE=container`. 기존 `application.yml`(H2) 불변→로컬·332 테스트 영향 0. Dockerfile 멀티스테이지(bootJar→temurin:21-jre).
+- **리스크(정직)**: localhost-vs-db·exports/PGDATA 충돌(해소)·컨테이너→LAN Loki 도달 1회 확인·CLI 2nd JVM 경합·score 미영속. 운영 Loki 부하보호·off-peak 문구 포함.
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.

@@ -15,9 +15,14 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import org.hibernate.annotations.DynamicUpdate;
 
 // 캡슐화 완료(doc/29 D41): private 필드 + 접근자. 애너테이션은 필드 유지 → JPA field access·@ElementCollection 매핑 불변.
+// @DynamicUpdate: dirty 컬럼만 UPDATE — 디스커버리 writer 는 hostnames/lastSeenAt 만 변경하므로 동시 사용자 설정 PUT
+// (basePathStrip·specMergeStrategy·enabled·intervalOverride)을 stale 값으로 되쓰지 않음(lost-update 방지, D42/D18 §5).
+// @Version(낙관락)은 D18 §5(last-writer-wins) 결정대로 미도입 — @DynamicUpdate 는 컬럼 범위 축소라 그 결정과 일관.
 @Entity
+@DynamicUpdate
 @Table(name = "domain_config")
 public class DomainConfig {
 
@@ -41,6 +46,11 @@ public class DomainConfig {
 
     /** 프록시가 관측 경로에서 제거한 base prefix(예 "/v2"). null=off(현행). at-match 재부착(doc/27 §3). */
     private String basePathStrip;
+
+    /** 자동 디스커버리 최초 발견 시각(doc/30 §5). 수동 등록 도메인은 null(자연 구분). ddl-auto 가산. */
+    private Instant discoveredAt;
+    /** 자동 디스커버리 최근 관측(집계 윈도우 끝). staleness 가시화용·삭제 트리거 아님(doc/30 §5). ddl-auto 가산. */
+    private Instant lastSeenAt;
 
     private Instant createdAt;
     private Instant updatedAt;
@@ -91,6 +101,22 @@ public class DomainConfig {
 
     public void setBasePathStrip(String basePathStrip) {
         this.basePathStrip = basePathStrip;
+    }
+
+    public Instant getDiscoveredAt() {
+        return discoveredAt;
+    }
+
+    public void setDiscoveredAt(Instant discoveredAt) {
+        this.discoveredAt = discoveredAt;
+    }
+
+    public Instant getLastSeenAt() {
+        return lastSeenAt;
+    }
+
+    public void setLastSeenAt(Instant lastSeenAt) {
+        this.lastSeenAt = lastSeenAt;
     }
 
     public Instant getCreatedAt() {

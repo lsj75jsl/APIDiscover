@@ -78,6 +78,7 @@ class PostgresIntegrationTest {
     @Autowired DiscoveredEndpointRepository discoveredRepo;
     @Autowired DomainConfigRepository domainRepo;
     @Autowired EffectiveClassificationResolver resolver;
+    @Autowired com.pentasecurity.apidiscover.batch.DomainUpserter domainUpserter;
 
     // 공유 컨텍스트·컨테이너(rollback 없음) → 메서드 간 상태 격리. round-trip 이 글로벌 설정(id=1)에
     // 의사 JSON 을 써넣어도 다음 테스트 오염 방지(globalRepo 비움 → resolver default). ClassificationControllerTest 선례.
@@ -226,6 +227,38 @@ class PostgresIntegrationTest {
 
         mvc.perform(get("/api/v1/domains/{host}/result", host).header("If-None-Match", etag))
                 .andExpect(status().isNotModified());
+    }
+
+    // --- P3-1: 디스커버리 업서트 managed-tx 경로(실 PG) — hostnames 합집합·lastSeenAt 만, 사용자 설정 보존 ---
+
+    @Test
+    void discoveryUpsertMergesHostnamesAndPreservesUserSettingsOnRealPg() {
+        String host = "upsert.example.com";
+        DomainConfig seed = new DomainConfig();
+        seed.setHost(host);
+        seed.setHostnames(new java.util.ArrayList<>(java.util.List.of("OLD1")));
+        seed.setEnabled(false);                                  // 사용자 설정
+        seed.setBasePathStrip("/v2");
+        seed.setSpecMergeStrategy(com.pentasecurity.apidiscover.model.SpecMergeStrategy.SEPARATE);
+        seed.setIntervalOverride("PT30M");
+        seed.setDiscoveredAt(Instant.parse("2026-06-01T00:00:00Z"));
+        domainRepo.save(seed);
+
+        Instant now = Instant.parse("2026-06-25T10:00:00Z");
+        // 실 JPA managed-tx 업서트(별도 @Transactional 빈) — detached merge 아님
+        boolean inserted = domainUpserter.upsert(host, java.util.Set.of("NEW1"), now);
+
+        assertThat(inserted).isFalse();
+        DomainConfig after = domainRepo.findById(host).orElseThrow();
+        assertThat(after.getHostnames()).containsExactly("NEW1", "OLD1");           // 합집합
+        assertThat(after.getLastSeenAt()).isEqualTo(now);                            // 갱신
+        // ★사용자 설정 보존(managed dirty-check + @DynamicUpdate → 설정 컬럼 UPDATE 제외)
+        assertThat(after.isEnabled()).isFalse();
+        assertThat(after.getBasePathStrip()).isEqualTo("/v2");
+        assertThat(after.getSpecMergeStrategy())
+                .isEqualTo(com.pentasecurity.apidiscover.model.SpecMergeStrategy.SEPARATE);
+        assertThat(after.getIntervalOverride()).isEqualTo("PT30M");
+        assertThat(after.getDiscoveredAt()).isEqualTo(Instant.parse("2026-06-01T00:00:00Z")); // 최초 발견 불변
     }
 
     // --- helpers ---

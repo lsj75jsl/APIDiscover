@@ -32,6 +32,14 @@ apidiscover:
     ingest-lag: "PT10M"
     initial-backfill: "P7D"
     off-peak-window: "01:00-06:00" # (선택) 백필/대용량 저부하 시간대
+  discovery:                       # 도메인 자동 디스커버리 (doc/30, 서버측 집계)
+    enabled: true
+    interval: "PT10M"              # 롤링 주기
+    window: "PT12M"                # interval + 오버랩(경계 누락 방지)
+    bootstrap-window: "PT1H"       # 빈 도메인 DB 첫 실행 1회
+    initial-delay: "PT2M"          # 스캔 스케줄과 stagger
+    max-domains-per-run: 200       # 폭증 가드
+    host-pattern: "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$"
   central:
     base-url: "https://central.internal"
   normalization:                 # 고카디널리티 방지 (doc/13)

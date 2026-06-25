@@ -28,8 +28,8 @@ public class LogLineParser {
         this.acrmFieldIndex = parseProps.acrmFieldIndex();
     }
 
-    /** 로그 필드 구분자. */
-    static final String DELIM = "^|^";
+    /** 로그 필드 구분자. doc/02 §1.1 — 도메인 디스커버리 LogQL pattern 과 공유(단일 근거, 드리프트 차단). */
+    public static final String DELIM = "^|^";
     private static final Pattern DELIM_PATTERN = Pattern.compile(Pattern.quote(DELIM));
 
     private static final Set<String> HTTP_METHODS = Set.of(
@@ -47,8 +47,9 @@ public class LogLineParser {
     private static final int F_HTTPS = 12;
     private static final int F_REFERER = 13;
     private static final int F_USER_AGENT = 14;
-    private static final int F_HOST = 15;
-    private static final int F_REAL_HOST = 16;
+    // host/real_host 필드 인덱스 — 도메인 디스커버리 LogQL pattern 과 공유(doc/02 §1.1, 교차검증 테스트로 고정).
+    public static final int F_HOST = 15;
+    public static final int F_REAL_HOST = 16;
     private static final int F_TYPE = 19;          // $type (document/library 등)
     private static final int F_REQUEST_ID = 23;    // request_id (32 hex, dedup 키)
     private static final int FIELD_COUNT = 20;     // 필수 코어 필드 수(실로그는 24개까지)

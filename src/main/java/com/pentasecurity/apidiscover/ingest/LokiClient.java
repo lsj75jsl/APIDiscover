@@ -13,7 +13,9 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Semaphore;
 import org.slf4j.Logger;
@@ -59,12 +61,39 @@ public class LokiClient {
         return out;
     }
 
+    /**
+     * instant 벡터 쿼리(/loki/api/v1/query) — 서버측 메트릭 집계 1행 수신(도메인 디스커버리, doc/30 §2).
+     * throttle/concurrency/백오프/timeout 은 query_range 와 동일 경로(requestWithRetry) 재사용. 윈도우 분할 불요(집계 1행).
+     */
+    public List<MetricSample> queryInstant(String logql, Instant time) {
+        String url = props.loki().addr() + "/loki/api/v1/query"
+                + "?query=" + URLEncoder.encode(logql, StandardCharsets.UTF_8)
+                + "&time=" + toNanos(time);
+        JsonNode data = requestWithRetry(url);
+        List<MetricSample> out = new ArrayList<>();
+        for (JsonNode r : data.path("result")) {
+            Map<String, String> labels = new HashMap<>();
+            r.path("metric").fields().forEachRemaining(e -> labels.put(e.getKey(), e.getValue().asText()));
+            JsonNode value = r.path("value"); // [ts, "count"]
+            double count = (value.isArray() && value.size() == 2) ? Double.parseDouble(value.get(1).asText()) : 0.0;
+            out.add(new MetricSample(labels, count));
+        }
+        return out;
+    }
+
+    /** instant 벡터 결과 1행: 라벨맵({domain,hostname,...}) + 집계값. */
+    public record MetricSample(Map<String, String> labels, double value) {}
+
     private void fetchChunk(String logql, Instant start, Instant end, List<String> out) {
         long endNs = toNanos(end);
         long startNs = toNanos(start);
         int limit = props.loki().pageLimit();
         while (startNs < endNs) {
-            JsonNode data = requestWithRetry(logql, startNs, endNs, limit);
+            String url = props.loki().addr() + "/loki/api/v1/query_range"
+                    + "?query=" + URLEncoder.encode(logql, StandardCharsets.UTF_8)
+                    + "&start=" + startNs + "&end=" + endNs
+                    + "&limit=" + limit + "&direction=forward";
+            JsonNode data = requestWithRetry(url);
             long maxTs = -1L;
             int count = 0;
             for (JsonNode stream : data.path("result")) {
@@ -82,12 +111,8 @@ public class LokiClient {
         }
     }
 
-    /** 단일 query_range 호출 + 429/5xx 지수 백오프. data 노드 반환. */
-    private JsonNode requestWithRetry(String logql, long startNs, long endNs, int limit) {
-        String url = props.loki().addr() + "/loki/api/v1/query_range"
-                + "?query=" + URLEncoder.encode(logql, StandardCharsets.UTF_8)
-                + "&start=" + startNs + "&end=" + endNs
-                + "&limit=" + limit + "&direction=forward";
+    /** 단일 Loki HTTP GET + 429/5xx 지수 백오프. data 노드 반환. query_range·instant 공용(doc/30 §2, URL 인자형). */
+    private JsonNode requestWithRetry(String url) {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .timeout(props.loki().queryTimeout())
