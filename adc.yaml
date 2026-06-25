@@ -1,0 +1,44 @@
+# podman play kube — app + postgres 2컨테이너 1 pod (doc/31 C2). pod netns 공유 → app 은 localhost:5432 로 db 접속.
+# PGDATA = host /opt/adc → /var/lib/postgresql/data (하위 pgdata 서브디렉터리 = 마운트 비-빈 시 initdb 충돌 회피).
+# exports(CSV)는 PGDATA 밖 — 서빙 pod 엔 미마운트, CLI one-off run 에서 /opt/adc-exports→/exports 마운트(doc/31 B3/B4).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: adc
+  labels:
+    app: apidiscover
+spec:
+  containers:
+    - name: db
+      image: docker.io/library/postgres:16-alpine
+      env:
+        - name: POSTGRES_DB
+          value: adc
+        - name: POSTGRES_USER
+          value: adc
+        - name: POSTGRES_PASSWORD
+          value: adc
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+      volumeMounts:
+        - name: pgdata
+          mountPath: /var/lib/postgresql/data
+    - name: app
+      image: localhost/apidiscover:test
+      env:
+        - name: SPRING_PROFILES_ACTIVE
+          value: container
+        - name: SPRING_DATASOURCE_URL
+          value: jdbc:postgresql://localhost:5432/adc   # pod netns 공유 → localhost
+        - name: SPRING_DATASOURCE_USERNAME
+          value: adc
+        - name: SPRING_DATASOURCE_PASSWORD
+          value: adc
+      ports:
+        - containerPort: 8080
+          hostPort: 8080
+  volumes:
+    - name: pgdata
+      hostPath:
+        path: /opt/adc            # 사용자 확정 PGDATA 마운트. 사전 생성 필요(mkdir -p)
+        type: Directory

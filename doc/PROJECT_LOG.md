@@ -5,6 +5,25 @@
 
 ---
 
+## 2026-06-25 세션 30 — PR2: CLI CSV 내보내기(B) + Docker/podman 배포(C) (doc/31 D43)
+
+### 한 일 — B (CLI)
+- `main()`: `--adc.cli.export-domain=` 인자 감지 시 `SpringApplicationBuilder.web(NONE).profiles("cli")` 분기(무인자=서버). `@EnableScheduling` 을 메인에서 떼어 `SchedulingConfig(@Configuration @EnableScheduling @Profile("!cli"))` 로 분리 → CLI 모드는 스캔·디스커버리 스케줄러·Loki 미기동, 서버 모드 동일 활성(무회귀).
+- `CliExportRunner`(@Profile("cli"), CommandLineRunner): `export(stamp)`→exit code(System.exit 미경유=테스트 가능)/`run()`→`System.exit(SpringApplication.exit(...))`. forHost→CSV→파일. exit 0/2(도메인 미지정)/3(미존재·검출0)/4(IO).
+- `DomainCsvWriter`(순수): 15컬럼(host·method·path_template·status·source·confidence·severity·estimated·spec_ref·preflight_ambiguous·low_confidence·param_query·param_path·first_seen·last_seen). source 파생(Shadow/WebPage→detected·Unused→spec·Active/Zombie→both), sealed Finding 패턴매칭, RFC4180 이스케이프, first/last_seen=discovered_endpoint (method,host,template) join(spec-only 공란), score 범위밖(헤더 미포함). `CliProperties`(adc.cli.export-domain/output-dir 기본 /exports).
+- B 테스트 10건: DomainCsvWriter(헤더·5 status·source·이스케이프·join 공란·param 결합) + CliExportRunner(blank/empty→비0 exit·success→파일+0) + SchedulingProfile(구조: @EnableScheduling 이동·@Profile("!cli")).
+
+### 한 일 — C (Docker/podman)
+- `Dockerfile`(멀티스테이지: temurin:21-jdk `./gradlew bootJar -x test` → temurin:21-jre, `*-SNAPSHOT.jar` glob=bootJar만, ENTRYPOINT java -jar) + `.dockerignore`(build/.git/.gradle/*.csv).
+- `application-container.yml`(container 프로파일: PG datasource localhost:5432/adc·env override·ddl-auto update·Loki LAN). 기존 application.yml(H2) 불변.
+- `adc.yaml`(podman play kube: 2컨테이너 1 pod=app+postgres:16-alpine, pod netns 공유→app localhost:5432, PGDATA host /opt/adc→/var/lib/postgresql/data(pgdata 서브디렉터리), exports 분리). `doc/32-container-deploy-runbook.md`(빌드·기동·CLI·운영 Loki off-peak 주의·미수행 배포 체크리스트).
+
+### 결과
+- `./gradlew build` BUILD SUCCESSFUL, 총 **357(347+10) 실패 0 skip 2**(둘 다 -Dloki.live 게이트=운영 Loki 미호출). PostgresIntegrationTest podman 14건 green. **`podman build` 성공**(localhost/apidiscover:test 401MB, bootJar→JRE, glob 정확). ★컨테이너 미기동(운영 Loki 미호출 절대 준수) — play kube 기동·LAN Loki 도달·실 coalesce·CLI 실도메인 검증은 doc/32 §6 으로 배포 시 매니저/사용자 수행.
+
+### 다음 단계
+- 커밋 금지(매니저 PR2). doc/18 영향 없음(스키마 불변). 머지 시 B·C 부모 Done.
+
 ## 2026-06-25 세션 29 — 도메인 자동 디스커버리 Phase 1 (A, doc/30 D42)
 
 ### 한 일 (A만 — B CLI·C Docker 는 PR2 후속, 미착수)

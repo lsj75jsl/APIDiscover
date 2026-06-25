@@ -1,0 +1,19 @@
+# container 프로파일 — PostgreSQL DataSource + Loki LAN (doc/31 C3). 기존 application.yml(H2) 불변·로컬/테스트 무영향.
+# SPRING_PROFILES_ACTIVE=container 로 활성. 파일명(application-container) 기반 자동 활성 — on-profile 불요.
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/adc}
+    driver-class-name: org.postgresql.Driver
+    username: ${SPRING_DATASOURCE_USERNAME:adc}
+    password: ${SPRING_DATASOURCE_PASSWORD:adc}
+  jpa:
+    hibernate:
+      ddl-auto: update            # 첫 기동 스키마 생성(doc/28 PR#20 PG text 매핑 검증됨)
+
+apidiscover:
+  loki:
+    addr: ${APIDISCOVER_LOKI_ADDR:http://192.168.8.100:3200}   # LAN 운영 Loki(부하보호·off-peak 준수)
+
+adc:
+  cli:
+    output-dir: ${ADC_CLI_OUTPUT_DIR:/exports}                 # PGDATA 밖(C 마운트)

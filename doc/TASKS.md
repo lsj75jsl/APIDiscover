@@ -51,14 +51,14 @@
 > (현재 비어 있음 — 매칭 회귀테스트·F1/F2·@Lob→text 실검증·Testcontainers·엔티티 캡슐화 완료, Done 참조. Docker 의존 항목은 host podman 으로 해소.)
 
 ### P3. 운영/인프라 (자체 운영)
-- [ ] **(신규, doc/31 B)** CLI CSV 내보내기 — `--adc.cli.export-domain=<domain>` → 결합 Discovery CSV **(설계 완료 → doc/31 / DECISIONS D43, PR2)**
-  - [ ] CLI 모드 분기(`SpringApplicationBuilder.web(NONE).profiles("cli")`) + `@EnableScheduling`→`SchedulingConfig(@Profile("!cli"))` 분리(서버 동일 활성)
-  - [ ] `CliExportRunner`(CommandLineRunner) + CSV writer(forHost→14컬럼·source 파생·RFC4180·first/last_seen discovered join·score 범위밖)
-  - [ ] 출력 `adc.cli.output-dir`(PGDATA 밖 `/exports`) + 테스트(포맷·이스케이프·5 status·미존재 exit 비0)
-- [ ] **(신규, doc/31 C)** Docker/podman 테스트 배포 — app+postgres pod + `/opt/adc` **(설계 완료 → doc/31 / DECISIONS D43, PR2)**
-  - [ ] Dockerfile(멀티스테이지 bootJar→temurin:21-jre) + `application-container.yml`(PG·ddl-auto update·Loki LAN)
-  - [ ] `adc.yaml`(podman play kube, 2컨테이너 pod, app `localhost:5432`, PGDATA `/opt/adc` hostPath) 또는 pod 스크립트
-  - [ ] 배포/실행/CLI 절차 문서(운영 Loki 부하·off-peak) + (검증) build·기동·`/discovery`·CLI CSV·LAN Loki 도달
+- [ ] **(신규, doc/31 B)** CLI CSV 내보내기 — `--adc.cli.export-domain=<domain>` → 결합 Discovery CSV **(설계 완료 → doc/31 / DECISIONS D43, PR2)** — *구현 완료(build green 357, 머지 시 Done)*
+  - [x] CLI 모드 분기(`SpringApplicationBuilder.web(NONE).profiles("cli")`) + `@EnableScheduling`→`SchedulingConfig(@Profile("!cli"))` 분리(서버 동일 활성, 구조 테스트로 고정)
+  - [x] `CliExportRunner`(CommandLineRunner, @Profile cli, export()→exit code/run()→System.exit) + `DomainCsvWriter`(forHost→15컬럼·source 파생·RFC4180·first/last_seen discovered join 공란·score 범위밖)
+  - [x] 출력 `adc.cli.output-dir`(PGDATA 밖 `/exports`, `CliProperties`) + 테스트(포맷·이스케이프·5 status·join 공란·미존재 exit 비0) 10건
+- [ ] **(신규, doc/31 C)** Docker/podman 테스트 배포 — app+postgres pod + `/opt/adc` **(설계 완료 → doc/31 / DECISIONS D43, PR2)** — *구현 완료(podman build 성공, 머지 시 Done)*
+  - [x] Dockerfile(멀티스테이지 bootJar→temurin:21-jre, `-x test`, `*-SNAPSHOT.jar` glob) + `.dockerignore` + `application-container.yml`(PG·ddl-auto update·Loki LAN, env override)
+  - [x] `adc.yaml`(podman play kube, 2컨테이너 pod, app `localhost:5432`, PGDATA `/opt/adc`(pgdata 서브디렉터리) hostPath, exports 분리)
+  - [x] 배포/실행/CLI 절차 문서(`doc/32-container-deploy-runbook.md`, 운영 Loki 부하·off-peak 문구) + 검증=`podman build` 성공까지(컨테이너 기동·`/discovery`·LAN Loki 도달은 운영 Loki 주의로 배포 시 §6, 미수행)
 - [ ] off-peak 시간대 제한
 - [ ] 부하/운영 메트릭 (쿼리수·바이트·429) Actuator/Micrometer 노출 + 알람 — doc/12 `DroppedNonApi`·doc/13 `DroppedByLimit` 카운트 재사용 가능
 - [ ] Spring Batch JobRepository 실연결 (현재 `@Scheduled`만, `batch.job.enabled=false`)
