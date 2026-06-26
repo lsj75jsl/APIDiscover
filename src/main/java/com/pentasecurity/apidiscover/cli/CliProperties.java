@@ -16,5 +16,6 @@ public record CliProperties(
         @DefaultValue("/exports") String outputDir,
         String scanDomain,
         Duration window,
-        String edge) {
+        String edge,
+        @DefaultValue("false") boolean listDomains) {
 }

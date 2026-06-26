@@ -5,6 +5,24 @@
 
 ---
 
+## 2026-06-26 세션 33 — PR1.1 스캔 per-domain 폭주 수정 + 도메인 목록 CLI (doc/33 §14·§15, D46·D47)
+
+### 한 일 — 커밋1: PR1.1 스캔 폭주 수정 (D46)
+- **③ 스레드 격리**: `application.yml` `spring.task.scheduling.pool.size: 2` → scanTick·discover 별 스레드(단일 풀 블로킹 기아 해소).
+- **② 윈도우 축소**: `scan.max-window` PT6H→PT30M + `scan.slice-window` PT10M 신규(미지정=loki.chunk-window).
+- **① per-scan 하드캡 + 슬라이스 부분 watermark 전진(핵심)**: `runScan` 이 `collectBounded`(슬라이스 외부·hostname 내부 순회) 호출 — 슬라이스(slice-window)별로 **모든 hostname 완료 후에만** consumedUpTo 를 그 슬라이스 끝으로 전진(멀티-hostname gap-free). 슬라이스 경계에서 `max-queries-per-scan`(50) 하드캡 + `budget.hasBudget()` 체크 → 초과 시 마지막 완료 슬라이스까지만 analyze + watermark 전진하고 종료(부분 전진=resume 다음 틱, busy 도메인 기아 방지). `collect`(온디맨드)는 유지. `ApiDiscoverProperties.Scan` +sliceWindow·maxQueriesPerScan(끝), `DiscoveryJobService` +LokiBudget 주입.
+- 무회귀: max-queries-per-scan=0 && 예산 무제한 → 전 슬라이스 수집 = 기존 collect 동치(consumedUpTo=window.to()). 슬라이스 순회는 윈도우 타일링이라 라인 동일(dedup). watermark=데이터 ts 결정적. pool=2 동작 불변.
+
+### 한 일 — 커밋2: 도메인 목록 CLI `-domain -ls` (D47)
+- `main().isListDomains`: 단일대시 `-domain` AND `-ls` 동시 감지(Spring non-option arg) → CLI 모드 + `--adc.cli.list-domains=true` 주입(외부 단일대시 UX·내부 프로퍼티 구동 분리). `CliProperties.listDomains` 가산.
+- `CliListRunner`(@Profile cli): `domainRepo.findAll(Sort host)` → stdout(host·enabled·#hostnames·discovered_at·last_seen_at), 빈목록 exit0·DB오류 비0. Loki 무관(read-only). run() blank=no-op(export/scan 명령 공존). arg 혼재 허용(기존 `--adc.cli.X=` 불변).
+
+### 결과
+- `./gradlew build` BUILD SUCCESSFUL, 총 **382(+8) 실패 0 skip 2**(둘 다 -Dloki.live 게이트=운영 Loki 미호출). 신규: ScanSliceBoundedTest 3(캡/예산 부분전진·gap-free·무제한 현행)·CliListRunnerTest 3·MainArgModeTest 2. 단위 전부 LokiClient/repo mock — 운영 Loki 미호출.
+
+### 다음 단계
+- 커밋 금지(매니저, 분리 2커밋 scan-fix/list-cli 또는 2 PR). 실 Loki scanTick 다도메인 분산·discovered_endpoint 점증은 매니저 재배포 검증. doc/18 영향 없음(신규 컬럼 없음, slice/cap/pool 은 설정).
+
 ## 2026-06-26 세션 32 — PR1: 스캔 부하정책 B+A+E + 온디맨드 스캔 CLI (doc/33 D45)
 
 ### 한 일 (PR1 필수만 — C/D=PR2, F=PR3 미착수)

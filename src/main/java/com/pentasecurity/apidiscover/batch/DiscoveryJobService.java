@@ -18,6 +18,7 @@ import com.pentasecurity.apidiscover.domain.SpecRecord;
 import com.pentasecurity.apidiscover.domain.Watermark;
 import com.pentasecurity.apidiscover.domain.WatermarkRepository;
 import com.pentasecurity.apidiscover.ingest.LogWindow;
+import com.pentasecurity.apidiscover.ingest.LokiBudget;
 import com.pentasecurity.apidiscover.ingest.LokiClient;
 import com.pentasecurity.apidiscover.ingest.LokiQueryBuilder;
 import com.pentasecurity.apidiscover.match.EndpointMatcher;
@@ -66,6 +67,7 @@ public class DiscoveryJobService {
     private final DiscoveredEndpointRepository discoveredRepo;
     private final LokiClient lokiClient;
     private final LokiQueryBuilder queryBuilder;
+    private final LokiBudget budget;
     private final ObjectMapper objectMapper;
     private final ApiDiscoverProperties props;
 
@@ -82,6 +84,7 @@ public class DiscoveryJobService {
                                DiscoveredEndpointRepository discoveredRepo,
                                LokiClient lokiClient,
                                LokiQueryBuilder queryBuilder,
+                               LokiBudget budget,
                                ObjectMapper objectMapper,
                                ApiDiscoverProperties props) {
         this.parser = parser;
@@ -97,6 +100,7 @@ public class DiscoveryJobService {
         this.discoveredRepo = discoveredRepo;
         this.lokiClient = lokiClient;
         this.queryBuilder = queryBuilder;
+        this.budget = budget;
         this.objectMapper = objectMapper;
         this.props = props;
     }
@@ -117,11 +121,23 @@ public class DiscoveryJobService {
             return;
         }
         LogWindow window = next.get();
-        List<String> lines = collect(cfg, window);
-        analyze(host, lines, window);
-        advanceWatermark(host, window.to()); // 성공 후에만 전진 (at-least-once)
-        log.info("scan complete: host={} window={}", host, window);
+        // PR1.1(① doc/33 §14): 슬라이스 외부·hostname 내부 순회 + per-scan 캡/예산 → 부분 수집.
+        BoundedCollection bc = collectBounded(cfg, window);
+        if (!bc.consumedUpTo().isAfter(window.from())) {
+            // 한 슬라이스도 완료 못함(첫 슬라이스 전 예산/캡 소진) → 전진 없음, 다음 틱 resume
+            log.info("defer scan: host={} budget/cap exhausted before any slice", host);
+            return;
+        }
+        LogWindow consumed = new LogWindow(window.from(), bc.consumedUpTo());
+        analyze(host, bc.lines(), consumed);
+        // ★부분 watermark 전진 = 마지막 완료 슬라이스 끝(모든 hostname 완료분만 → gap-free). 다음 틱이 이어서 resume.
+        advanceWatermark(host, bc.consumedUpTo());
+        log.info("scan complete: host={} window={} consumedUpTo={}{}", host, window, bc.consumedUpTo(),
+                bc.consumedUpTo().isBefore(window.to()) ? " (partial — resume next tick)" : "");
     }
+
+    /** 슬라이스 부분 수집 결과: 누적 라인 + 모든 hostname 완료된 마지막 슬라이스 끝(watermark 전진 한계). 테스트 가시(package-private). */
+    record BoundedCollection(List<String> lines, Instant consumedUpTo) {}
 
     /**
      * 특정 (엣지 hostname, domain) 1쌍에 대한 온디맨드 조회+분석 (외부 API 직접 호출용).
@@ -473,5 +489,49 @@ public class DiscoveryJobService {
             }
         }
         return lines;
+    }
+
+    /**
+     * PR1.1(① doc/33 §14) — 슬라이스 외부·hostname 내부 순회. 윈도우를 slice-window(미지정=chunk-window)로 쪼개,
+     * <b>각 슬라이스의 모든 hostname 을 완료한 뒤에만</b> consumedUpTo 를 그 슬라이스 끝으로 전진(멀티-hostname gap-free).
+     * 슬라이스 경계에서 per-scan 캡(max-queries-per-scan)·전역 예산(budget.hasBudget) 체크 → 초과 시 마지막 완료 슬라이스까지만(부분 전진).
+     * 무회귀: cap=0 && 예산 무제한 && slice≥window → 전 슬라이스 수집 = 기존 collect 동치(consumedUpTo=window.to()).
+     */
+    BoundedCollection collectBounded(DomainConfig cfg, LogWindow window) {
+        List<String> edges = (cfg.getHostnames() == null || cfg.getHostnames().isEmpty())
+                ? java.util.Collections.singletonList(null)   // null = hostname 라벨 없는 도메인 쿼리
+                : cfg.getHostnames();
+        Duration slice = sliceWindow();
+        int cap = props.scan().maxQueriesPerScan();
+        List<String> lines = new ArrayList<>();
+        Instant consumedUpTo = window.from();
+        Instant sliceStart = window.from();
+        int queriesUsed = 0;
+        while (sliceStart.isBefore(window.to())) {
+            // 슬라이스 경계 하드캡(①)·전역 예산(④ 흡수) — 초과 시 여기까지(consumedUpTo)만 처리하고 종료(resume)
+            if (!budget.hasBudget() || (cap > 0 && queriesUsed >= cap)) {
+                break;
+            }
+            Instant sliceEnd = sliceStart.plus(slice);
+            if (sliceEnd.isAfter(window.to())) {
+                sliceEnd = window.to();
+            }
+            LogWindow sliceWin = new LogWindow(sliceStart, sliceEnd);
+            for (String edge : edges) {
+                String logql = (edge != null)
+                        ? queryBuilder.build(edge, cfg.getHost()) : queryBuilder.build(cfg.getHost());
+                lines.addAll(lokiClient.queryRange(logql, sliceWin));
+                queriesUsed++;
+            }
+            consumedUpTo = sliceEnd; // 슬라이스의 모든 hostname 완료 → watermark 후보 전진(gap-free)
+            sliceStart = sliceEnd;
+        }
+        return new BoundedCollection(lines, consumedUpTo);
+    }
+
+    /** ① 슬라이스 단위(scan.slice-window, 미지정/0 → loki.chunk-window 재사용). */
+    private Duration sliceWindow() {
+        Duration s = props.scan().sliceWindow();
+        return (s != null && !s.isZero()) ? s : props.loki().chunkWindow();
     }
 }
