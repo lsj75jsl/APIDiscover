@@ -28,6 +28,8 @@ public class DiscoveredEndpointRecord {
 
     /** unique(host,method,path_template) = upsert 키. */
     private String method;
+    /** 정규화 경로 — 임의 길이(긴 REST·다세그먼트) → text(varchar(255) 오버플로 회피, 실배포 발견, D40 동일 패턴). */
+    @Column(columnDefinition = "text")
     private String pathTemplate;
 
     /** SPEC / INFERRED (doc/01 TemplateSource). */

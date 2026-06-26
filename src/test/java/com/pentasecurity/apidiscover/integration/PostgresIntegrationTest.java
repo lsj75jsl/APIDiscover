@@ -93,7 +93,7 @@ class PostgresIntegrationTest {
         resolver.invalidateAll();
     }
 
-    // --- L52: @Lob String 9컬럼 → PG `text` 실검증 ---
+    // --- L52: text 매핑 실검증 — @Lob String 9컬럼 + path_template(varchar→text, 실배포 오버플로 수정) ---
 
     @ParameterizedTest(name = "{0}.{1} → text")
     @CsvSource({
@@ -106,13 +106,14 @@ class PostgresIntegrationTest {
             "spec_record, warnings_json",
             "discovered_endpoint, status_dist_json",
             "discovered_endpoint, params_json",
+            "discovered_endpoint, path_template",  // varchar(255) 오버플로 → text(임의 길이 경로, 실배포 발견)
     })
     void lobStringColumnsMapToText(String table, String column) {
         String dataType = jdbc.queryForObject(
                 "select data_type from information_schema.columns where table_name = ? and column_name = ?",
                 String.class, table, column);
         // 기대 = text. oid/bytea/varchar 면 실결함(테스트 느슨화 금지, D37) → 엔티티 수정으로 해소.
-        assertThat(dataType).as("%s.%s @Lob String PG 타입", table, column).isEqualTo("text");
+        assertThat(dataType).as("%s.%s PG 타입(text 기대)", table, column).isEqualTo("text");
     }
 
     @Test
@@ -166,6 +167,20 @@ class PostgresIntegrationTest {
         DiscoveredEndpointRecord dl = discoveredRepo.findById(ds.getId()).orElseThrow();
         assertThat(dl.getStatusDistJson()).isEqualTo(big);
         assertThat(dl.getParamsJson()).isEqualTo(big);
+    }
+
+    @Test
+    void longPathTemplateRoundTripsBeyondVarchar255() {
+        // varchar(255) 오버플로(실배포 'value too long') → text 로 임의 길이 경로 저장/조회
+        String longPath = "/api/v1/" + "segment/".repeat(50) + "{id}"; // >255자
+        assertThat(longPath.length()).isGreaterThan(255);
+
+        DiscoveredEndpointRecord d = new DiscoveredEndpointRecord();
+        d.setHost("longpath.example.com");
+        d.setMethod("GET");
+        d.setPathTemplate(longPath);
+        DiscoveredEndpointRecord saved = discoveredRepo.save(d); // varchar(255)면 여기서 실패했음
+        assertThat(discoveredRepo.findById(saved.getId()).orElseThrow().getPathTemplate()).isEqualTo(longPath);
     }
 
     /** raw_doc(@Lob byte[]) 는 String 과 매핑 다름(§6.2) — round-trip 은 위에서, 실 타입은 정보성 기록(text 단언 금지). */
