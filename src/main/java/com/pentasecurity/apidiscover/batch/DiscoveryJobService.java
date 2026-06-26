@@ -36,6 +36,7 @@ import com.pentasecurity.apidiscover.parse.LogLineParser;
 import com.pentasecurity.apidiscover.report.EtagUtil;
 import com.pentasecurity.apidiscover.report.ReportBuilder;
 import com.pentasecurity.apidiscover.spec.SpecStore;
+import com.pentasecurity.apidiscover.util.DomainNames;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -196,6 +197,13 @@ public class DiscoveryJobService {
         }
         // request_id 기반 dedup (윈도우 겹침/재시도 흡수, doc/05 §3.3)
         List<ParsedRequest> requests = dedupByRequestId(parsed);
+        // foreign-host 제외 (doc/05 §2.2): LokiQueryBuilder 의 |= domain 은 substring coarse 전치필터라 referer/URL/UA 에
+        // 도메인 든 다른 Host 라인도 매칭됨 → 파싱 후 스캔도메인(정규화 동치)만 남겨 인벤토리·discovered·recency 오염 차단.
+        // ★양변 정규화(자기완결, 불변식 미의존): 좌변 스캔 host 도 normalize → 비정규화 등록분(레거시)도 오필터 방지. null host 자동 제외.
+        String scanDomain = DomainNames.normalize(host);
+        requests = requests.stream()
+                .filter(r -> scanDomain != null && scanDomain.equals(DomainNames.normalize(r.host())))
+                .toList();
 
         // Spec 로드 — 없으면 빈 스펙(매처는 아무것도 매칭 못함 → 관찰분 전부 Shadow)
         Optional<SpecRecord> active = specStore.activeMeta(host);

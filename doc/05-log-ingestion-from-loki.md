@@ -44,6 +44,7 @@ nginx access log 는 사내 **Loki** 서버에 적재되어 있고, API Discover
 - **라벨로 1차 축소**(job + hostname)는 인덱스 기반이라 싸다. **반드시 활용**해 스캔량을 줄인다.
 - `|=` 도메인 라인필터는 **볼륨 축소용**. `^|^` 20필드 **정밀 파싱·도메인 확정은 (A) Log Parser**(02 문서)가
   단일 진실원으로 수행(서버측 정밀 파싱은 fragile).
+- **★`|=` 는 substring coarse 매치라 foreign-host 라인이 섞인다**: referer/URL/UA 등 다른 필드에 도메인 문자열이 든 **다른 Host** 라인도 통과한다. 따라서 **정밀 host 필터는 파싱 후 Java 에서** — `DiscoveryJobService.analyze` 가 parse→dedup 직후 `스캔도메인.equals(DomainNames.normalize(r.host()))` 로 스캔도메인 전용만 남긴다(공유 `DomainNames.normalize`=discovery 등록과 동일 규칙). 안 그러면 이질 host endpoint 가 스캔도메인 인벤토리·discovered_endpoint 에 유입돼 오염(실배포 발견, doc/26 §2).
 - 도메인을 서빙하는 hostname 목록은 도메인 설정에 둔다(§2.3, 07 문서). 모르면 hostname 라벨 없이
   job 만으로 조회 가능하나 **스캔량이 커지므로 비권장**.
 

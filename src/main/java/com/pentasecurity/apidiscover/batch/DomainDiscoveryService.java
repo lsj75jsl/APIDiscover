@@ -6,11 +6,11 @@ import com.pentasecurity.apidiscover.domain.DomainConfig;
 import com.pentasecurity.apidiscover.domain.DomainConfigRepository;
 import com.pentasecurity.apidiscover.ingest.LokiClient;
 import com.pentasecurity.apidiscover.parse.LogLineParser;
+import com.pentasecurity.apidiscover.util.DomainNames;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
@@ -145,12 +145,9 @@ public class DomainDiscoveryService {
         return sb.toString();
     }
 
+    /** 공유 정규화 위임(DomainNames) — 스캔 foreign-host 필터와 동일 규칙 보장(단일 진실원, doc/05 §2.2). */
     private static String normalizeDomain(String raw) {
-        if (raw == null) {
-            return null;
-        }
-        String t = raw.trim().toLowerCase(Locale.ROOT);
-        return (t.isEmpty() || "-".equals(t)) ? null : t;
+        return DomainNames.normalize(raw);
     }
 
     /** 클라이언트 coalesce — host 우선, 빈/dash(=null)면 real_host (LogLineParser.firstNonEmpty 동형). */

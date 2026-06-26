@@ -138,6 +138,41 @@ class DiscoveryJobServiceTest {
     }
 
     @Test
+    void analyzeFiltersForeignHostRequests() {
+        // |= domain substring 라인필터로 유입된 다른 Host 라인 제거(파싱 후 DomainNames.normalize 비교).
+        // 대문자 host 는 정규화로 스캔도메인 동치 → 포함, foreign host 는 제외. → discovered_endpoint 전부 스캔도메인 하.
+        when(specStore.activeMeta(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.findById(HOST)).thenReturn(Optional.empty());
+        when(scanRepo.save(any(ScanResult.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.analyze(HOST, List.of(
+                line("GET", "/alpha", 200),                       // host=HOST → 포함
+                lineH("API.EXAMPLE.COM", "GET", "/beta", 200),    // 대문자 host → normalize 로 HOST 동치 → 포함
+                lineH("evil.example.com", "GET", "/leak", 200)),  // foreign host → 제외
+                window);
+
+        assertThat(discStore).isNotEmpty();
+        assertThat(discStore).allMatch(r -> HOST.equals(r.getHost()));   // 전부 스캔도메인 하에 영속(setHost=host 파라미터)
+        assertThat(discStore).extracting(DiscoveredEndpointRecord::getPathTemplate)
+                .contains("/alpha", "/beta")    // HOST·대문자HOST 둘 다 포함
+                .doesNotContain("/leak");       // foreign 제외(인벤토리·discovered 미유입)
+    }
+
+    @Test
+    void analyzeNormalizesScanHostInForeignFilter() {
+        // 비정규화 스캔 host(레거시 등록분) — 좌변도 normalize → 정상 라인 오필터 안 함(자기완결, 불변식 미의존)
+        String scanHost = "API.Example.com"; // 비정규화
+        when(specStore.activeMeta(scanHost)).thenReturn(Optional.empty());
+        when(scanRepo.findById(scanHost)).thenReturn(Optional.empty());
+        when(scanRepo.save(any(ScanResult.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.analyze(scanHost, List.of(lineH("api.example.com", "GET", "/alpha", 200)), window);
+
+        // normalize("API.Example.com")=api.example.com == normalize(line host) → 라인 포함(필터 통과)
+        assertThat(discStore).extracting(DiscoveredEndpointRecord::getPathTemplate).contains("/alpha");
+    }
+
+    @Test
     void analyzeReflectsExcludeConfigFromResolver() {
         when(specStore.activeMeta(HOST)).thenReturn(Optional.empty());
         when(scanRepo.findById(HOST)).thenReturn(Optional.empty());
@@ -668,6 +703,13 @@ class DiscoveryJobServiceTest {
     /** ^|^ 구분 20필드 로그 한 줄 생성. */
     private static String line(String method, String uri, int status) {
         return lineT(method, uri, status, "api");
+    }
+    /** host(=real_host) 필드를 지정한 라인 — foreign-host 필터 테스트용(그 외 lineT 와 동일). */
+    private static String lineH(String host, String method, String uri, int status) {
+        return String.join("^|^", List.of(
+                "203.0.113.5", "10.0.0.2", "51514", "2026-06-22T09:00:00+09:00", "MISS",
+                method + " " + uri + " HTTP/1.1", "OK", "0.010", uri, String.valueOf(status),
+                "100", "99", "on", "-", "ua", host, host, "10.0.0.10", "443", "api"));
     }
 
     /** line() 변형 — $type(필드19) 지정. $type taxonomy/히스토그램 테스트용 (doc/21). */
