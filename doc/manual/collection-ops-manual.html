@@ -316,7 +316,7 @@ window <span class="op">=</span> [ <span class="hl">lastEnd</span> (없으면 en
 <table>
   <thead><tr><th>서브커맨드</th><th>동작</th><th>Loki</th></tr></thead>
   <tbody>
-    <tr><td><code>-domain -ls</code></td><td>등록 도메인 목록</td><td>무관(DB only)</td></tr>
+    <tr><td><code>-domain -ls</code></td><td>등록 도메인 목록 CSV 내보내기</td><td>무관(DB only)</td></tr>
     <tr><td><code>-domain -export &lt;도메인&gt;</code></td><td>결과 CSV 내보내기</td><td>무관(DB only)</td></tr>
     <tr><td><code>-domain -scan &lt;도메인&gt; [-window &lt;ISO8601&gt;] [-edge &lt;hostname&gt;]</code></td><td>온디맨드 즉시 스캔</td><td><strong>운영 Loki 호출</strong> · watermark 미전진</td></tr>
   </tbody>
@@ -326,16 +326,22 @@ window <span class="op">=</span> [ <span class="hl">lastEnd</span> (없으면 en
 <div class="callout note">
   <span class="ct">컨테이너 실행 방식 — <code>exec</code> vs <code>run</code></span>
   <ul style="margin:6px 0 0; padding-left:18px;">
-    <li>실행 중 컨테이너(<code>adc-app</code>)가 있으면 <strong>list·scan 은 <code>exec</code></strong> 로(새 컨테이너 불필요). <code>exec</code> 는 ENTRYPOINT(<code>wait-for-db.sh</code>)를 우회하므로 <code>java -jar /app/app.jar</code> 를 명시한다.</li>
-    <li><strong>export 는 <code>run -v</code></strong> 로. 서빙 pod 에는 <code>/exports</code> 가 마운트돼 있지 않아(CSV 는 PGDATA 밖) host 로 파일을 빼려면 볼륨을 단 새 one-off 컨테이너가 필요하다.</li>
+    <li>실행 중 컨테이너(<code>adc-app</code>)가 있으면 <strong>scan 은 <code>exec</code></strong> 로(새 컨테이너 불필요 — 파일 산출 없이 DB 영속 + 요약 출력). <code>exec</code> 는 ENTRYPOINT(<code>wait-for-db.sh</code>)를 우회하므로 <code>java -jar /app/app.jar</code> 를 명시한다.</li>
+    <li><strong>list·export 는 <code>run -v</code></strong> 로. 둘 다 <strong>CSV 파일을 산출</strong>하는데 서빙 pod 에는 <code>/exports</code> 가 마운트돼 있지 않아(CSV 는 PGDATA 밖) host 로 파일을 빼려면 볼륨을 단 새 one-off 컨테이너가 필요하다.</li>
     <li>컨테이너 미가동 상태에선 어느 명령이든 one-off <code>podman run --rm --network host … &lt;명령&gt;</code> 으로 실행한다(인자는 ENTRYPOINT 뒤 append).</li>
   </ul>
 </div>
 
 <h3>4.1 도메인 목록 — <code>-domain -ls</code></h3>
-<pre><code>podman exec adc-app java -jar /app/app.jar -domain -ls</code></pre>
+<pre><code># /exports 볼륨을 단 one-off 컨테이너로 실행 (서빙 pod 엔 /exports 미마운트)
+podman run --rm --network host -v /opt/adc-exports:/exports \
+  localhost/apidiscover:test -domain -ls
+# → /exports/domains-&lt;epochmillis&gt;.csv  (호스트의 /opt/adc-exports 에 영속)</code></pre>
 <ul>
-  <li>DB 에 등록된 도메인을 열거한다. <strong>Loki 미호출</strong>(DB only)이라 부하가 없다.</li>
+  <li>DB 에 등록된 전체 도메인을 <strong>CSV 파일</strong>로 내보낸다(<code>-export</code> 와 동일 다운로드 패턴). <strong>Loki 미호출</strong>(DB only)이라 부하가 없다.</li>
+  <li>CSV 헤더: <code>host,enabled,hostnames,discovered_at,last_seen_at</code>. <code>hostnames</code> 는 여러 개면 <code>;</code> 로 join, null 값은 공란(RFC4180·CRLF).</li>
+  <li>출력 디렉터리 기본 <code>/exports</code>(<code>adc.cli.output-dir</code>). 빈 목록이면 헤더만 있는 CSV 가 생성된다.</li>
+  <li>종료 코드: <code>0</code> 성공(빈 목록=헤더만 CSV) / <code>4</code> DB·쓰기 오류.</li>
 </ul>
 
 <h3>4.2 즉시 API 수집 — <code>-domain -scan</code></h3>
