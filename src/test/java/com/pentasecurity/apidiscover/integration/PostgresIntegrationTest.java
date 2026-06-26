@@ -216,6 +216,73 @@ class PostgresIntegrationTest {
         assertThat(recs.get(0).getHits()).isEqualTo(20L);  // last-writer-wins(마지막 d 반영)
     }
 
+    @Test
+    void upsertMatchesExistingRowByConstraintTupleNotSignatureOnRealPg() {
+        // ★PR #31 이 놓친 케이스: signature 가 pathTemplate 과 발산("/" 정규화/방출 불일치, 실배포 발견).
+        // prior 는 제약 튜플(method,host,path_template)로 키잉되는데 upsert 가 d.signature() 로 lookup 하면 기존 행 miss
+        // → 신규 INSERT → unique 위반. 수정: lookup/put 도 제약 튜플(identityKey)로 → 기존 행 매칭(UPDATE).
+        String host = "divergent.example.com";
+        DiscoveredEndpointRecord existing = new DiscoveredEndpointRecord();
+        existing.setHost(host);
+        existing.setMethod("GET");
+        existing.setPathTemplate("/"); // 기존 DB 행 (host, GET, "/")
+        existing.setHits(5L);
+        discoveredRepo.save(existing);
+
+        // 이번 스캔: 제약 튜플=(GET,host,"/")이나 signature 는 발산(GET host /v1/legacy)
+        DiscoveredEndpoint.Metrics m = new DiscoveredEndpoint.Metrics(
+                99L, Instant.EPOCH, Instant.EPOCH, Map.of("2xx", 99L), 1, 5, 10);
+        DiscoveredEndpoint divergent = new DiscoveredEndpoint(
+                "GET " + host + " /v1/legacy", "GET", host, "/",
+                TemplateSource.INFERRED, EndpointKind.UNKNOWN, 0.0, false, false, m, ParamCandidates.EMPTY);
+
+        jobService.upsertDiscovered(host, priorFor(host), List.of(divergent),
+                new EndpointMatcher(List.of()),
+                new LogWindow(Instant.EPOCH, Instant.parse("2026-06-26T00:00:00Z")));
+
+        List<DiscoveredEndpointRecord> recs = discoveredRepo.findByHost(host);
+        assertThat(recs).hasSize(1);                      // 기존 (GET,host,"/") 행 UPDATE — 신규 INSERT 충돌 없음
+        assertThat(recs.get(0).getHits()).isEqualTo(99L); // UPDATE 반영(기존 5 → 99)
+    }
+
+    @Test
+    void upsertMergesDivergentParsedHostsUnderScanHostOnRealPg() {
+        // ★host 축 발산(reviewer): LokiQueryBuilder 의 |= domain substring 라인필터로 referer/URL/UA 에 도메인 든
+        // 다른 Host 라인도 매칭 → d.host() 가 스캔 도메인과 다를 수 있음. 둘 다 GET "/" 이되 파싱 host 가 D/E 로 갈리면
+        // 키가 d.host() 면 두 신규 rec 둘 다 setHost(scanHost) INSERT → 충돌. 키를 host 파라미터로 통일 → 한 행 병합.
+        String scanHost = "d.example.com";
+        DiscoveredEndpoint fromD = endpoint("d.example.com", "GET", "/", 10L);
+        DiscoveredEndpoint fromE = endpoint("e.example.com", "GET", "/", 20L); // d.host() 발산
+
+        jobService.upsertDiscovered(scanHost, new HashMap<>(), List.of(fromD, fromE),
+                new EndpointMatcher(List.of()),
+                new LogWindow(Instant.EPOCH, Instant.parse("2026-06-26T00:00:00Z")));
+
+        assertThat(discoveredRepo.findByHost(scanHost)).hasSize(1);             // (scanHost,GET,"/") 1행 병합
+        assertThat(discoveredRepo.findByHost("e.example.com")).isEmpty();       // E 행 미생성(setHost=파라미터)
+        assertThat(discoveredRepo.findByHost(scanHost).get(0).getHits()).isEqualTo(20L); // last-writer
+    }
+
+    @Test
+    void upsertMatchesExistingRowWhenParsedHostDivergesOnRealPg() {
+        // cross-batch host 축: 기존 (scanHost,GET,"/") 행 + 이번 스캔 d.host()=E 발산·튜플 GET/"/" → 기존 행 UPDATE(무위반).
+        String scanHost = "d.example.com";
+        DiscoveredEndpointRecord existing = new DiscoveredEndpointRecord();
+        existing.setHost(scanHost);
+        existing.setMethod("GET");
+        existing.setPathTemplate("/");
+        existing.setHits(5L);
+        discoveredRepo.save(existing);
+
+        DiscoveredEndpoint fromE = endpoint("e.example.com", "GET", "/", 77L); // d.host()=E 발산
+        jobService.upsertDiscovered(scanHost, priorFor(scanHost), List.of(fromE),
+                new EndpointMatcher(List.of()),
+                new LogWindow(Instant.EPOCH, Instant.parse("2026-06-26T00:00:00Z")));
+
+        assertThat(discoveredRepo.findByHost(scanHost)).hasSize(1);                  // 기존 행 UPDATE
+        assertThat(discoveredRepo.findByHost(scanHost).get(0).getHits()).isEqualTo(77L);
+    }
+
     /** raw_doc(@Lob byte[]) 는 String 과 매핑 다름(§6.2) — round-trip 은 위에서, 실 타입은 정보성 기록(text 단언 금지). */
     @Test
     void rawDocActualTypeRecorded() {
@@ -336,6 +403,15 @@ class PostgresIntegrationTest {
         d.setEnabled(true);
         d.setNextScanDueAt(nextScanDueAt);
         return d;
+    }
+
+    /** loadDiscovered 와 동일하게 prior 맵을 제약 튜플(method+host+path_template) 키로 구성. */
+    private Map<String, DiscoveredEndpointRecord> priorFor(String host) {
+        Map<String, DiscoveredEndpointRecord> prior = new HashMap<>();
+        for (DiscoveredEndpointRecord rec : discoveredRepo.findByHost(host)) {
+            prior.put(rec.getMethod() + " " + rec.getHost() + " " + rec.getPathTemplate(), rec);
+        }
+        return prior;
     }
 
     private static DiscoveredEndpoint endpoint(String host, String method, String template, long hits) {

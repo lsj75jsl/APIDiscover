@@ -271,10 +271,10 @@ public class DiscoveryJobService {
     /**
      * 스캔 discovered → discovered_endpoint 누적 upsert (firstSeen min/lastSeen max/최신 윈도우 스냅샷, doc/26 §2).
      * prior = loadDiscovered 맵 재사용(단건 재조회 회피). cap 초과 신규 identity 는 drop(기존 갱신은 항상).
-     * <p>★intra-batch dedup(doc/26 §2): 신규 rec 를 즉시 {@code prior} 에 등록 → 한 배치의 동일 signature 중복
-     * (T1 통계 {var} 승격으로 두 template 가 같은 정규화로 수렴 등, doc/13)이 두 번째 INSERT 가 아닌 같은 rec UPDATE 로
-     * 병합돼 unique(host,method,path_template) 위반·스캔 실패를 방지(실배포 발견). last-writer-wins 스냅샷 의미 일관.
-     * <p>visibility: 실 PG intra-batch dup 회귀 테스트(PostgresIntegrationTest, 별 패키지)가 직접 호출 — 그 외엔 analyze 내부 전용.
+     * <p>★dedup 키 = DB unique(host,method,path_template) 제약 튜플({@code identityKey}). {@code prior} 적재 키(loadDiscovered
+     * 의 {@code signatureOf(rec)})와 정확히 동일 → 기존 행 항상 매칭(UPDATE)·배치 내 동일 튜플 병합 → 신규 INSERT 충돌 불가.
+     * {@code DiscoveredEndpoint.signature} 는 최종 template 과 발산할 수 있어(특히 "/" 정규화/방출 불일치, 실배포 발견) 키로 쓰지 않는다(PR #31 정정).
+     * <p>visibility: 실 PG 회귀 테스트(PostgresIntegrationTest, 별 패키지)가 직접 호출 — 그 외엔 analyze 내부 전용.
      */
     public void upsertDiscovered(String host, Map<String, DiscoveredEndpointRecord> prior,
                                  List<DiscoveredEndpoint> discovered, EndpointMatcher matcher, LogWindow window) {
@@ -282,7 +282,10 @@ public class DiscoveryJobService {
         long count = prior.size();
         int dropped = 0;
         for (DiscoveredEndpoint d : discovered) {
-            DiscoveredEndpointRecord rec = prior.get(d.signature());
+            // dedup 키 = 영속 identity 와 동일(host=파라미터, prior 적재 키도 동일) — d.host() 발산해도 기존 행/배치 중복 매칭.
+            // ★host 는 d.host() 아닌 host 파라미터: 신규 rec 가 setHost(host)로 영속되므로 키도 host 여야 prior·DB 와 일치(reviewer 발견).
+            String key = identityKey(d.method(), host, d.pathTemplate());
+            DiscoveredEndpointRecord rec = prior.get(key);
             if (rec == null) {
                 if (count >= TEMPLATE_CAP) {
                     dropped++; // cap: 신규 identity 만 제한 — 스캐너 noise 무한 성장 방지
@@ -293,7 +296,7 @@ public class DiscoveryJobService {
                 rec.setMethod(d.method());
                 rec.setPathTemplate(d.pathTemplate());
                 count++;
-                prior.put(d.signature(), rec); // 배치 내 동일 signature 후속분이 새 INSERT 대신 이 rec UPDATE 로 병합(unique 위반 방지)
+                prior.put(key, rec); // 배치 내 동일 튜플 후속분이 새 INSERT 대신 이 rec UPDATE 로 병합(unique 위반 방지)
             }
             DiscoveredEndpoint.Metrics m = d.metrics();
             rec.setFirstSeen(earliest(rec.getFirstSeen(), (m != null) ? m.firstSeen() : null));
@@ -326,9 +329,14 @@ public class DiscoveryJobService {
                 .map(CanonicalEndpoint::version).orElse(null);
     }
 
-    /** 검출 record → DiscoveredEndpoint.signature 동일 포맷 키 "{METHOD} {host} {template}" (priorFirstSeen 키). */
+    /** DB unique(host,method,path_template) 제약과 동일한 dedup 키 — loadDiscovered 적재·upsert lookup 공통(키 정합 보장, PR #31 정정). */
+    private static String identityKey(String method, String host, String pathTemplate) {
+        return method + " " + host + " " + pathTemplate;
+    }
+
+    /** 검출 record → 제약 튜플 키 "{METHOD} {host} {template}". priorFirstSeen 키로도 쓰임(classifier 의 signature 발산은 별도 후속, doc/26 §2). */
     private static String signatureOf(DiscoveredEndpointRecord rec) {
-        return rec.getMethod() + " " + rec.getHost() + " " + rec.getPathTemplate();
+        return identityKey(rec.getMethod(), rec.getHost(), rec.getPathTemplate());
     }
 
     private static Instant earliest(Instant a, Instant b) {
