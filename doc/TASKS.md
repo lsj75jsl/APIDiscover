@@ -52,9 +52,9 @@
 
 ### P3. 운영/인프라 (자체 운영)
 - [ ] **(배포 후속)** 테스트서버(192.168.8.197, podman) 실배포 — **기동·Loki 수집 검증 완료**(PR #24/D44: Restarts0·health UP·디스커버리 vector=35872 inserted=200, CLI 기동 OK, doc/manual/deploy-verify-guide.html). 잔여:
-  - [ ] `max-domains-per-run` 캡 결정 — 관측 ~13,920 도메인 중 상위 200만 등록(캡=DB 업서트량만 제한·Loki 부하 아님, 상향 저위험). 전수 원하면 값 상향(사용자 결정)
-  - [ ] 엔드포인트 스캔(`PT1H`)·CLI CSV **내용** 검증 — 다음 스캔 사이클이 `discovered_endpoint` 적재 후(200 도메인 스캔=운영 Loki 부하, off-peak 권장)
-  - [ ] (선택) 서버 pod 를 최종 머지 이미지로 재배포(현재 coalesce 이미지로 수집 중, 기능 동일)
+  - [x] `max-domains-per-run` 무제한 결정·반영(PR #25) + 정책 이미지 VM 재배포(2026-06-26, a792f107). 무제한 수집 동작 확인(domain_config 352, 캡 없음).
+  - [ ] **★PR1.1 — 스캔 per-domain 폭주 수정(실배포 발견)**: max-window PT6H 백필이 단일 busy 도메인(www.takigen.co.jp)에서 1500+ 쿼리 → LokiBudget 독점 + 단일 @Scheduled 스레드 점유 → 다른 도메인·디스커버리 기아, discovered_endpoint=0. (운영 Loki 부하 자체는 throttle·budget 으로 묶임=폭주 아님, 429 0.) 필요: ① per-domain 쿼리/페이지 캡 + 부분 watermark 전진(도메인 resume·독점 방지) ② max-window 기본값 축소 ③ 스캐너 스레드 격리(디스커버리 기아 방지). reviewer 가 '수용가능'으로 본 도메인-granularity 오버슈트가 실배포서 실제 문제로 확인됨.
+  - [ ] (PR1.1 후) 재배포·검증 — scanTick 다도메인 분산·discovered_endpoint 점증·온디맨드 CLI(`--adc.cli.scan-domain`)·CLI CSV 내용
 - [ ] **엔드포인트 스캔 Loki 부하 운영정책 (A–F) + 운영자 온디맨드 스캔 CLI** **(설계 → doc/33 / DECISIONS D45)** — 무제한 도메인 전수순회 과부하 해소. off-peak·메트릭·intervalOverride TODO 흡수. **PR1 머지 완료(PR #26)**, PR2/PR3 잔여.
   - PR1 필수 (B+A+E) + 온디맨드 CLI — **완료(PR #26, build 374 green, 리뷰 P1/P2/P3=0)**:
     - [x] (A) `windowFor` max-window 상한(백필 슬라이스, 5-arg, 0/null=무제한 무회귀) + line 105 TODO 주석 해소 — *PR1 구현 완료(build green 374, 머지 시 Done)*
