@@ -53,7 +53,7 @@
 ### P3. 운영/인프라 (자체 운영)
 - [x] **(배포·검증 완료)** 테스트서버(192.168.8.197, podman) 실배포 — 기동·**무제한 Loki 수집**·**스캔 정책(PR1.1) 다도메인 분산**·CLI(`-domain -ls`·export/scan) 전부 실검증(PR #24~#28 + 2cab6a5, D44/D46/D47, doc/manual). VM 가동 중(정책-bounded 수집). 세부:
   - [x] `max-domains-per-run` 무제한 결정·반영(PR #25) + 정책 이미지 VM 재배포(2026-06-26, a792f107). 무제한 수집 동작 확인(domain_config 352, 캡 없음).
-  - [ ] **★PR1.1 — 스캔 per-domain 폭주 수정(실배포 발견)** **(설계 완료 → doc/33 §14 / DECISIONS D46, 브랜치 feature/scan-pr1.1-and-list-cli)**: max-window PT6H 백필이 단일 busy 도메인(www.takigen.co.jp)에서 1500+ 쿼리 → LokiBudget 독점 + 단일 @Scheduled 스레드 점유 → 다른 도메인·디스커버리 기아, discovered_endpoint=0. (부하 자체는 throttle·budget 으로 묶임=429 0, 문제는 진척0+기아.) 근본: 스캔=라인 페이지네이션, `budget.hasBudget()` 가 도메인 사이에서만 체크(runScan 내부 무한) + 단일 스케줄러 스레드(pool=1).
+  - [x] **★PR1.1 — 스캔 per-domain 폭주 수정(실배포 발견)** **(완료 — PR #27, D46, 실배포 재검증: scanTick 다도메인 분산·기아 해소)**: max-window PT6H 백필이 단일 busy 도메인(www.takigen.co.jp)에서 1500+ 쿼리 → LokiBudget 독점 + 단일 @Scheduled 스레드 점유 → 다른 도메인·디스커버리 기아, discovered_endpoint=0. (부하 자체는 throttle·budget 으로 묶임=429 0, 문제는 진척0+기아.) 근본: 스캔=라인 페이지네이션, `budget.hasBudget()` 가 도메인 사이에서만 체크(runScan 내부 무한) + 단일 스케줄러 스레드(pool=1).
     - [x] (③) `spring.task.scheduling.pool.size: 2`(application.yml) — scanTick·discover 스레드 격리
     - [x] (②) `scan.max-window` 기본 PT6H→PT30M + `scan.slice-window` PT10M(미지정=chunk-window)
     - [x] (①) `runScan`→`collectBounded`(슬라이스 외부·hostname 내부 순회) → 슬라이스의 모든 hostname 완료 후에만 watermark 그 슬라이스 끝 전진(멀티-hostname gap-free) + `max-queries-per-scan`(50) 슬라이스 경계 하드캡·`budget.hasBudget()` 슬라이스 체크 → 부분 전진(consumedUpTo) 후 종료(resume). ★부분전진 채택. 0=무제한=현행. `collect`(온디맨드용) 유지. DiscoveryJobService +LokiBudget 주입.
