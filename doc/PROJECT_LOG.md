@@ -5,6 +5,21 @@
 
 ---
 
+## 2026-06-26 세션 43 — `-domain -ls` stdout 표 → CSV 파일(사용자 Option B, doc/33 §15)
+
+### 한 일
+- **변경 배경**: 대량 도메인(11k+)에서 stdout 표는 비실용 → 사용자 확정 Option B(export-domain 동형 파일 다운로드).
+- **DomainCsvWriter.domainsToCsv(List<DomainConfig>)** 신규: 헤더 host,enabled,hostnames,discovered_at,last_seen_at. 행=host/enabled(true|false)/hostnames(';' 조인)/discoveredAt(ISO|공란)/lastSeenAt(ISO|공란). 기존 RFC4180 `escape`·`appendRecord`(CRLF)·`names`·`nz` 헬퍼 재사용. null Instant→공란. 정렬은 호출측(Sort host).
+- **CliListRunner**: stdout printf 표 제거 → CSV 파일 작성(export 동형). `list()`→`list(long stamp)`, run() 이 `list(System.currentTimeMillis())` 호출 후 System.exit. 본체: findAll(Sort host)→domainsToCsv→`output-dir`/domains-&lt;stamp&gt;.csv(Files.createDirectories+writeString)·stdout 에 파일경로·EXIT_OK. EXIT_DB=4(findAll RuntimeException)·EXIT_IO=4(쓰기 IOException 신규 catch). 빈 목록=헤더만 CSV·exit 0. props.outputDir() 재사용(기본 /exports).
+- **동작 변화**: `-domain -ls` 도 output-dir 볼륨 필요(예 `-v /opt/adc-exports:/exports`). main().parseCli 의 `-domain -ls` 감지·`--adc.cli.list-domains=true` 주입 불변.
+- **테스트**: `CliListRunnerTest` 갱신(@TempDir → CSV 생성·헤더·hostnames ';' 조인·null 공란·빈 목록 헤더만·DB 오류 EXIT_DB·IOException EXIT_IO[파일을 디렉터리로 쓰기 시도]). `DomainCsvWriterTest.domainsToCsvHeaderRowsHostnamesJoinAndNullBlanks` 가산. MainArgModeTest 불변.
+
+### 결과
+- `./gradlew build` BUILD SUCCESSFUL. 전체 431(+2) 실패0 skip2(둘 다 -Dloki.live=운영 Loki 미호출). CliListRunnerTest 4·DomainCsvWriterTest 6 green. 운영 Loki 미호출(DB-only).
+
+### 다음 단계
+- 커밋 금지(매니저, 브랜치 feature/domain-ls-csv). HTML 매뉴얼(collection-ops-manual.html §4.1)=technical_writer 후속(미터치). doc/32 §4·33 §15·DECISIONS D47 동기 완료.
+
 ## 2026-06-26 세션 42 — DomainController GET/DELETE host 정규화 자기일관(P3 trivial 동봉)
 
 ### 한 일
