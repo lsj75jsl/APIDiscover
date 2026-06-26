@@ -5,6 +5,20 @@
 
 ---
 
+## 2026-06-26 세션 36 — discovered_endpoint intra-batch 중복 버그 수정 (실배포 발견, doc/26 §2)
+
+### 한 일
+- **근본 원인(확정)**: `DiscoveryJobService.upsertDiscovered` 가 `prior` 맵(DB 기존 record, signatureOf 키)을 보고 신규/기존 판정하나, **신규 rec 를 prior 에 다시 넣지 않음** → 한 스캔 `discovered` 리스트에 동일 signature 2개(T1 통계 {var} 승격으로 두 경로가 같은 template 로 수렴, doc/13)면 둘 다 prior-miss → 새 record 2개 → 2번째 `discoveredRepo.save` 가 unique(host,method,path_template) 위반 → 도메인 격리 catch 로 그 도메인 스캔 전체 실패(결과 미저장). 실측 VM 15분 3실패/12성공(~20%, examinee-portal.eiken.or.jp·sp.skygate.co.jp·www.eyecity.jp). 선존 버그(PR2/PR3 무관).
+- **수정(최소·1줄)**: `if (rec == null) { ... count++; }` 끝에 `prior.put(d.signature(), rec)` 추가 → 같은 배치의 후속 동일 signature 가 in-memory rec(1회 save 돼 id 보유) 찾아 UPDATE → unique 위반 없음. last-writer-wins 스냅샷 의미 일관(추가 합산 불필요). 키는 lookup 과 동일한 `d.signature()`.
+- **테스트(실 PG 회귀가드)**: `upsertDiscovered` private→public(PostgresIntegrationTest 가 별 패키지라 package-private 불가, 실 PG 컨테이너 1개 재사용 위해 공개·javadoc 명시). `PostgresIntegrationTest.upsertDiscoveredMergesIntraBatchDuplicateSignatureOnRealPg`: 동일 signature 2개(hits 10/20) 리스트 → 1건·hits=20(last-writer) 단언. ★진위 검증=수정 1줄 임시 제거 후 실 PG 실행 → `duplicate key value violates unique constraint "discovered_endpoint_host_method_path_template_key"` → DataIntegrityViolationException red 확인 후 복원.
+
+### 결과
+- 일반 `./gradlew build` BUILD SUCCESSFUL. ★실 PG `./gradlew test --tests "*PostgresIntegrationTest"`(podman 소켓) **18건 실행(skip 0, 실패 0)** — 신규 가드 실제 PASS. mock 은 unique 제약 미강제라 실 PG 필수. 운영 Loki 미호출(LokiClient @MockBean).
+- 무회귀: 단일 signature 경로 불변(prior.put 은 신규 생성 시에만, 기존 갱신 동일). cap/prune 로직 불변.
+
+### 다음 단계
+- 커밋 금지(매니저, 브랜치 fix/discovered-endpoint-intrabatch-dup). VM 재배포 시 스캔 실패율 0 확인은 매니저. doc/26 §2 intra-batch dedup 노트 보강.
+
 ## 2026-06-26 세션 35 — CLI 문법 `-domain` 서브커맨드 통일 (doc/33 §15, D47 갱신)
 
 ### 한 일

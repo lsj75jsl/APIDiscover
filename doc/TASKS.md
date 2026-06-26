@@ -86,6 +86,7 @@
   - [x] `main().parseCli`(순수·static) 신문법→내부 `--adc.cli.*` translate: `-domain -ls`/`-export <도메인>`/`-scan <도메인> [-window <ISO8601>] [-edge <hostname>]`. `-domain` 없음=서버, 단독·도메인 누락=usage+exit(2). 기존 `isListDomains`/`isCliMode`/`CLI_TRIGGERS` 제거.
   - [x] ★기존 `--adc.cli.export-domain=`/`scan-domain=` 사용자 트리거 제거(직접 입력 시 CLI 미진입). CliProperties·3 런너·바인딩 불변(최소 변경).
   - [x] 테스트 `MainArgModeTest` 갱신(신문법 3종 주입 단언·기존 문법 제거 회귀=서버 모드·usage 에러 경로). md 문서 동기(doc/31·32 §4·33 §7/§15·D47). HTML 매뉴얼=technical_writer 후속(미터치).
+- [x] **discovered_endpoint intra-batch 중복 버그 수정(실배포 발견)** **(구현 완료 — build green, 실 PG 가드 PASS, 커밋 보류·머지 시 Done. doc/26 §2, 브랜치 fix/discovered-endpoint-intrabatch-dup)** — 선존 버그(PR2/PR3 무관, upsertDiscovered 미변경 경로). 한 스캔 `discovered` 에 동일 signature 2개(T1 {var} 승격 수렴) → 2번째 새 INSERT 가 unique(host,method,path_template) 위반 → 도메인 격리 catch 로 스캔 전체 실패(결과 미저장, 실측 VM 15분 3/12 실패). 수정: `upsertDiscovered` 신규 rec 즉시 `prior.put(d.signature(), rec)` → 후속 동일 signature 가 같은 rec UPDATE 병합(last-writer-wins). 실 PG 회귀가드 `PostgresIntegrationTest.upsertDiscoveredMergesIntraBatchDuplicateSignatureOnRealPg`(수정 전 duplicate key 위반=red 확인, 후 1건·hits last-writer). upsertDiscovered private→public(별 패키지 테스트 호출).
 
 ### P4. 외부 연동 (자체 기능 완료 후)
 > 중앙 서버 연동·인증. 자체 분석기능(P1)이 안정된 뒤 진행.
