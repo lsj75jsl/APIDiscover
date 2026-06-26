@@ -45,6 +45,8 @@
   th,td{border:1px solid var(--line); padding:8px 11px; text-align:left; vertical-align:top;}
   th{background:var(--accent-soft); color:#10204a; font-weight:600; white-space:nowrap;}
   tr:nth-child(even) td{background:#fbfcfe;}
+  td.c{text-align:center; font-weight:700; color:var(--green);}
+  th.c{text-align:center;}
   .toc{background:#fafbfd; border:1px solid var(--line); border-radius:12px; padding:18px 24px; margin:24px 0;}
   .toc h2{border:none; margin:0 0 10px; font-size:18px;}
   .toc ol{margin:0; padding-left:20px;}
@@ -450,26 +452,59 @@ api_confidence <span class="op">=</span> clamp<sub>[0,1]</sub> ( <span class="hl
 
 <h3 id="s4-2">4.2 14개 신호와 발화 조건</h3>
 <p>신호는 두 모드로 조합된다. operator 가 명시 경로 힌트를 설정하면 <strong>explicit-hint 모드</strong>가 되어 내장 path-shape 신호 대신 <code>pathHint</code> 하나만 쓴다(아래 4.7).</p>
+<p>각 신호가 <strong>로그의 어느 데이터에서 확인되는지</strong>를 <code>o</code> 로 표시했다(데이터 컬럼은 §3.2 의 로그 필드에 대응).</p>
 
 <table>
-  <thead><tr><th>#</th><th>신호</th><th>발화 조건</th><th>모드</th></tr></thead>
+  <thead><tr><th>#</th><th>신호</th><th class="c">host</th><th class="c">method</th><th class="c">path</th><th class="c">query</th><th class="c">UA</th><th class="c">$type</th><th class="c">hits</th><th>발화 조건</th><th>모드</th></tr></thead>
   <tbody>
-    <tr><td>1</td><td><code>hostApiSubdomain</code></td><td>host 가 <code>api.</code> / <code>*-api.</code> / <code>api-*.</code> 형태</td><td>공통</td></tr>
-    <tr><td>2</td><td><code>corsPreflight</code></td><td>같은 host+template 이 OPTIONS 로도 관측됨</td><td>공통</td></tr>
-    <tr><td>3</td><td><code>apiSegment</code></td><td>경로에 <code>api</code>/<code>apis</code>/<code>*-api</code> 세그먼트</td><td>strict</td></tr>
-    <tr><td>4</td><td><code>graphqlSegment</code></td><td>경로에 <code>graphql</code>/<code>rpc</code>/<code>jsonrpc</code></td><td>strict</td></tr>
-    <tr><td>5</td><td><code>versionSegment</code></td><td>경로에 <code>^v\d+$</code> 세그먼트(v1, v2…)</td><td>strict</td></tr>
-    <tr><td>6</td><td><code>pathIdSegment</code></td><td>정규화 변수 세그먼트(<code>{id}{uuid}{token}{date}{var}</code>)</td><td>strict</td></tr>
-    <tr><td>7</td><td><code>machineEndpoint</code></td><td><code>health/healthz/status/metrics/ping/actuator</code> 등</td><td>strict</td></tr>
-    <tr><td>8</td><td><code>pathHint</code></td><td>operator api 힌트(prefix/regex) 매치</td><td>explicit</td></tr>
-    <tr><td>9</td><td><code>writeMethod</code></td><td>POST/PUT/PATCH/DELETE</td><td>공통</td></tr>
-    <tr><td>10</td><td><code>query</code></td><td>쿼리스트링 관측됨</td><td>공통</td></tr>
-    <tr><td>11</td><td><code>nonBrowserUa</code></td><td>SDK/CLI user-agent 다수</td><td>공통</td></tr>
-    <tr><td>12</td><td><code>repeatBonus</code></td><td>hits ≥ repeatMinCount(반복 호출)</td><td>공통</td></tr>
-    <tr><td>13</td><td><code>staticAssetPenalty</code> <span class="pill pill-drop">−</span></td><td>endpoint_kind == STATIC</td><td>공통</td></tr>
-    <tr><td>14</td><td><code>responseTypeApi</code></td><td>endpoint_kind == API_CANDIDATE (양성-only)</td><td>공통</td></tr>
+    <tr><td>1</td><td><code>hostApiSubdomain</code></td><td class="c">o</td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td>host 가 <code>api.</code> / <code>*-api.</code> / <code>api-*.</code> 형태</td><td>공통</td></tr>
+    <tr><td>2</td><td><code>corsPreflight</code></td><td class="c"></td><td class="c">o</td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td>같은 host+template 이 OPTIONS 로도 관측됨</td><td>공통</td></tr>
+    <tr><td>3</td><td><code>apiSegment</code></td><td class="c"></td><td class="c"></td><td class="c">o</td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td>경로에 <code>api</code>/<code>apis</code>/<code>*-api</code> 세그먼트</td><td>strict</td></tr>
+    <tr><td>4</td><td><code>graphqlSegment</code></td><td class="c"></td><td class="c"></td><td class="c">o</td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td>경로에 <code>graphql</code>/<code>rpc</code>/<code>jsonrpc</code></td><td>strict</td></tr>
+    <tr><td>5</td><td><code>versionSegment</code></td><td class="c"></td><td class="c"></td><td class="c">o</td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td>경로에 <code>^v\d+$</code> 세그먼트(v1, v2…)</td><td>strict</td></tr>
+    <tr><td>6</td><td><code>pathIdSegment</code></td><td class="c"></td><td class="c"></td><td class="c">o</td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td>정규화 변수 세그먼트(<code>{id}{uuid}{token}{date}{var}</code>)</td><td>strict</td></tr>
+    <tr><td>7</td><td><code>machineEndpoint</code></td><td class="c"></td><td class="c"></td><td class="c">o</td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td><code>health/healthz/status/metrics/ping/actuator</code> 등</td><td>strict</td></tr>
+    <tr><td>8</td><td><code>pathHint</code></td><td class="c"></td><td class="c"></td><td class="c">o</td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td>operator api 힌트(prefix/regex) 매치</td><td>explicit</td></tr>
+    <tr><td>9</td><td><code>writeMethod</code></td><td class="c"></td><td class="c">o</td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td>POST/PUT/PATCH/DELETE</td><td>공통</td></tr>
+    <tr><td>10</td><td><code>query</code></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c">o</td><td class="c"></td><td class="c"></td><td class="c"></td><td>쿼리스트링 관측됨</td><td>공통</td></tr>
+    <tr><td>11</td><td><code>nonBrowserUa</code></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c">o</td><td class="c"></td><td class="c"></td><td>SDK/CLI user-agent 다수</td><td>공통</td></tr>
+    <tr><td>12</td><td><code>repeatBonus</code></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c">o</td><td>hits ≥ repeatMinCount(반복 호출)</td><td>공통</td></tr>
+    <tr><td>13</td><td><code>staticAssetPenalty</code> <span class="pill pill-drop">−</span></td><td class="c"></td><td class="c"></td><td class="c">o</td><td class="c"></td><td class="c"></td><td class="c">o</td><td class="c"></td><td>endpoint_kind == STATIC (확장자 또는 $type=library)</td><td>공통</td></tr>
+    <tr><td>14</td><td><code>responseTypeApi</code></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c">o</td><td class="c"></td><td>endpoint_kind == API_CANDIDATE (양성-only)</td><td>공통</td></tr>
   </tbody>
 </table>
+<p class="legend"><strong>데이터 컬럼 ↔ 로그 필드(§3.2)</strong>: <code>host</code>=Host 헤더(필드 15/16) · <code>method</code>=HTTP 메서드(필드 5) · <code>path</code>=경로 템플릿(필드 8, 정규화·확장자 포함) · <code>query</code>=쿼리스트링 유무(필드 8 의 <code>?</code> 뒤) · <code>UA</code>=user_agent(필드 14) · <code>$type</code>=nginx <code>$type</code>(필드 19) · <code>hits</code>=집계 누적 요청 수.</p>
+<ul class="legend" style="margin-top:4px;">
+  <li><code>corsPreflight</code> 는 자기 요청이 아니라 <strong>동일 host+path 의 OPTIONS 형제 요청</strong>(method)이 관측됐는지에서 도출된다.</li>
+  <li><code>staticAssetPenalty</code>·<code>responseTypeApi</code> 는 파생 필드 <code>endpoint_kind</code> 를 읽지만, 그 값 자체가 <code>$type</code>(필드 19)와 path 확장자(§3.6)에서 산출되므로 원천 데이터로 표기했다.</li>
+</ul>
+
+<h4>"모드" 컬럼의 의미 — 공통 · strict · explicit</h4>
+<p>점수 신호는 <strong>도메인의 힌트 설정에 따라</strong> 두 모드 중 하나로 평가된다. operator 가 api 경로 힌트(<code>apiPathPrefixes</code>/<code>apiPathRegexes</code>)를 <strong>하나라도 설정했는지</strong>(<code>isExplicitHintMode</code>)가 모드를 가른다.</p>
+
+<table>
+  <thead><tr><th>모드</th><th>언제 평가되나</th><th>해당 신호</th></tr></thead>
+  <tbody>
+    <tr><td><strong>공통</strong></td><td><strong>항상</strong>(두 모드 공통)</td><td><code>hostApiSubdomain</code> · <code>corsPreflight</code> · <code>writeMethod</code> · <code>query</code> · <code>nonBrowserUa</code> · <code>repeatBonus</code> · <code>staticAssetPenalty</code> · <code>responseTypeApi</code></td></tr>
+    <tr><td><strong>strict</strong> (기본)</td><td>api 힌트가 <strong>없을 때</strong> (내장 path-shape 모드)</td><td><code>apiSegment</code> · <code>graphqlSegment</code> · <code>versionSegment</code> · <code>pathIdSegment</code> · <code>machineEndpoint</code></td></tr>
+    <tr><td><strong>explicit</strong></td><td>api 힌트가 <strong>설정됐을 때</strong> (explicit-hint 모드)</td><td><code>pathHint</code></td></tr>
+  </tbody>
+</table>
+
+<ul>
+  <li><strong>strict 와 explicit 는 상호배타</strong>다 — 한 도메인은 둘 중 하나만 적용된다. <strong>공통</strong> 신호는 모드와 무관하게 항상 합산된다.</li>
+  <li><strong>strict(기본)</strong>: operator 가 아무 힌트도 설정하지 않은 상태. 경로 모양 휴리스틱(<code>/api</code>·<code>/graphql</code>·<code>v1</code>·<code>{id}</code>·<code>health</code> 등)으로 API 후보를 추정한다.</li>
+  <li><strong>explicit</strong>: operator 가 api 경로를 <strong>직접 선언</strong>하면 내장 path-shape 신호를 끄고(오탐·중복 방지) 선언된 경로만 <code>pathHint</code>(0.55)로 점수에 반영한다. "선언적 단언이 휴리스틱보다 우선"이라는 원칙이며, 선언된 경로는 게이트에서 <strong>임계와 무관하게 강제 admit</strong> 된다(§4.6 게이트 · §4.7 명시 힌트 매처).</li>
+</ul>
+
+<div class="callout ok">
+  <span class="ct">적용 · 사용 방법</span>
+  <ul style="margin:6px 0 0; padding-left:18px;">
+    <li><strong>설정 위치</strong>: 중앙 REST 분류설정의 <code>matcher</code> 필드 — 전역 <code>PUT /api/v1/classification</code> 또는 도메인 <code>PUT /api/v1/domains/{host}/classification</code>(§4.4). 전역 ∪ 도메인 힌트가 합쳐져 해당 host 의 모드를 결정한다.</li>
+    <li><strong>언제 explicit 를 쓰나</strong>: 내장 휴리스틱이 못 잡는 API — 예를 들어 api 서브도메인·<code>/api</code> prefix·CORS 가 모두 없는 동일출처 <code>www</code> JSON API. 이때 해당 경로를 api 힌트로 선언하면 확실히 API 로 잡힌다.</li>
+    <li><strong>기본 권장</strong>: 별도 설정이 없으면 strict(기본)로 충분하다. explicit 는 휴리스틱의 사각지대를 보완할 때만 도입한다.</li>
+  </ul>
+</div>
 
 <h3 id="s4-3">4.3 가중치 · 프로파일(임계값) preset</h3>
 <p>HIGH/MIDDLE/LOW 세 preset 이 가중치와 임계값을 정한다. <strong>MIDDLE 이 기본</strong>이며 임계 <code>0.70</code>. HIGH 는 보수적(임계 0.85), LOW 는 관대(0.55)하다. CUSTOM 은 MIDDLE 기반에 가중치 override 를 적용한다.</p>
