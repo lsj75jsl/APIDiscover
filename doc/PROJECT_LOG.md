@@ -5,6 +5,48 @@
 
 ---
 
+## 2026-06-26 세션 42 — DomainController GET/DELETE host 정규화 자기일관(P3 trivial 동봉)
+
+### 한 일
+- **비대칭 해소**: create/PUT 는 정규화하나 GET/DELETE `/{host}` 는 raw 키 사용 → POST 'API.Example.COM'→'api.example.com' 저장 후 GET/DELETE /API.Example.COM→raw 키 미스→404. `requireNormalizedHost(host)` private 헬퍼 추출(normalize+null=400), create/PUT/GET/DELETE `{host}` 경로변수에 일괄 적용(create/PUT 의 인라인 normalize+400 도 헬퍼로 DRY). 본문 로직 불변.
+- **테스트**: `DomainControllerTest` +2(`getLooksUpByNormalizedPathHost`·`deleteUsesNormalizedPathHost` — 대문자 경로 → 정규화 키 매칭). 기존 5건 유지(총 7).
+- **무회귀**: 정규화 도메인 경로는 normalize 동일값이라 불변. 본문/응답 불변.
+
+### 결과
+- `./gradlew build` BUILD SUCCESSFUL. 전체 429(+2) 실패0 skip2(둘 다 -Dloki.live=운영 Loki 미호출). 운영 Loki 미호출(단위 mock).
+
+### 다음 단계
+- 커밋 금지(매니저, 같은 브랜치 fix/scan-foreign-host-filter). 후속(TASKS): 교차 컨트롤러(Scan/Spec/Classification/CombinedDiscovery) `@PathVariable host` raw 도 동일 비정규화 — pre-existing, 별도 PR(공통 normalize 일괄/인터셉터).
+
+## 2026-06-26 세션 41 — foreign-host 필터 P2 견고화: 등록 정규화 + 양변 normalize(doc/05 §2.2·26 §2)
+
+### 한 일
+- **P2 근본(등록 소스 비정규화)**: 세션40 필터가 비대칭 정규화(좌변 스캔 host 미정규화)라 '스캔 host 이미 정규화' 불변식에 의존. `DomainController.create`(raw setHost)·`PUT`(raw path find)가 이를 미강제 → 수동 등록 'Example.com'(대문자/공백)은 비정규화 → 필터 `대문자.equals(소문자)`=false → 정상 라인 전건 오필터(스캔 0). `|=` 쿼리도 raw host case-sensitive 미스.
+- **수정 ①(등록 정규화·근본)**: `DomainController.create` 가 `DomainNames.normalize(req.host())` 후 existsById·setHost·save(normalize==null=400, 기존 null/blank 흡수). `PUT /{host}` 는 `find(DomainNames.normalize(host))`(정규화 키 매칭, null=400). → domain_config.host 항상 정규화 → |= 쿼리·필터·identity·영속 모두 정규화 host(auto-discovery 와 동일 규칙, RFC 대소문자 무관 동일성).
+- **수정 ②(필터 방어적 좌변 정규화·견고성)**: `DiscoveryJobService.analyze` 필터를 `scanDomain=DomainNames.normalize(host); scanDomain!=null && scanDomain.equals(DomainNames.normalize(r.host()))` 로 자기완결화 → 레거시 비정규화 등록분·robustness 대비(불변식 의존 제거).
+- **테스트**: `DomainControllerTest`(대문자/공백 create→정규화 저장·중복 정규화 existsById 매칭·blank/"-"/null→400·PUT 정규화 조회) 신규. `DiscoveryJobServiceTest.analyzeNormalizesScanHostInForeignFilter`(비정규화 스캔host 도 좌변 normalize 로 정상 라인 포함). 기존 foreign-host 가드 유지.
+- **무회귀**: auto-discovery 경로·정상(정규화 host) 스캔 불변. create 정규화는 신규 등록만 영향. 정규화 도메인 PUT 은 normalize 동일값이라 불변. 기존 create/post 테스트 부재(회귀 대상 없음).
+
+### 결과
+- `./gradlew build` BUILD SUCCESSFUL. 전체 427(+6) 실패0 skip2(둘 다 -Dloki.live=운영 Loki 미호출). DomainControllerTest 5건 green. 운영 Loki 미호출(단위 mock).
+
+### 다음 단계
+- 커밋 금지(매니저, 같은 브랜치 fix/scan-foreign-host-filter). 기존 VM 비정규화 등록분 있으면 매니저 재배포 전 정규화 마이그레이션 고려(신규 등록은 정규화 보장).
+
+## 2026-06-26 세션 40 — foreign-host 누수 수정 + signature 원천 발산 정리(doc/05 §2.2·26 §2)
+
+### 한 일
+- **조사(근본은 하나)**: `DiscoveredEndpoint` 는 `Acc.toEndpoint` 에서만 생성, signature=method+host+template 를 record (method,host,pathTemplate)와 **같은 변수로 재계산** → signature template 축 발산은 구조적 불가. 발산은 **host 축뿐**. 원인=`LokiQueryBuilder` `|= domain`(substring coarse 라인필터)이 referer/URL/UA 에 도메인 든 다른 Host 라인도 매칭 → `InventoryBuilder` 가 host 필터 없이 파싱 host(`r.host()`)로 Acc/endpoint 생성 → `d.host()≠스캔도메인` endpoint 유입·스캔도메인 하 영속(인벤토리/discovered/recency 오염). `LogLineParser` host 는 raw(미정규화), 스캔 host(domain_config)는 discovery 의 normalizeDomain(trim+lowercase).
+- **수정 ①(공유 정규화)**: `util/DomainNames.normalize`(trim+lowercase ROOT·빈/"-"→null) 신규 단일 진실원. `DomainDiscoveryService.normalizeDomain` 이 위임(동작·교차검증 불변, Locale import 제거). discovery 등록과 스캔 필터가 동일 규칙 보장(다르면 정상 도메인 오필터).
+- **수정 ②(foreign-host 필터)**: `DiscoveryJobService.analyze` 가 parse→dedupByRequestId 직후 InventoryBuilder/RefererSignal 전에 `requests.filter(r -> host.equals(DomainNames.normalize(r.host())))`. host=스캔도메인(정규화 완료), r.host()=raw→normalize 후 비교(대소문자·trim 정합), null host 자동 제외. matcher/classifier 의 d.host() 사용·LogLineParser 정규화는 불변(필터 비교 시점에만 normalize).
+- **효과**: 인벤토리·findings·discovered_endpoint·refererSignal 스캔도메인 전용 → foreign-host 누수 제거. 이후 d.host()==스캔도메인(정규화 동치) → signature host 축 발산 0(raw 대소문자 차이는 식별 소비처 0이라 무해). signature 필드 제거만 별도 cleanup(미진행).
+
+### 결과
+- `./gradlew build` BUILD SUCCESSFUL. 테스트 `DomainNamesTest`(trim/lowercase/"-"/빈/null) + `DiscoveryJobServiceTest.analyzeFiltersForeignHostRequests`(host=HOST·대문자HOST 포함·evil 제외, discovered 전부 host=HOST). ★진위: 필터 임시 무력화 시 /leak 유입으로 RED 확인 후 복원. 기존 analyze 테스트는 line() 이 Host=HOST 라 무회귀. 운영 Loki 미호출(단위 mock).
+
+### 다음 단계
+- 커밋 금지(매니저, 브랜치 fix/scan-foreign-host-filter). VM 재배포 시 인벤토리 foreign-host 0 확인은 매니저. signature 필드 제거 cleanup 은 선택 후속(소비처 0).
+
 ## 2026-06-26 세션 39 — classifier recency 발산 signature 미스 수정(P3 정확도, doc/26 §2)
 
 ### 한 일
