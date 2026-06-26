@@ -5,6 +5,22 @@
 
 ---
 
+## 2026-06-26 세션 35 — CLI 문법 `-domain` 서브커맨드 통일 (doc/33 §15, D47 갱신)
+
+### 한 일
+- **신문법(전부 단일대시 `-domain` 서브커맨드, 사용자 확정)**: `-domain -ls`(목록) / `-domain -export <도메인>`(CSV) / `-domain -scan <도메인> [-window <ISO8601>] [-edge <hostname>]`(온디맨드 스캔). `-window`/`-edge` 도 단일대시 통일.
+- **`main().parseCli`(순수·static·System.exit 없음 → 단위 테스트 가능)**: 신문법 감지 → 내부 `--adc.cli.list-domains=true`/`export-domain=`/`scan-domain=`(+`window=`/`edge=`)로 translate → `CliArgs`(usageError / inject[] / 서버) 반환. main 은 inject!=null→web NONE·cli 프로파일 부팅, usageError→짧은 usage+exit(2), else 서버. `has`/`valueAfter`(positional 값=flag 다음 토큰, `-`로 시작이면 누락) 헬퍼.
+- **★기존 `--adc.cli.export-domain=`/`scan-domain=` 사용자 트리거 제거** — 직접 입력 시 더 이상 CLI 모드 미진입(서버 모드). 기존 `isListDomains`/`isCliMode`/`CLI_TRIGGERS` 제거. CliProperties·CliExportRunner·CliScanRunner·CliListRunner 런너/바인딩 불변(외부 UX↔내부 프로퍼티 구동 분리=최소 변경).
+- **테스트 `MainArgModeTest` 갱신**: 신문법 3종 주입 인자 배열 단언(-ls/-export/-scan +window/edge 조합)·기존 `--adc.cli.X=` 단독=서버 모드(제거 회귀)·usage 에러 경로(-domain 단독·도메인 누락·도메인 자리 플래그)·서버 모드(빈 args·--server.port).
+- **md 문서 동기**: doc/31(트리거·컨테이너 run/exec 예시)·doc/32 §4(run (b)(c)·exec 대안·"전 명령 통일" 주석)·doc/33 §7(스캔 명령)·§15.3(전면 통일 채택으로 갱신)·§15.4(parseCli)·DECISIONS D47(목록→전면통일 갱신·이력). HTML 매뉴얼은 technical_writer 후속(미터치).
+- **리뷰 반영(P3 2건)**: P3-1(코드)=복수 서브커맨드(`-domain -export foo -scan bar` 등) 조용히 하나 선택하던 것을 ambiguous usageError 로 **fail-loud** 거부(우선순위 분기 전 카운트 체크) + `MainArgModeTest` 케이스 추가(단일 서브커맨드 정상 회귀 포함). P3-2(doc)=doc/33 §15.1(구 프로퍼티 대조 서술→통일 후 무효 명시)·§17 체크리스트(PR1.1·목록 CLI 완료 [x] 동기·표현을 parseCli 신문법으로)·§18(통일 문법=완료) 갱신.
+
+### 결과
+- `./gradlew build` BUILD SUCCESSFUL. 운영 Loki 미호출(단위 mock). 신문법 3종 동작·기존 문법 제거(서버 모드)·복수 서브커맨드 모호 거부 단언 green.
+
+### 다음 단계
+- 커밋 금지(매니저, 브랜치 feature/cli-domain-subcommand). 출하 전·테스트 단계라 기존 트리거 제거에 외부 파괴 없음. HTML 매뉴얼 신문법 반영=technical_writer.
+
 ## 2026-06-26 세션 34 — 스캔 정책 PR2/PR3: C 티어링 + D off-peak + F dormant (doc/33 §4–6, D48)
 
 ### 한 일 — 통합 due 모델 (C·F·override 합성, 1 PR)
