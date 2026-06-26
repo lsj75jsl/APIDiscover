@@ -87,16 +87,24 @@ public class DomainDiscoveryService {
             countByDomain.merge(domain, s.value(), Double::sum);
         }
 
-        // 카운트 desc 정렬 후 max-domains 상한(폭증 1회 영향 격리, §6)
-        List<String> ranked = countByDomain.entrySet().stream()
-                .sorted(Map.Entry.<String, Double>comparingByValue().reversed())
-                .map(Map.Entry::getKey)
-                .toList();
+        // max-domains 상한: cap<=0 = 무제한(전 도메인 등록, 정렬·드롭 생략) / cap>0 = 카운트 desc 상위 N(폭증 격리, §6)
         int cap = cfg.maxDomainsPerRun();
-        int dropped = Math.max(0, ranked.size() - cap);
-        if (dropped > 0) {
-            log.warn("domain discovery cap {} reached — {} domains dropped (count desc)", cap, dropped);
-            ranked = ranked.subList(0, cap);
+        List<String> ranked;
+        int dropped;
+        if (cap <= 0) {
+            ranked = List.copyOf(countByDomain.keySet()); // 무제한(사용자 지시): 전수 등록
+            dropped = 0;
+        } else {
+            List<String> sorted = countByDomain.entrySet().stream()
+                    .sorted(Map.Entry.<String, Double>comparingByValue().reversed())
+                    .map(Map.Entry::getKey)
+                    .toList();
+            dropped = Math.max(0, sorted.size() - cap);
+            if (dropped > 0) {
+                log.warn("domain discovery cap {} reached — {} domains dropped (count desc)", cap, dropped);
+                sorted = sorted.subList(0, cap);
+            }
+            ranked = sorted;
         }
 
         int inserted = 0;

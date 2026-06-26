@@ -38,7 +38,7 @@ apidiscover:
     window: "PT12M"                # interval + 오버랩(경계 누락 방지)
     bootstrap-window: "PT1H"       # 빈 도메인 DB 첫 실행 1회
     initial-delay: "PT2M"          # 스캔 스케줄과 stagger
-    max-domains-per-run: 200       # 폭증 가드
+    max-domains-per-run: 0         # 0=무제한(전수 등록), >0=카운트 desc 상위 N 캡
     host-pattern: "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$"
   central:
     base-url: "https://central.internal"
