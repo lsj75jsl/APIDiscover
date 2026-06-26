@@ -51,7 +51,7 @@
 > (현재 비어 있음 — 매칭 회귀테스트·F1/F2·@Lob→text 실검증·Testcontainers·엔티티 캡슐화 완료, Done 참조. Docker 의존 항목은 host podman 으로 해소.)
 
 ### P3. 운영/인프라 (자체 운영)
-- [ ] **(배포 후속)** 테스트서버(192.168.8.197, podman) 실배포 — **기동·Loki 수집 검증 완료**(PR #24/D44: Restarts0·health UP·디스커버리 vector=35872 inserted=200, CLI 기동 OK, doc/manual/deploy-verify-guide.html). 잔여:
+- [x] **(배포·검증 완료)** 테스트서버(192.168.8.197, podman) 실배포 — 기동·**무제한 Loki 수집**·**스캔 정책(PR1.1) 다도메인 분산**·CLI(`-domain -ls`·export/scan) 전부 실검증(PR #24~#28 + 2cab6a5, D44/D46/D47, doc/manual). VM 가동 중(정책-bounded 수집). 세부:
   - [x] `max-domains-per-run` 무제한 결정·반영(PR #25) + 정책 이미지 VM 재배포(2026-06-26, a792f107). 무제한 수집 동작 확인(domain_config 352, 캡 없음).
   - [ ] **★PR1.1 — 스캔 per-domain 폭주 수정(실배포 발견)** **(설계 완료 → doc/33 §14 / DECISIONS D46, 브랜치 feature/scan-pr1.1-and-list-cli)**: max-window PT6H 백필이 단일 busy 도메인(www.takigen.co.jp)에서 1500+ 쿼리 → LokiBudget 독점 + 단일 @Scheduled 스레드 점유 → 다른 도메인·디스커버리 기아, discovered_endpoint=0. (부하 자체는 throttle·budget 으로 묶임=429 0, 문제는 진척0+기아.) 근본: 스캔=라인 페이지네이션, `budget.hasBudget()` 가 도메인 사이에서만 체크(runScan 내부 무한) + 단일 스케줄러 스레드(pool=1).
     - [x] (③) `spring.task.scheduling.pool.size: 2`(application.yml) — scanTick·discover 스레드 격리
@@ -60,7 +60,9 @@
     - [x] 테스트 — `ScanSliceBoundedTest`: 캡 hit 부분전진(consumedUpTo=마지막 완료 슬라이스·gap 없음[수집 슬라이스 ≤consumedUpTo])·전역예산 소진 부분전진·무제한(0)=전 윈도우 현행 동치. 운영 Loki 단위 mock. (커밋1: scan-fix)
   - [x] **도메인 목록 CLI `-domain -ls`** **(설계 완료 → doc/33 §15 / DECISIONS D47, 동일 브랜치)** — `main().isListDomains`(단일대시 `-domain`+`-ls` 동시) → `--adc.cli.list-domains=true` 주입 → `CliListRunner`(@Profile cli, `findAll(Sort host)`→host·enabled·#hostnames·discovered_at·last_seen_at stdout, 빈목록 exit0·DB오류 비0). `CliProperties.listDomains` 가산. arg 혼재 허용(기존 `--adc.cli.X=` 불변). DB-only·Loki 무관. 테스트(`CliListRunnerTest` 출력/빈목록/DB오류 + `MainArgModeTest` 감지·기존 명령 비회귀). (커밋2: list-cli)
     - [x] PR 구조: 분리 2커밋(scan-fix / list-cli) 준비 — 커밋은 매니저(보류)
-  - [ ] (PR1.1 후) 재배포·검증 — scanTick 다도메인 분산·discovered_endpoint 점증·온디맨드 CLI(`--adc.cli.scan-domain`)·CLI CSV 내용
+  - [x] **재배포·실검증 완료(2026-06-26)** — PR1.1 이미지 재배포 후: varchar 에러 0(아래 path_template 수정), **scanTick 다도메인 분산**(1분 6+ 도메인·독점 없음)·discovered_endpoint 점증(0→12k+)·watermark 점진 전진·**스레드 격리**(discovery scheduling-2/scan scheduling-1)·무제한 수집(domain_config 11,549). `-domain -ls`→11,549 목록·`export-domain`→63 findings CSV(SHADOW 분류·15컬럼) 동작.
+  - [x] **path_template varchar(255)→text** (실배포 발견·PR #28, D40 후속) — 긴 정규화 경로 INSERT 실패 해소. VM 기존 컬럼 `ALTER … TYPE text` 마이그레이션(12k 행 보존).
+  - [x] **이미지 container 프로파일 baking**(2cab6a5) — one-off CLI 가 env 없이 PG 접속(`-domain -ls` 등 빈 H2 회피). doc/32 §4 CLI 3명령 env-free 예시.
 - [ ] **엔드포인트 스캔 Loki 부하 운영정책 (A–F) + 운영자 온디맨드 스캔 CLI** **(설계 → doc/33 / DECISIONS D45)** — 무제한 도메인 전수순회 과부하 해소. off-peak·메트릭·intervalOverride TODO 흡수. **PR1 머지 완료(PR #26)**, PR2/PR3 잔여.
   - PR1 필수 (B+A+E) + 온디맨드 CLI — **완료(PR #26, build 374 green, 리뷰 P1/P2/P3=0)**:
     - [x] (A) `windowFor` max-window 상한(백필 슬라이스, 5-arg, 0/null=무제한 무회귀) + line 105 TODO 주석 해소 — *PR1 구현 완료(build green 374, 머지 시 Done)*
