@@ -12,5 +12,9 @@ COPY --from=build /src/build/libs/*-SNAPSHOT.jar /app/app.jar
 # DB 준비 대기 래퍼 — 컨테이너 동시 기동 시 크래시 루프 방지(doc/32). "$@" 로 CLI 인자 그대로 전달.
 COPY wait-for-db.sh /app/wait-for-db.sh
 RUN chmod +x /app/wait-for-db.sh
+# 이미지는 항상 컨테이너 배포 컨텍스트 → container 프로파일(PG·Loki LAN) 기본값.
+# 서버 pod(adc.yaml)도 동일 값 명시(중복 무해), one-off CLI(`-domain -ls` 등)도 env 없이 PG 접속(빈 H2 회피).
+# 로컬·테스트는 소스(gradle)로 실행하므로 application.yml(H2) 유지(이 ENV 무영향). 다른 프로파일은 -e 로 override.
+ENV SPRING_PROFILES_ACTIVE=container
 EXPOSE 8080
 ENTRYPOINT ["/app/wait-for-db.sh"]

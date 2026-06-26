@@ -53,17 +53,26 @@ podman logs adc-app | grep 'domain discovery:'           # 디스커버리 1회 
 - 디스커버리/스캔 스케줄러는 **운영 Loki 를 호출**한다(hostNetwork 로 도달). `apidiscover.discovery.initial-delay`(기본 2분) 후 첫 실행, 이후 `interval`(기본 10분). 운영검증 전 부팅만 보려면 `apidiscover.discovery.enabled=false`·`spring.batch.job.enabled=false`(기본) 로 스케줄러를 끈다.
 - 컨테이너→LAN Loki 도달은 hostNetwork 전제(§위). bridge 로 두면 `HttpConnectTimeoutException` 발생.
 
-## 4. CLI CSV 내보내기 (one-off, 서빙 무부하)
+## 4. CLI 명령 (one-off, 서빙 무부하)
+
+> 이미지가 `SPRING_PROFILES_ACTIVE=container` 를 기본값으로 baking(Dockerfile) → one-off CLI 도 **env 없이 PG(localhost:5432) 접속**(빠뜨리면 빈 H2 인메모리에 붙어 결과 0). `--network host` 로 실행 중 pod 의 postgres 와 동일 host netns 공유.
 
 ```bash
-podman run --rm --network host \
-  -v /opt/adc-exports:/exports \
-  localhost/apidiscover:test \
-  --adc.cli.export-domain=<domain>
-# → /opt/adc-exports/<domain>-<epochmillis>.csv (host /opt/adc-exports)
+# (a) 수집 도메인 목록 확인 — stdout
+podman run --rm --network host localhost/apidiscover:test -domain -ls
+
+# (b) 특정 도메인 API 결과 CSV
+podman run --rm --network host -v /opt/adc-exports:/exports \
+  localhost/apidiscover:test --adc.cli.export-domain=<domain>
+# → /opt/adc-exports/<domain>-<epochmillis>.csv
+
+# (c) 특정 도메인 즉시 스캔(운영자 온디맨드, watermark 미전진)
+podman run --rm --network host localhost/apidiscover:test \
+  --adc.cli.scan-domain=<domain> [--window=PT30M] [--edge=<hostname>]
 ```
-- 인자는 ENTRYPOINT(`wait-for-db.sh` → `java -jar /app/app.jar`) 뒤에 append → CLI 모드(웹·스케줄러 미기동, Loki 미호출, 1 명령 후 종료). `--network host` 로 localhost:5432 의 postgres 접속.
-- exit code: 0 성공 / 2 도메인 미지정 / 3 도메인 미존재·검출 0건 / 4 쓰기 실패.
+- 인자는 ENTRYPOINT(`wait-for-db.sh`→`java -jar /app/app.jar`) 뒤에 append → CLI 모드(웹·스케줄러 미기동, 1 명령 후 종료). 목록/내보내기는 Loki 미호출(DB only), scan-domain 만 Loki 호출(부하보호 준수).
+- 목록(`-domain -ls`)은 단일대시 `-domain`+`-ls`, 내보내기/스캔은 `--adc.cli.X=` 스타일(혼재, D47).
+- export exit: 0 성공 / 2 도메인 미지정 / 3 도메인 미존재·검출 0건 / 4 쓰기 실패.
 - CSV 15열+헤더: host·method·path_template·status·source·confidence·severity·estimated·spec_ref·preflight_ambiguous·low_confidence·param_query·param_path·first_seen·last_seen. (score 는 미영속 → 범위 밖.)
 - 대안: `podman exec adc-app java -jar /app/app.jar --adc.cli.export-domain=<domain>`(서빙 컨테이너 2nd JVM, 자원 점유 — exec 는 ENTRYPOINT 우회라 `java -jar` 명시).
 
