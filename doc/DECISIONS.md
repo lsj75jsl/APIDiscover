@@ -426,7 +426,8 @@ PR1 실배포 검증: 단일 busy 도메인(www.takigen.co.jp)의 max-window PT6
 - `-domain -scan <도메인> [-window <ISO8601>] [-edge <hostname>]` — 온디맨드 스캔(doc/33 §7)
 - **구현**: `main().parseCli`(순수·테스트 가능) 가 신문법 감지 → 내부 `--adc.cli.list-domains=true`/`export-domain=`/`scan-domain=`(+`window=`/`edge=`)로 translate 후 web NONE·cli 프로파일 부팅. CliProperties·CliExportRunner·CliScanRunner·CliListRunner 런너/바인딩 불변(외부 단일대시 UX·내부 프로퍼티 구동 분리 = 최소 변경). `-domain` 없음=서버 모드, `-domain` 단독·도메인 누락=usage+exit(2).
 - **★기존 `--adc.cli.export-domain=`/`scan-domain=` 사용자 트리거 제거**(직접 입력 시 CLI 미진입). 초기 채택은 (a) 혼재 허용이었으나, 목록 CLI 머지 후 사용자가 (b) **전면 통일** 결정 — 아직 외부 출하 전·테스트 단계라 출하 파괴 없음(피스밀 금지 단서대로 전 명령 동시 교체). HTML 매뉴얼 동기는 technical_writer 후속.
-- **갱신 이력**: 최초 D47=목록 `-domain -ls` 만(혼재 허용·전면통일 미채택). → 사용자 결정으로 전면 통일·기존 트리거 제거로 갱신(브랜치 feature/cli-domain-subcommand).
+- **출력 형식(목록)**: `-domain -ls` 는 **CSV 파일**(`output-dir`/domains-&lt;stamp&gt;.csv, export-domain 동형 다운로드)로 출력 — 사용자 확정(Option B). 최초안의 stdout 표는 폐지(대량 도메인 11k+ 에서 표는 비실용·파일이 export 와 일관). 헤더 host,enabled,hostnames(';'),discovered_at,last_seen_at. 빈 목록=헤더만·exit 0, DB/IO 오류=4. `-v output-dir` 볼륨 필요(컨테이너).
+- **갱신 이력**: 최초 D47=목록 `-domain -ls` stdout 표(혼재 허용·전면통일 미채택). → 사용자 결정으로 전면 통일·기존 트리거 제거(feature/cli-domain-subcommand). → 사용자 Option B 로 목록 출력을 stdout→CSV 파일 변경(feature/domain-ls-csv).
 
 ### D48. 스캔 정책 PR2/PR3 — C 활동 티어링 + D off-peak + F dormant (통합 due 모델, doc/33 §4–6) — 채택·구현+리뷰반영(1 PR, build green 408·실 PG 가드 PASS·커밋 보류)
 PR1(B+A+E) 토대 위 C(티어)·F(dormant)·intervalOverride 를 **단일 due 모델**로 통합, D(off-peak)는 그 위 파라미터 스위치. P3, 단일 인스턴스 전제.

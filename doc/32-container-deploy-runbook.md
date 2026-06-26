@@ -58,8 +58,10 @@ podman logs adc-app | grep 'domain discovery:'           # 디스커버리 1회 
 > 이미지가 `SPRING_PROFILES_ACTIVE=container` 를 기본값으로 baking(Dockerfile) → one-off CLI 도 **env 없이 PG(localhost:5432) 접속**(빠뜨리면 빈 H2 인메모리에 붙어 결과 0). `--network host` 로 실행 중 pod 의 postgres 와 동일 host netns 공유.
 
 ```bash
-# (a) 수집 도메인 목록 확인 — stdout
-podman run --rm --network host localhost/apidiscover:test -domain -ls
+# (a) 수집 도메인 목록 → CSV 파일(-v /opt/adc-exports:/exports 필요, stdout 표 폐지)
+podman run --rm --network host -v /opt/adc-exports:/exports \
+  localhost/apidiscover:test -domain -ls
+# → /opt/adc-exports/domains-<epochmillis>.csv (host,enabled,hostnames,discovered_at,last_seen_at)
 
 # (b) 특정 도메인 API 결과 CSV
 podman run --rm --network host -v /opt/adc-exports:/exports \

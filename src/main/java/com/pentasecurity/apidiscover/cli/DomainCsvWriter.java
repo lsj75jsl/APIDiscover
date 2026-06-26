@@ -2,6 +2,7 @@
 package com.pentasecurity.apidiscover.cli;
 
 import com.pentasecurity.apidiscover.domain.DiscoveredEndpointRecord;
+import com.pentasecurity.apidiscover.domain.DomainConfig;
 import com.pentasecurity.apidiscover.model.Finding;
 import com.pentasecurity.apidiscover.model.ParamCandidates;
 import java.util.ArrayList;
@@ -27,6 +28,28 @@ public final class DomainCsvWriter {
             "estimated", "spec_ref", "preflight_ambiguous", "low_confidence",
             "param_query", "param_path", "first_seen", "last_seen"
     };
+
+    /** 도메인 목록 CSV 헤더 (-domain -ls). */
+    static final String[] DOMAIN_HEADER = {"host", "enabled", "hostnames", "discovered_at", "last_seen_at"};
+
+    /**
+     * 도메인 목록 → CSV 문자열(헤더 + 행, CRLF). hostnames 여러개는 ';' 조인, null Instant→공란.
+     * 정렬은 호출측(Sort host)에서 이미 수행. escape/CRLF 는 {@link #toCsv} 와 동일 헬퍼 재사용(RFC4180).
+     */
+    public static String domainsToCsv(List<DomainConfig> domains) {
+        StringBuilder sb = new StringBuilder();
+        appendRecord(sb, DOMAIN_HEADER);
+        for (DomainConfig d : domains) {
+            appendRecord(sb, new String[]{
+                    nz(d.getHost()),
+                    Boolean.toString(d.isEnabled()),
+                    names(d.getHostnames() != null ? d.getHostnames() : List.of()),
+                    (d.getDiscoveredAt() != null) ? d.getDiscoveredAt().toString() : "",
+                    (d.getLastSeenAt() != null) ? d.getLastSeenAt().toString() : ""
+            });
+        }
+        return sb.toString();
+    }
 
     /** (method,host,template) join 키 — CombinedDiscoveryService.key 동형(host=null→"*"). */
     public static String key(String method, String host, String template) {

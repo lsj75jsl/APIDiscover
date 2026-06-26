@@ -294,8 +294,8 @@ apidiscover.scan:
 
 - **main() raw-arg 감지**: Spring 은 `--key=value` 만 프로퍼티 바인딩 → 단일대시 `-domain`/`-ls` 는 non-option arg(String[]). `main()` 이 **raw args 에 `-domain` AND `-ls` 동시 존재** 감지 → CLI 모드(web NONE·`cli` 프로파일·스케줄러 미기동, 기존과 동일).
 - **내부 일관성**: 감지 시 `main()` 이 `--adc.cli.list-domains=true` 를 args 에 **주입**해 run → `CliProperties.listDomains` 바인딩 → `CliListRunner`(@Profile cli) 활성. **외부 UX(단일대시)와 내부(프로퍼티 구동 runner)를 분리** — 기존 export/scan runner 패턴과 균일.
-- **`CliListRunner`**: `domainRepo.findAll()`(host 정렬) → **stdout 출력**(사용자 '확인' 의도 → 파일 아님). 컬럼: `host`·`enabled`·`#hostnames`(또는 hostnames)·`discovered_at`·`last_seen_at`. 빈 목록=헤더+안내(정상), exit 0. DB 조회 실패=비0. **Loki 무관**(DB read only).
-- **CSV 파일 출력 옵션 미포함**(과설계 — '확인'은 stdout 충족, `--csv` 필요 시 후속).
+- **`CliListRunner`**: `domainRepo.findAll(Sort host)` → **CSV 파일**(`output-dir`/domains-&lt;stamp&gt;.csv, export-domain 동형, 사용자 확정 Option B). 컬럼: `host`·`enabled`·`hostnames`(';' 조인)·`discovered_at`·`last_seen_at`(null→공란). 빈 목록=헤더만·exit 0. DB 오류=4·IO 오류=4. **Loki 무관**(DB read only). `DomainCsvWriter.domainsToCsv`(RFC4180 escape·CRLF 재사용).
+- **출력 = CSV 파일**(stdout 표 폐지, 사용자 결정): `-domain -ls` 도 `output-dir` 볼륨 필요(예 `-v /opt/adc-exports:/exports`). export-domain 과 동일 다운로드 패턴.
 
 ### 15.3 ★arg 스타일 통일 (사용자 확정 — 전면 통일 채택)
 
@@ -326,11 +326,11 @@ apidiscover.scan:
 
 **목록 CLI (§15)** — *구현·머지 완료(PR #27/#28); 이후 D47 전면 통일로 트리거 문법 갱신(feature/cli-domain-subcommand)*
 - [x] `main().parseCli` 가 신문법(`-domain -ls`/`-export`/`-scan`) 감지 → 목록은 `--adc.cli.list-domains=true` 주입(통일 전 raw-arg `-domain -ls` 감지에서 parseCli 로 일반화).
-- [x] `CliProperties.listDomains` + `CliListRunner`(@Profile cli, findAll→stdout 컬럼, 빈 목록 exit 0, 오류 비0).
+- [x] `CliProperties.listDomains` + `CliListRunner`(@Profile cli, findAll→**CSV 파일**(output-dir/domains-&lt;stamp&gt;.csv, 사용자 확정 Option B), 빈 목록=헤더만 exit 0, DB/IO 오류 4).
 - [x] 테스트 — `CliListRunnerTest`(출력 포맷·빈 목록·exit, System.exit 미경유 단위) + `MainArgModeTest`(신문법 3종 주입·기존 문법 제거 회귀·복수 서브커맨드 모호 거부).
 
 ## 18. PR1.1·목록 CLI 범위 밖 / 후속
 
 - **통일 CLI 문법**(전 명령 단일대시 `-domain` 서브커맨드) — **완료**(D47 갱신·feature/cli-domain-subcommand): 구 `--adc.cli.X=` 사용자 트리거 제거, `main().parseCli` 가 신문법→내부 프로퍼티 translate. HTML 매뉴얼 동기는 technical_writer 후속.
-- **목록 `--csv` 파일 출력** — stdout 으로 충족, 필요 시 후속.
+- **목록 CSV 파일 출력** — 채택 완료(사용자 Option B, stdout 표 → `output-dir`/domains-&lt;stamp&gt;.csv, feature/domain-ls-csv).
 - **per-slice 하드캡 미만의 within-slice 부분전진** — 멀티-hostname gap 위험으로 미채택(slice-window 축소로 완화), §14.2 floor.

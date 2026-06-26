@@ -100,6 +100,31 @@ class DomainCsvWriterTest {
         assertThat(csv).contains("\"/a,b\"\"c\nd\"");
     }
 
+    @Test
+    void domainsToCsvHeaderRowsHostnamesJoinAndNullBlanks() {
+        com.pentasecurity.apidiscover.domain.DomainConfig a =
+                new com.pentasecurity.apidiscover.domain.DomainConfig();
+        a.setHost("a.example.com");
+        a.setEnabled(true);
+        a.setHostnames(new java.util.ArrayList<>(List.of("E1", "E2")));
+        a.setDiscoveredAt(Instant.EPOCH);
+        a.setLastSeenAt(null);
+        com.pentasecurity.apidiscover.domain.DomainConfig b =
+                new com.pentasecurity.apidiscover.domain.DomainConfig();
+        b.setHost("b.example.com");
+        b.setEnabled(false);
+        b.setHostnames(new java.util.ArrayList<>());
+        b.setDiscoveredAt(null);
+        b.setLastSeenAt(null);
+
+        String csv = DomainCsvWriter.domainsToCsv(List.of(a, b));
+        String[] lines = csv.split("\r\n", -1);
+
+        assertThat(lines[0]).isEqualTo("host,enabled,hostnames,discovered_at,last_seen_at");
+        assertThat(lines[1]).isEqualTo("a.example.com,true,E1;E2,1970-01-01T00:00:00Z,"); // hostnames ';' 조인·lastSeen 공란
+        assertThat(lines[2]).isEqualTo("b.example.com,false,,,");                          // 빈 hostnames·null discovered·null last
+    }
+
     // --- helpers ---
 
     /** path_template(컬럼 2) → 필드배열. 이스케이프 케이스가 없는 정상 행 전용(테스트 입력 한정). */
