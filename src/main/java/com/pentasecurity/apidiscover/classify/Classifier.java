@@ -6,6 +6,7 @@ import com.pentasecurity.apidiscover.match.EndpointMatcher;
 import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
 import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
 import com.pentasecurity.apidiscover.model.DroppedNonApi;
+import com.pentasecurity.apidiscover.model.EndpointIdentity;
 import com.pentasecurity.apidiscover.model.EndpointKind;
 import com.pentasecurity.apidiscover.model.Finding;
 import com.pentasecurity.apidiscover.model.ParamCandidates;
@@ -111,7 +112,7 @@ public class Classifier {
 
     /**
      * 7-arg: +stripPrefix(base-path-strip, doc/27 §3). null → as-is 만(현행 무회귀).
-     * 설정 시 매처가 as-is 우선·미매칭+prefix 재부착(prepend) 재시도 → false Shadow/Unused 교정.
+     * host 없음 → recency lookup host=null(빈 prior 전제 하위호환 — 실제 recency 는 8-arg 사용).
      */
     public ClassificationResult classifyWithMetrics(List<DiscoveredEndpoint> discovered,
                                                     List<CanonicalEndpoint> spec,
@@ -120,6 +121,21 @@ public class Classifier {
                                                     ApiHintMatcher hints,
                                                     Map<String, Instant> priorFirstSeen,
                                                     String stripPrefix) {
+        return classifyWithMetrics(discovered, spec, matcher, scorer, hints, priorFirstSeen, stripPrefix, null);
+    }
+
+    /**
+     * 8-arg(최종): +host(스캔 도메인) — priorFirstSeen 키({@code EndpointIdentity.key(method,host,template)}, upsert/영속과 동일)와 정합.
+     * {@code d.signature()} 가 최종 template·파싱 host 와 발산해도 recency 정확 매칭(doc/24·26 §2, identity 통일). host=null → 빈 prior 전제 하위호환.
+     */
+    public ClassificationResult classifyWithMetrics(List<DiscoveredEndpoint> discovered,
+                                                    List<CanonicalEndpoint> spec,
+                                                    EndpointMatcher matcher,
+                                                    ApiScorer scorer,
+                                                    ApiHintMatcher hints,
+                                                    Map<String, Instant> priorFirstSeen,
+                                                    String stripPrefix,
+                                                    String host) {
         List<Finding> findings = new ArrayList<>();
         int excluded = 0;
         int webForm = 0;
@@ -171,7 +187,7 @@ public class Classifier {
                     // DORMANT genuine(M2): spec-match 한정 observed (미매칭은 Shadow 안 만듦 — 불변식 보존)
                     matcher.match(d.method(), d.host(), d.pathTemplate(), stripPrefix)
                             .ifPresent(ce -> observedSpec.computeIfAbsent(key(ce), k -> new Evidence())
-                                    .add(d, priorFirstSeen.get(d.signature())));
+                                    .add(d, priorFirstSeen.get(EndpointIdentity.key(d.method(), host, d.pathTemplate()))));
                     continue;
                 }
                 // ACTIVE genuine → 아래 일반 매칭/게이트 로직으로 fall through (매칭→Active, 미매칭→Shadow)
@@ -180,7 +196,7 @@ public class Classifier {
             if (matched.isPresent()) {
                 // Active/Zombie 는 2차 (스펙 권위, 게이트 우회). 매칭 d 메트릭을 Evidence 에 누적(severity 용)
                 observedSpec.computeIfAbsent(key(matched.get()), k -> new Evidence())
-                        .add(d, priorFirstSeen.get(d.signature()));
+                        .add(d, priorFirstSeen.get(EndpointIdentity.key(d.method(), host, d.pathTemplate())));
                 continue;
             }
             // 문서에 없음 → ApiScorer 게이트 (doc/08, doc/09 §2.2). 전달된 scorer 사용(doc/10 §6)

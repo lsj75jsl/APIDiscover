@@ -9,6 +9,7 @@ import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
 import com.pentasecurity.apidiscover.model.Classification;
 import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
 import com.pentasecurity.apidiscover.model.DroppedNonApi;
+import com.pentasecurity.apidiscover.model.EndpointIdentity;
 import com.pentasecurity.apidiscover.model.EndpointKind;
 import com.pentasecurity.apidiscover.model.Finding;
 import com.pentasecurity.apidiscover.model.MatcherConfig;
@@ -452,10 +453,11 @@ class ClassifierTest {
                 classifier.classifyWithMetrics(List.of(d), depSpec, m, new ApiScorer(), ApiHintMatcher.NONE)
                         .findings(), Classification.ZOMBIE).get(0);
         // de() ts=EPOCH → lastSeen=EPOCH. 이력 최초 = 100일 전 → lifespan 100일(≥SAT).
-        // 키 = 검출 signature(doc/26 §8 — discovered_endpoint.firstSeen 에서 로드), spec 키 아님
-        Map<String, Instant> prior = Map.of(d.signature(), Instant.EPOCH.minusSeconds(100L * 86_400));
+        // 키 = EndpointIdentity.key(method, 스캔host, template) — upsert/영속/prior 와 동일(d.signature() 아님, 발산 무관)
+        Map<String, Instant> prior = Map.of(
+                EndpointIdentity.key("GET", HOST, "/v2/old"), Instant.EPOCH.minusSeconds(100L * 86_400));
         Finding.Zombie hot = (Finding.Zombie) byClass(
-                classifier.classifyWithMetrics(List.of(d), depSpec, m, new ApiScorer(), ApiHintMatcher.NONE, prior)
+                classifier.classifyWithMetrics(List.of(d), depSpec, m, new ApiScorer(), ApiHintMatcher.NONE, prior, null, HOST)
                         .findings(), Classification.ZOMBIE).get(0);
 
         assertThat(cold.severity().band()).isEqualTo(SeverityBand.LOW);
@@ -463,6 +465,29 @@ class ClassifierTest {
         assertThat(hot.severity().band()).isEqualTo(SeverityBand.MEDIUM);
         assertThat(hot.confidence()).isEqualTo(1.0);   // confidence·estimated 불변(severity 만 보강)
         assertThat(hot.estimated()).isFalse();
+    }
+
+    @Test
+    void recencyMatchesByIdentityKeyDespiteSignatureDivergence() {
+        // ★signature 발산 회귀가드(P3): DiscoveredEndpoint.signature 가 (method,host,최종 template)와 어긋나도
+        // recency 는 EndpointIdentity.key(method,스캔host,template)로 lookup → entrenchment 정확 매칭(severity 과소 방지).
+        List<CanonicalEndpoint> depSpec = List.of(ce("GET", "/v2/old", true)); // deprecated → Zombie
+        var m = new EndpointMatcher(depSpec);
+        var metrics = new DiscoveredEndpoint.Metrics(10, Instant.EPOCH, Instant.EPOCH, Map.of("4xx", 10L), 1, 10, 50);
+        // signature 발산: 최종 template="/v2/old" 이나 signature 는 승격 전 "/old-pre-promote"
+        var divergent = new DiscoveredEndpoint(
+                "GET " + HOST + " /old-pre-promote", "GET", HOST, "/v2/old",
+                TemplateSource.SPEC, EndpointKind.UNKNOWN, 0.9, false, false, metrics, ParamCandidates.EMPTY);
+
+        // prior 는 영속/upsert 와 동일하게 제약 튜플 키로 적재(발산 signature 아님)
+        Map<String, Instant> prior = Map.of(
+                EndpointIdentity.key("GET", HOST, "/v2/old"), Instant.EPOCH.minusSeconds(100L * 86_400));
+        Finding.Zombie z = (Finding.Zombie) byClass(
+                classifier.classifyWithMetrics(List.of(divergent), depSpec, m, new ApiScorer(), ApiHintMatcher.NONE,
+                        prior, null, HOST).findings(), Classification.ZOMBIE).get(0);
+
+        // 수정 전(lookup=d.signature()=".../old-pre-promote")이면 prior miss → entrenchment 0 → band LOW(과소).
+        assertThat(z.severity().band()).isEqualTo(SeverityBand.MEDIUM); // identity 키 매칭 → entrenchment 적용
     }
 
     // --- Active/Zombie param 후보 (doc/25 §B) ---

@@ -5,7 +5,8 @@ import java.time.Instant;
 import java.util.Map;
 
 public record DiscoveredEndpoint(
-        String signature,            // "{METHOD} {host} {path_template}"
+        String signature,            // "{METHOD} {host} {path_template}" — ★식별 키 아님(T1 승격 전 template·파싱 host 로 발산 가능). upsert/recency 는 EndpointIdentity.key 사용
+        // ponytail: signature 필드는 식별 소비처 0(테스트 발산 재현용만 잔존). 제거는 별도 cleanup(테스트 얽힘).
         String method,
         String host,
         String pathTemplate,

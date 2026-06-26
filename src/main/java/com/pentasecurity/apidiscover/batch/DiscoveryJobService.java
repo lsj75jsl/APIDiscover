@@ -26,6 +26,7 @@ import com.pentasecurity.apidiscover.match.EndpointMatcherCache;
 import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
 import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
 import com.pentasecurity.apidiscover.model.DiscoveryReport;
+import com.pentasecurity.apidiscover.model.EndpointIdentity;
 import com.pentasecurity.apidiscover.model.Finding;
 import com.pentasecurity.apidiscover.model.ParsedRequest;
 import com.pentasecurity.apidiscover.model.SpecSource;
@@ -232,7 +233,7 @@ public class DiscoveryJobService {
         String stripPrefix = domainRepo.findById(host).map(c -> c.getBasePathStrip()).orElse(null);
         // findings + non_api dropped 메트릭 동시 산출 (doc/12 §1, doc/24·26·27)
         ClassificationResult classified = classifier.classifyWithMetrics(
-                discovered, spec, matcher, eff.scorer(), eff.hints(), priorFirstSeen, stripPrefix);
+                discovered, spec, matcher, eff.scorer(), eff.hints(), priorFirstSeen, stripPrefix, host);
         List<Finding> findings = classified.findings();
         // OPTIONS 는 CORS 신호로만 쓰고 보고에서 제외되므로 인벤토리 카운트에서도 뺀다 (과대집계 방지)
         long reportedCount = discovered.stream()
@@ -329,9 +330,9 @@ public class DiscoveryJobService {
                 .map(CanonicalEndpoint::version).orElse(null);
     }
 
-    /** DB unique(host,method,path_template) 제약과 동일한 dedup 키 — loadDiscovered 적재·upsert lookup 공통(키 정합 보장, PR #31 정정). */
+    /** DB unique(host,method,path_template) 제약과 동일한 dedup 키 — loadDiscovered 적재·upsert lookup·recency 공통(EndpointIdentity 단일 진실원). */
     private static String identityKey(String method, String host, String pathTemplate) {
-        return method + " " + host + " " + pathTemplate;
+        return EndpointIdentity.key(method, host, pathTemplate);
     }
 
     /** 검출 record → 제약 튜플 키 "{METHOD} {host} {template}". priorFirstSeen 키로도 쓰임(classifier 의 signature 발산은 별도 후속, doc/26 §2). */
