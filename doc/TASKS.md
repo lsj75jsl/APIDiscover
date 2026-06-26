@@ -55,10 +55,19 @@
   - [ ] `max-domains-per-run` 캡 결정 — 관측 ~13,920 도메인 중 상위 200만 등록(캡=DB 업서트량만 제한·Loki 부하 아님, 상향 저위험). 전수 원하면 값 상향(사용자 결정)
   - [ ] 엔드포인트 스캔(`PT1H`)·CLI CSV **내용** 검증 — 다음 스캔 사이클이 `discovered_endpoint` 적재 후(200 도메인 스캔=운영 Loki 부하, off-peak 권장)
   - [ ] (선택) 서버 pod 를 최종 머지 이미지로 재배포(현재 coalesce 이미지로 수집 중, 기능 동일)
-- [ ] off-peak 시간대 제한
-- [ ] 부하/운영 메트릭 (쿼리수·바이트·429) Actuator/Micrometer 노출 + 알람 — doc/12 `DroppedNonApi`·doc/13 `DroppedByLimit` 카운트 재사용 가능
+- [ ] **엔드포인트 스캔 Loki 부하 운영정책 (A–F) + 운영자 온디맨드 스캔 CLI** **(설계 완료 → doc/33 / DECISIONS D45, 브랜치 feature/scan-load-policy)** — 14k 도메인 전수순회 과부하 해소. off-peak·메트릭·intervalOverride TODO 흡수.
+  - PR1 필수 (B+A+E) + 온디맨드 CLI:
+    - [x] (A) `windowFor` max-window 상한(백필 슬라이스, 5-arg, 0/null=무제한 무회귀) + line 105 TODO 주석 해소 — *PR1 구현 완료(build green 374, 머지 시 Done)*
+    - [x] (B) `DomainConfig.lastScanAttemptAt`(ddl-auto) + `findByEnabledIsTrue(Pageable)`(Sort asc nulls-first)·`touchLastScanAttempt`(@Modifying 단일컬럼) + `ScanSelector` + `DiscoveryScheduler.scanTick()`(tick PT5M·K 예산·attempt 마다 커서 전진[skip·실패 포함]·예산 소진 break 이월) — 전수순회 대체
+    - [x] (E) `LokiBudget`(시간당 쿼리/바이트 하드캡·초과=hasBudget false 이월, 0=무제한) + LokiClient Micrometer 계측(loki.queries·response.bytes·errors{status}) + 적응형 throttle(429/5xx level+1·성공 −1, throttle-on-error 게이트)
+    - [x] (온디맨드) `CliScanRunner`(@Profile cli, `--adc.cli.scan-domain`/`--window`/`--edge`, scan()→exit/run()→System.exit, 미존재·미enabled=3·Loki실패=4) + `scanOnDemand`(edge→runOnDemand/미지정→collect+analyze, **watermark 미전진**) + `onDemandWindow`(상한=max-window) + main() scan-domain 분기·CliExportRunner blank=no-op(명령 공존)
+    - [x] `ApiDiscoverProperties.Scan` 레코드 + application.yml 기본값 + 테스트(windowFor 상한·LRS nulls-first·scanTick 커서전진[skip/실패]·budget 캡/롤오버/Micrometer·온디맨드 exit/무전진) — 단위 mock(운영 Loki 미호출), 실호출 `-Dloki.live` 게이트
+  - PR2 다음 (C+D): [ ] (C) 활동 티어링(lastSeenAt/활동→due, intervalOverride 배선) / [ ] (D) off-peak 백필 배선(`schedule.off-peak-window`)
+  - PR3 보조 (F, 선택): [ ] dormant 디프라이오리티(N일 무트래픽→최장 주기, 무삭제)
+- [ ] off-peak 시간대 제한 **(→ doc/33 D 로 배선 — 위 정책 PR2)**
+- [ ] 부하/운영 메트릭 (쿼리수·바이트·429) Actuator/Micrometer 노출 + 알람 — doc/12 `DroppedNonApi`·doc/13 `DroppedByLimit` 카운트 재사용 가능 **(→ 계측은 doc/33 E PR1, 알람 연동은 별도 후속)**
 - [ ] Spring Batch JobRepository 실연결 (현재 `@Scheduled`만, `batch.job.enabled=false`)
-- [ ] 도메인별 `intervalOverride` 스케줄 반영 (도메인 설정은 이미 영속, 스케줄러 반영만)
+- [ ] 도메인별 `intervalOverride` 스케줄 반영 (도메인 설정은 이미 영속, 스케줄러 반영만) **(→ doc/33 C 로 배선 — 위 정책 PR2)**
 - [ ] HA 단일 실행 보장 (ShedLock 또는 Quartz 클러스터) — 도입 시 **cross-instance 무효화**(effective 설정 캐시·매처 캐시 TTL/pub-sub, doc/11 §3·doc/15 후속) 함께
 
 ### P4. 외부 연동 (자체 기능 완료 후)

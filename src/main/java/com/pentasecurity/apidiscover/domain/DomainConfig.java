@@ -52,6 +52,9 @@ public class DomainConfig {
     /** 자동 디스커버리 최근 관측(집계 윈도우 끝). staleness 가시화용·삭제 트리거 아님(doc/30 §5). ddl-auto 가산. */
     private Instant lastSeenAt;
 
+    /** 스캔 라운드로빈 커서(doc/33 §1 B) — least-recently-scanned asc nulls-first. attempt 마다 전진(skip 포함). ddl-auto. */
+    private Instant lastScanAttemptAt;
+
     private Instant createdAt;
     private Instant updatedAt;
 
@@ -117,6 +120,14 @@ public class DomainConfig {
 
     public void setLastSeenAt(Instant lastSeenAt) {
         this.lastSeenAt = lastSeenAt;
+    }
+
+    public Instant getLastScanAttemptAt() {
+        return lastScanAttemptAt;
+    }
+
+    public void setLastScanAttemptAt(Instant lastScanAttemptAt) {
+        this.lastScanAttemptAt = lastScanAttemptAt;
     }
 
     public Instant getCreatedAt() {

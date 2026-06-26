@@ -256,6 +256,7 @@ class DomainDiscoveryServiceTest {
                         Duration.ofDays(7), "01:00-06:00"),
                 new ApiDiscoverProperties.Central("https://central.internal"),
                 new ApiDiscoverProperties.Discovery(true, Duration.ofMinutes(10), Duration.ofMinutes(12),
-                        Duration.ofHours(1), Duration.ofMinutes(2), maxDomains, FQDN));
+                        Duration.ofHours(1), Duration.ofMinutes(2), maxDomains, FQDN),
+                new ApiDiscoverProperties.Scan(Duration.ofMinutes(5), 100, Duration.ZERO, 0, 0L, true));
     }
 }

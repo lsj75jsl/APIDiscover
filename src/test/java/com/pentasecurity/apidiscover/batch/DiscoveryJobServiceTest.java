@@ -608,19 +608,41 @@ class DiscoveryJobServiceTest {
         Duration lag = Duration.ofMinutes(10);
         Duration backfill = Duration.ofDays(7);
 
-        // watermark 없음 → [now-lag-backfill, now-lag]
-        LogWindow first = DiscoveryJobService.windowFor(now, null, lag, backfill).orElseThrow();
+        // watermark 없음 → [now-lag-backfill, now-lag] (maxWindow=ZERO=무제한)
+        LogWindow first = DiscoveryJobService.windowFor(now, null, lag, backfill, Duration.ZERO).orElseThrow();
         assertThat(first.to()).isEqualTo(now.minus(lag));
         assertThat(first.from()).isEqualTo(now.minus(lag).minus(backfill));
 
         // watermark 있음 → [watermark, now-lag]
         Instant last = Instant.parse("2026-06-22T09:00:00Z");
-        LogWindow next = DiscoveryJobService.windowFor(now, last, lag, backfill).orElseThrow();
+        LogWindow next = DiscoveryJobService.windowFor(now, last, lag, backfill, Duration.ZERO).orElseThrow();
         assertThat(next.from()).isEqualTo(last);
         assertThat(next.to()).isEqualTo(now.minus(lag));
 
         // watermark 가 end 이후 → 신규 구간 없음
-        assertThat(DiscoveryJobService.windowFor(now, now, lag, backfill)).isEmpty();
+        assertThat(DiscoveryJobService.windowFor(now, now, lag, backfill, Duration.ZERO)).isEmpty();
+    }
+
+    @Test
+    void windowForCapsBackfillAtMaxWindow() {
+        Instant now = Instant.parse("2026-06-22T10:00:00Z");
+        Duration lag = Duration.ofMinutes(10);
+        Duration backfill = Duration.ofDays(7);
+        Duration maxWindow = Duration.ofHours(6);
+
+        // 미스캔(7일 백필) + max-window 6h → end = start + 6h (7일 일괄 pull 차단, A doc/33 §2)
+        Instant end = now.minus(lag);
+        Instant start = end.minus(backfill);
+        LogWindow w = DiscoveryJobService.windowFor(now, null, lag, backfill, maxWindow).orElseThrow();
+        assertThat(w.from()).isEqualTo(start);
+        assertThat(w.to()).isEqualTo(start.plus(maxWindow));        // 절단됨
+        assertThat(w.to()).isBefore(end);
+
+        // 정상상태(델타 < max-window) → 상한 미발동(전체 윈도우 유지)
+        Instant recent = end.minus(Duration.ofMinutes(30));
+        LogWindow small = DiscoveryJobService.windowFor(now, recent, lag, backfill, maxWindow).orElseThrow();
+        assertThat(small.from()).isEqualTo(recent);
+        assertThat(small.to()).isEqualTo(end);                      // 미절단
     }
 
     // --- helpers ---
@@ -668,6 +690,7 @@ class DiscoveryJobServiceTest {
                 new ApiDiscoverProperties.Central("https://central.internal"),
                 new ApiDiscoverProperties.Discovery(true, Duration.ofMinutes(10), Duration.ofMinutes(12),
                         Duration.ofHours(1), Duration.ofMinutes(2), 200,
-                        "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$"));
+                        "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$"),
+                new ApiDiscoverProperties.Scan(Duration.ofMinutes(5), 100, Duration.ZERO, 0, 0L, true));
     }
 }

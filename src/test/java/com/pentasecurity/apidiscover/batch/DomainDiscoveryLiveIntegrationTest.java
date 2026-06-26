@@ -29,7 +29,9 @@ class DomainDiscoveryLiveIntegrationTest {
                 "skipped: set -Dloki.live=true to run against real Loki");
 
         ApiDiscoverProperties props = props();
-        LokiClient loki = new LokiClient(props, new ObjectMapper());
+        LokiClient loki = new LokiClient(props, new ObjectMapper(),
+                new com.pentasecurity.apidiscover.ingest.LokiBudget(props,
+                        new io.micrometer.core.instrument.simple.SimpleMeterRegistry(), java.time.Clock.systemUTC()));
         // buildLogQL 만 쓰므로 repo/upserter 는 미사용(count/upsert 미호출 경로) — mock 으로 충분.
         DomainConfigRepository repo = mock(DomainConfigRepository.class);
         DomainDiscoveryService svc = new DomainDiscoveryService(loki, repo, new DomainUpserter(repo), props);
@@ -69,6 +71,7 @@ class DomainDiscoveryLiveIntegrationTest {
                 new ApiDiscoverProperties.Central("https://central.internal"),
                 new ApiDiscoverProperties.Discovery(true, Duration.ofMinutes(10), Duration.ofMinutes(12),
                         Duration.ofHours(1), Duration.ofMinutes(2), 200,
-                        "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$"));
+                        "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$"),
+                new ApiDiscoverProperties.Scan(Duration.ofMinutes(5), 100, Duration.ZERO, 0, 0L, true));
     }
 }
