@@ -143,9 +143,10 @@
         <li><a href="#s4-1">점수 모델 개념과 수식</a></li>
         <li><a href="#s4-2">14개 신호와 발화 조건</a></li>
         <li><a href="#s4-3">가중치 · 프로파일(임계값) preset</a></li>
-        <li><a href="#s4-4">핵심 코드 — score()</a></li>
-        <li><a href="#s4-5">게이트(gate) — 임계 통과 판정</a></li>
-        <li><a href="#s4-6">명시 힌트 매처 · 404-only 필터</a></li>
+        <li><a href="#s4-4">도메인별 분류설정 override</a></li>
+        <li><a href="#s4-5">핵심 코드 — score()</a></li>
+        <li><a href="#s4-6">게이트(gate) — 임계 통과 판정</a></li>
+        <li><a href="#s4-7">명시 힌트 매처 · 404-only 필터</a></li>
       </ol>
     </li>
     <li><a href="#s5">분류 — Shadow / Zombie / Active / Unused</a></li>
@@ -448,7 +449,7 @@ api_confidence <span class="op">=</span> clamp<sub>[0,1]</sub> ( <span class="hl
 <p>점수 자체는 "후보성(API 일 가능성)"이고, Shadow/Zombie 의 "실재성(confidence)"과는 역할이 분리돼 있다. 즉 게이트를 통과한 뒤에야 매칭·분류가 일어난다.</p>
 
 <h3 id="s4-2">4.2 14개 신호와 발화 조건</h3>
-<p>신호는 두 모드로 조합된다. operator 가 명시 경로 힌트를 설정하면 <strong>explicit-hint 모드</strong>가 되어 내장 path-shape 신호 대신 <code>pathHint</code> 하나만 쓴다(아래 4.6).</p>
+<p>신호는 두 모드로 조합된다. operator 가 명시 경로 힌트를 설정하면 <strong>explicit-hint 모드</strong>가 되어 내장 path-shape 신호 대신 <code>pathHint</code> 하나만 쓴다(아래 4.7).</p>
 
 <table>
   <thead><tr><th>#</th><th>신호</th><th>발화 조건</th><th>모드</th></tr></thead>
@@ -499,7 +500,52 @@ api_confidence <span class="op">=</span> clamp<sub>[0,1]</sub> ( <span class="hl
   초기 설계에 있던 "<code>$type=document</code> → html 감점"은 <strong>제거</strong>됐다(JSON API 응답에도 document 가 붙어 진짜 API 를 0점화하는 실데이터 문제). 대신 access log 기반 최강 양성 신호인 <code>hostApiSubdomain(0.40)</code>·<code>corsPreflight(0.30)</code> 를 추가했다. 실 호스트 보정에서 API 호스트 0.82~1.00 vs 웹 호스트 ≤0.27 로 임계 0.70 기준 깨끗이 분리됐다.
 </div>
 
-<h3 id="s4-4">4.4 핵심 코드 — score()</h3>
+<h3 id="s4-4">4.4 도메인별 분류설정 override</h3>
+<p>§4.3 의 preset 은 <strong>전역 기본값일 뿐</strong>이다. 운영자는 도메인마다 <code>profile</code>·<code>threshold</code>(임계값)·<code>weights</code>(가중치)·<code>matcher</code>(힌트)를 개별 <strong>override</strong> 할 수 있다. 미설정 도메인은 전역(전역도 없으면 MIDDLE)을 상속하므로, 아무 설정이 없어도 현행과 100% 동일하다(무회귀).</p>
+
+<h4>병합 우선순위</h4>
+<p>한 호스트의 <em>effective(실효)</em> 설정은 <strong>도메인 override → (없으면) 전역 → (없으면) preset/MIDDLE</strong> 순으로 합쳐진다(<code>EffectiveClassificationResolver</code>).</p>
+<div class="formula">
+profile   <span class="op">=</span> <span class="hl">도메인</span> ?? <span class="hl">전역</span> ?? MIDDLE
+<br>threshold <span class="op">=</span> <span class="hl">도메인</span> ?? <span class="hl">전역</span> ?? preset(프로파일)   <span style="color:#94a3b8">// 어떤 프로파일에서도 override</span>
+<br>weights   <span class="op">=</span> (profile == CUSTOM) ? [ MIDDLE 베이스 + <span class="hl">전역 ∪ 도메인</span>(키 충돌=도메인 승) ] : preset 가중치
+</div>
+
+<table>
+  <thead><tr><th>설정</th><th>override 가능 조건</th><th>병합 규칙</th></tr></thead>
+  <tbody>
+    <tr><td><code>profile</code> (HIGH/MIDDLE/LOW/CUSTOM)</td><td>항상</td><td>도메인 → 전역 → MIDDLE</td></tr>
+    <tr><td><code>threshold</code> (임계값)</td><td><strong>어떤 프로파일에서도</strong></td><td>도메인 → 전역 → preset</td></tr>
+    <tr><td><code>weights</code> (가중치)</td><td><strong><code>profile=CUSTOM</code> 한정</strong></td><td>MIDDLE 베이스 + 전역 ∪ 도메인(키 충돌 시 도메인 승). HIGH/MIDDLE/LOW 는 preset 가중치 사용(override 무시)</td></tr>
+    <tr><td><code>matcher</code> (api/exclude 힌트)</td><td>항상</td><td>전역 ∪ 도메인 합집합</td></tr>
+  </tbody>
+</table>
+<p class="legend">즉 가중치 미세조정(<code>weights</code>)은 <code>profile=CUSTOM</code> 일 때만 의미가 있고, HIGH/MIDDLE/LOW 를 고른 도메인은 preset 가중치를 그대로 쓰되 <strong>임계값(threshold)만은 따로 조정</strong>할 수 있다.</p>
+
+<h4>중앙 REST API</h4>
+<p>전역·도메인 설정을 중앙 서버가 REST 로 읽고 쓴다(<code>ClassificationController</code>, <code>@RequestMapping("/api/v1")</code>).</p>
+<table>
+  <thead><tr><th>메서드 · 경로</th><th>대상</th><th>비고</th></tr></thead>
+  <tbody>
+    <tr><td><code>GET /api/v1/classification</code></td><td>전역 설정 조회</td><td>—</td></tr>
+    <tr><td><code>PUT /api/v1/classification</code></td><td>전역 설정 갱신</td><td><code>profile</code> 필수. 전 호스트 effective 캐시 <strong>전체 무효화</strong>(<code>invalidateAll</code>)</td></tr>
+    <tr><td><code>GET /api/v1/domains/{host}/classification</code></td><td>도메인 override + <strong>effective 조회</strong></td><td>override 와 병합 결과(profile/weights/matcher)를 함께 반환</td></tr>
+    <tr><td><code>PUT /api/v1/domains/{host}/classification</code></td><td>도메인 override 갱신</td><td>해당 <code>host</code> effective 캐시만 <strong>무효화</strong>(<code>invalidate(host)</code>)</td></tr>
+  </tbody>
+</table>
+
+<div class="callout note">
+  <span class="ct">effective 캐시 · 적용 지점</span>
+  effective 설정은 <strong>host 별로 캐시</strong>되어 스캔마다 재빌드하지 않는다. 도메인 PUT 은 그 host 만, 전역 PUT 은 전체를 무효화한다. 스캔 파이프라인(<code>DiscoveryJobService.analyze</code>)은 <code>resolve(host)</code> 로 도메인별 effective(scorer·hints)를 받아 게이트·매칭에 적용한다. <span class="legend">(캐시는 in-memory per-instance — 다중 인스턴스 배포 시 stale 가능, 단일 인스턴스 전제.)</span>
+</div>
+
+<div class="callout ok">
+  <span class="ct">무회귀 — 미설정 = 현행</span>
+  도메인·전역 설정이 모두 없으면 effective = MIDDLE preset + 무억제(<code>ApiHintMatcher.NONE</code>)로, 설정 기능 도입 이전 동작과 <strong>100% 동치</strong>다. 저장된 설정이 손상된 경우(out-of-band DB 쓰기 등)는 조용히 기본값으로 떨어지지 않고 fail-fast(예외)한다.
+</div>
+<p class="legend">근거 설계: doc/10(분류설정 DB 저장, D17) · doc/11(중앙 REST + effective 캐시, D18). 엔티티 <code>DomainClassificationConfig</code>(host PK, <code>profile</code>/<code>thresholdOverride</code>/<code>customWeightsJson</code>/<code>matcherJson</code> 전부 nullable = 상속).</p>
+
+<h3 id="s4-5">4.5 핵심 코드 — score()</h3>
 <p>발화한 신호의 가중치를 더하는 단순·투명한 구조다. explicit-hint 모드 분기를 제외하면 모든 신호가 한 메서드에서 가산된다.</p>
 
 <pre><code>public double score(DiscoveredEndpoint d, boolean corsPreflight, ApiHintMatcher hints) {
@@ -540,7 +586,7 @@ hostApiSubdomain(<span class="hl">0.40</span>) + versionSegment(<span class="hl"
 <br><span class="op">=</span> 1.24 <span class="op">→</span> clamp <span class="op">=</span> 1.000 <span class="op">≥</span> 0.70 <span class="op">→</span> <span class="hl">ADMIT (Shadow 후보)</span>
 </div>
 
-<h3 id="s4-5">4.5 게이트(gate) — 임계 통과 판정</h3>
+<h3 id="s4-6">4.6 게이트(gate) — 임계 통과 판정</h3>
 <p class="src-ref">소스: <code>ApiScorer.evaluate()</code></p>
 <p>점수만으로 결정하지 않는다. operator 의 명시 선언(exclude/hint)이 점수보다 우선하고, 웹폼 억제가 그 다음, 마지막이 점수 게이트다. 순서가 곧 우선순위다.</p>
 
@@ -580,7 +626,7 @@ flowchart TD
 </table>
 <p class="legend">스펙에 <strong>매칭되는</strong> 경로는 권위가 있으므로 게이트를 거치지 않고 곧장 Active/Zombie 판정으로 간다. OPTIONS 는 CORS 신호로만 쓰고 보고에서 제외된다.</p>
 
-<h3 id="s4-6">4.6 명시 힌트 매처 · 404-only 필터</h3>
+<h3 id="s4-7">4.7 명시 힌트 매처 · 404-only 필터</h3>
 <p class="src-ref">소스: <code>match/ApiHintMatcher.java</code></p>
 <p>점수 모델이 못 구제하는 경우(예: api 서브도메인·<code>/api</code> prefix·CORS 모두 없는 동일출처 www JSON API)를 위해, operator 가 경로를 직접 선언할 수 있다.</p>
 <ul>
