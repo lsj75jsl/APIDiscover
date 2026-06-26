@@ -105,17 +105,23 @@ public class DiscoveryJobService {
         this.props = props;
     }
 
+    /** 한 도메인 스캔 — 윈도우 상한 = {@code scan.max-window}(기본). off-peak 등 상한 스위치는 오버로드(아래). */
+    public void runScan(String host) {
+        runScan(host, props.scan().maxWindow());
+    }
+
     /**
      * 한 도메인 스캔 실행: Loki 수집(S0) → 분석. 윈도우 = watermark 증분([lastEnd, now−lag), 미스캔=backfill 시작점),
-     * per-scan 상한 {@code scan.max-window} 로 슬라이스(A, doc/33 §2). skip-if-current·advance-on-success.
+     * per-scan 상한 {@code maxWindow} 로 슬라이스(A, doc/33 §2). off-peak(D)면 호출측이 off-peak-max-window 주입(코어 불변).
+     * skip-if-current·advance-on-success.
      */
-    public void runScan(String host) {
+    public void runScan(String host, Duration maxWindow) {
         DomainConfig cfg = domainRepo.findById(host).orElse(null);
         if (cfg == null || !cfg.isEnabled()) {
             log.info("skip scan: host={} not found or disabled", host);
             return;
         }
-        Optional<LogWindow> next = nextWindow(host);
+        Optional<LogWindow> next = nextWindow(host, maxWindow);
         if (next.isEmpty()) {
             log.info("skip scan: host={} no new window (watermark up to date)", host);
             return;
@@ -430,11 +436,11 @@ public class DiscoveryJobService {
         return new LogWindow(from, to);
     }
 
-    /** watermark 기반 증분 윈도우 (doc/05 §3). 신규 구간 없으면 empty. per-scan 상한=scan.max-window(A). */
-    Optional<LogWindow> nextWindow(String host) {
+    /** watermark 기반 증분 윈도우 (doc/05 §3). 신규 구간 없으면 empty. per-scan 상한=maxWindow(A, off-peak 시 상향 주입). */
+    Optional<LogWindow> nextWindow(String host, Duration maxWindow) {
         Instant lastEnd = watermarkRepo.findById(host).map(w -> w.getLastEnd()).orElse(null);
         return windowFor(Instant.now(), lastEnd,
-                props.schedule().ingestLag(), props.schedule().initialBackfill(), props.scan().maxWindow());
+                props.schedule().ingestLag(), props.schedule().initialBackfill(), maxWindow);
     }
 
     /**

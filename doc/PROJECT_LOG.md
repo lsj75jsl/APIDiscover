@@ -5,6 +5,28 @@
 
 ---
 
+## 2026-06-26 세션 34 — 스캔 정책 PR2/PR3: C 티어링 + D off-peak + F dormant (doc/33 §4–6, D48)
+
+### 한 일 — 통합 due 모델 (C·F·override 합성, 1 PR)
+- **신규 필드**: `DomainConfig.nextScanDueAt`(Instant, ddl-auto nullable) + `@Table(indexes=@Index(columnList="next_scan_due_at"))`. null=즉시 due. `lastScanAttemptAt` 은 관측·touch 용도로 유지.
+- **`ScanTier.effectiveInterval`(순수함수)**: `tiering-enabled=false`→ZERO(=즉시 due=LRS 동치, 롤백 스위치). `intervalOverride`(String) Duration.parse 성공 시 최우선(기존 P3 TODO 배선, 파싱 실패=warn+티어 폴백). lastSeenAt null→default-interval. age=now−lastSeenAt → ≤active-threshold(PT24H)→active(PT30M)[C] / >dormant-after(P14D)→dormant(P1D)[F·최장·삭제 아님] / else inactive(PT6H)[C].
+- **`OffPeakWindow.isOffPeak`(순수함수)**: "HH:mm-HH:mm" 파싱, start≤end=`start≤t<end` / start>end=자정 wrap(`t≥start||t<end`). null/blank/파싱실패=peak(false·무회귀). `zone(String)` 빈값=시스템 기본.
+- **`DomainConfigRepository`**: `findDueForScan(now, Pageable)`(`WHERE enabled AND (next_scan_due_at IS NULL OR <= now)`) + `touchScanSchedule(host, now, nextDue)`(lastScanAttemptAt+nextScanDueAt 2컬럼 @Modifying UPDATE). 구 `touchLastScanAttempt`·`findByEnabledIsTrue(Pageable)` 는 이 변경으로 orphan → 삭제(ponytail). 무인자 `findByEnabledIsTrue()`는 선존 dead code라 보존.
+- **`ScanSelector`**(Clock 주입): due 쿼리 + `nextScanDueAt asc nullsFirst` + off-peak 시 K=`off-peak-domains-per-tick` 스위치(due 술어 불변). **`DiscoveryScheduler.scanTick`**(ApiDiscoverProperties 주입): 틱당 now 1회 + off-peak 판정→maxWindow 스위치(`off-peak-max-window`), 도메인마다 `touchScanSchedule(host, now, now+effectiveInterval)` + `runScan(host, maxWindow)`. **`DiscoveryJobService`**: `runScan(host, maxWindow)` 오버로드(+`nextWindow(host, maxWindow)`), 기존 `runScan(host)`=max-window 위임(ScanController·온디맨드 무영향).
+- **설정**: application.yml scan 블록 +tiering-enabled true·active/default/inactive-interval·active-threshold·off-peak-domains-per-tick/max-window/zone·dormant-after/interval. `schedule.off-peak-window`("01:00-06:00") 재사용. off-peak 쿼리캡 상향은 범위 밖(ponytail defer — LokiBudget 시간당 stateful). `ApiDiscoverProperties.Scan` 레코드 +10 필드(끝).
+
+### 한 일 — 리뷰 반영 (P1 1건 + P3 2건, 전건)
+- **P1(머지 차단) findDueForScan null 정렬 결정화**: Pageable `Sort` 는 Hibernate 가 NULLS FIRST 를 SQL 에 미방출 → PG 기본 ASC=NULLS LAST 로 null(신규 미스캔) 도메인이 dated-due 11549개 뒤로 밀려 영구 기아(tiering 기본 true 직격). 수정: `@Query` 에 `order by d.nextScanDueAt asc nulls first` 명시(Hibernate JPQL→PG/H2 결정적), `ScanSelector` Pageable=limit 전용(Sort 제거·`Sort` import 삭제). ★실 PG 회귀가드 `PostgresIntegrationTest.findDueForScanOrdersNullsFirstOnRealPg`(dated 3[now-1h/-2h/-3h] + null 1, K=2 → null 맨 앞·dated3 둘째, NULLS LAST 회귀 시 빨강) — podman 실행 PASS(H2/H2-PG모드 무력이라 실 PG 단언 필수).
+- **P3-1 OffPeakWindow.zone invalid 가드**: `ZoneId.of(잘못된 문자열)` DateTimeException 이 매 틱 전파→스캔 중단(isOffPeak/ScanTier 폴백과 비일관) → try/catch 시스템기본 폴백+warn. 테스트 `invalidZoneFallsBackToSystemDefault` 추가.
+- **P3-2 ScanTier 밴드 전제 문서화**: active 체크가 dormant 보다 먼저라 active-threshold>dormant-after 역전 misconfig 시 중간 age 가 active(과스캔, 안전쪽·크래시 없음) → 클래스 javadoc 전제 한 줄(코드 무변경, 검증 프레임워크는 과함).
+
+### 결과
+- `./gradlew build` BUILD SUCCESSFUL. 일반 빌드 + ★실 PG(podman) `./gradlew test` 모두 통과, 총 **408(+24) 실패 0 skip 2**(둘 다 -Dloki.live 게이트=운영 Loki 미호출). PostgresIntegrationTest **17건 실행(skip 0)** — 신규 null-first 가드 PASS. 신규 단위: ScanTierTest 9·OffPeakWindowTest 9(경계·자정wrap·zone·파싱실패·invalid zone 폴백)·ScanSelectorTest +2·DiscoverySchedulerTest +3. 전 Scan ctor 사이트(9) +10 인자. 단위 전부 mock — 운영 Loki 미호출.
+- **무회귀**: tiering-enabled=false→effectiveInterval ZERO→due=now→LRS 동치(검증), off-peak-window blank=항상 peak, 코어(collectBounded·analyze·budget·watermark) 불변.
+
+### 다음 단계
+- 커밋 금지(매니저, 1 PR). 신규 컬럼 `domain_config.next_scan_due_at`(nullable·index)=ddl-auto 가산(기존 행 null→즉시 due 1회 후 정상화). doc/18 sync=technical_writer 후속. 실배포 티어 분산·off-peak 백필 가속은 매니저 재배포 검증.
+
 ## 2026-06-26 세션 33 — PR1.1 스캔 per-domain 폭주 수정 + 도메인 목록 CLI (doc/33 §14·§15, D46·D47)
 
 ### 한 일 — 커밋1: PR1.1 스캔 폭주 수정 (D46)

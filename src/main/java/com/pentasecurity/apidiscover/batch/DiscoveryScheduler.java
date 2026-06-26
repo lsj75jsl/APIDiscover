@@ -1,10 +1,12 @@
 // 주기 스캔 틱 — least-recently-scanned 슬라이스·예산 체크·커서 전진 (doc/33 §1 B, §9)
 package com.pentasecurity.apidiscover.batch;
 
+import com.pentasecurity.apidiscover.config.ApiDiscoverProperties;
 import com.pentasecurity.apidiscover.domain.DomainConfig;
 import com.pentasecurity.apidiscover.domain.DomainConfigRepository;
 import com.pentasecurity.apidiscover.ingest.LokiBudget;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import org.slf4j.Logger;
@@ -27,19 +29,27 @@ public class DiscoveryScheduler {
     private final DiscoveryJobService jobService;
     private final DomainConfigRepository domains;
     private final LokiBudget budget;
+    private final ApiDiscoverProperties props;
     private final Clock clock;
 
     public DiscoveryScheduler(ScanSelector scanSelector, DiscoveryJobService jobService,
-                              DomainConfigRepository domains, LokiBudget budget, Clock clock) {
+                              DomainConfigRepository domains, LokiBudget budget,
+                              ApiDiscoverProperties props, Clock clock) {
         this.scanSelector = scanSelector;
         this.jobService = jobService;
         this.domains = domains;
         this.budget = budget;
+        this.props = props;
         this.clock = clock;
     }
 
     @Scheduled(fixedDelayString = "${apidiscover.scan.tick-interval}")
     public void scanTick() {
+        // now 는 틱 단위 1회(일관). off-peak(D)면 백필 윈도우 상향(due 술어/정렬은 ScanSelector 가 불변 유지).
+        Instant now = Instant.now(clock);
+        boolean offPeak = OffPeakWindow.isOffPeak(now, props.schedule().offPeakWindow(),
+                OffPeakWindow.zone(props.scan().offPeakZone()));
+        Duration maxWindow = offPeak ? props.scan().offPeakMaxWindow() : props.scan().maxWindow();
         List<DomainConfig> slice = scanSelector.selectForTick();
         for (DomainConfig domain : slice) {
             if (!budget.hasBudget()) {
@@ -47,10 +57,12 @@ public class DiscoveryScheduler {
                 break; // E: 전역 예산 소진 → 이월
             }
             String host = domain.getHost();
-            // ★커서 전진은 attempt 마다(skip 포함) — 별도 tx(단일 컬럼 UPDATE), runScan 실패해도 큐 뒤로 회전(기아·재선택 방지)
-            domains.touchLastScanAttempt(host, Instant.now(clock));
+            // ★스케줄 커서 전진은 attempt 마다(skip 포함) — lastScanAttemptAt(관측) + nextScanDueAt=now+effectiveInterval(C/F/override).
+            // 별도 tx(단일 UPDATE), runScan 실패해도 due 전진(기아·재선택 방지, D48 §4.3).
+            Duration interval = ScanTier.effectiveInterval(domain, now, props.scan());
+            domains.touchScanSchedule(host, now, now.plus(interval));
             try {
-                jobService.runScan(host);
+                jobService.runScan(host, maxWindow);
             } catch (RuntimeException e) {
                 // 도메인 격리: 한 도메인 실패가 다른 도메인을 막지 않게 (doc/05 §6)
                 log.warn("scan failed for host={}", host, e);
