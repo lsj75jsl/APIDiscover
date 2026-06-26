@@ -24,8 +24,11 @@
 - `./gradlew build` BUILD SUCCESSFUL. 일반 빌드 + ★실 PG(podman) `./gradlew test` 모두 통과, 총 **408(+24) 실패 0 skip 2**(둘 다 -Dloki.live 게이트=운영 Loki 미호출). PostgresIntegrationTest **17건 실행(skip 0)** — 신규 null-first 가드 PASS. 신규 단위: ScanTierTest 9·OffPeakWindowTest 9(경계·자정wrap·zone·파싱실패·invalid zone 폴백)·ScanSelectorTest +2·DiscoverySchedulerTest +3. 전 Scan ctor 사이트(9) +10 인자. 단위 전부 mock — 운영 Loki 미호출.
 - **무회귀**: tiering-enabled=false→effectiveInterval ZERO→due=now→LRS 동치(검증), off-peak-window blank=항상 peak, 코어(collectBounded·analyze·budget·watermark) 불변.
 
+### 머지
+- 매니저 검증(P1 수정 실 PG 직접 재현 — `findDueForScanOrdersNullsFirstOnRealPg` PASS) → 재리뷰(잔존 0·머지 승인) → **PR #29 squash 머지(6df371f)**. TASKS 부모 `[x]`(A–F 전체 완료·PR #26·#27·#29)·off-peak/intervalOverride 항목 동기, DECISIONS D48·doc/33 §12 체크리스트는 dev 가 머지 전 동기.
+
 ### 다음 단계
-- 커밋 금지(매니저, 1 PR). 신규 컬럼 `domain_config.next_scan_due_at`(nullable·index)=ddl-auto 가산(기존 행 null→즉시 due 1회 후 정상화). doc/18 sync=technical_writer 후속. 실배포 티어 분산·off-peak 백필 가속은 매니저 재배포 검증.
+- 신규 컬럼 `domain_config.next_scan_due_at`(nullable·index)=ddl-auto 가산(기존 행 null→즉시 due 1회 후 정상화). doc/18 next_scan_due_at sync=technical_writer 후속. 실배포 티어 분산·off-peak 백필 가속은 PR2/PR3 VM 재배포 검증(7d 예산 고려·off-peak 선호).
 
 ## 2026-06-26 세션 33 — PR1.1 스캔 per-domain 폭주 수정 + 도메인 목록 CLI (doc/33 §14·§15, D46·D47)
 

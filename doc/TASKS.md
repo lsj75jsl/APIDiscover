@@ -63,24 +63,24 @@
   - [x] **재배포·실검증 완료(2026-06-26)** — PR1.1 이미지 재배포 후: varchar 에러 0(아래 path_template 수정), **scanTick 다도메인 분산**(1분 6+ 도메인·독점 없음)·discovered_endpoint 점증(0→12k+)·watermark 점진 전진·**스레드 격리**(discovery scheduling-2/scan scheduling-1)·무제한 수집(domain_config 11,549). `-domain -ls`→11,549 목록·`export-domain`→63 findings CSV(SHADOW 분류·15컬럼) 동작.
   - [x] **path_template varchar(255)→text** (실배포 발견·PR #28, D40 후속) — 긴 정규화 경로 INSERT 실패 해소. VM 기존 컬럼 `ALTER … TYPE text` 마이그레이션(12k 행 보존).
   - [x] **이미지 container 프로파일 baking**(2cab6a5) — one-off CLI 가 env 없이 PG 접속(`-domain -ls` 등 빈 H2 회피). doc/32 §4 CLI 3명령 env-free 예시.
-- [ ] **엔드포인트 스캔 Loki 부하 운영정책 (A–F) + 운영자 온디맨드 스캔 CLI** **(설계 → doc/33 / DECISIONS D45)** — 무제한 도메인 전수순회 과부하 해소. off-peak·메트릭·intervalOverride TODO 흡수. **PR1 머지 완료(PR #26)**, PR2/PR3 잔여.
+- [x] **엔드포인트 스캔 Loki 부하 운영정책 (A–F) + 운영자 온디맨드 스캔 CLI** **(완료 — doc/33 / DECISIONS D45·D46·D47·D48, PR #26·#27·#29)** — 무제한 도메인 전수순회 과부하 해소. PR1(B+A+E)+온디맨드 CLI·PR1.1 폭주수정·PR2/PR3(C 티어·D off-peak·F dormant) 전부 머지. off-peak·intervalOverride 흡수. 잔여 후속(아래 P3): 메트릭 알람·Batch JobRepository·doc/18 next_scan_due_at sync·PR2/PR3 VM 재배포 검증.
   - PR1 필수 (B+A+E) + 온디맨드 CLI — **완료(PR #26, build 374 green, 리뷰 P1/P2/P3=0)**:
     - [x] (A) `windowFor` max-window 상한(백필 슬라이스, 5-arg, 0/null=무제한 무회귀) + line 105 TODO 주석 해소 — *PR1 구현 완료(build green 374, 머지 시 Done)*
     - [x] (B) `DomainConfig.lastScanAttemptAt`(ddl-auto) + `findByEnabledIsTrue(Pageable)`(Sort asc nulls-first)·`touchLastScanAttempt`(@Modifying 단일컬럼) + `ScanSelector` + `DiscoveryScheduler.scanTick()`(tick PT5M·K 예산·attempt 마다 커서 전진[skip·실패 포함]·예산 소진 break 이월) — 전수순회 대체
     - [x] (E) `LokiBudget`(시간당 쿼리/바이트 하드캡·초과=hasBudget false 이월, 0=무제한) + LokiClient Micrometer 계측(loki.queries·response.bytes·errors{status}) + 적응형 throttle(429/5xx level+1·성공 −1, throttle-on-error 게이트)
     - [x] (온디맨드) `CliScanRunner`(@Profile cli, `--adc.cli.scan-domain`/`--window`/`--edge`, scan()→exit/run()→System.exit, 미존재·미enabled=3·Loki실패=4) + `scanOnDemand`(edge→runOnDemand/미지정→collect+analyze, **watermark 미전진**) + `onDemandWindow`(상한=max-window) + main() scan-domain 분기·CliExportRunner blank=no-op(명령 공존)
     - [x] `ApiDiscoverProperties.Scan` 레코드 + application.yml 기본값 + 테스트(windowFor 상한·LRS nulls-first·scanTick 커서전진[skip/실패]·budget 캡/롤오버/Micrometer·온디맨드 exit/무전진) — 단위 mock(운영 Loki 미호출), 실호출 `-Dloki.live` 게이트
-  - [ ] **PR2/PR3 — C 티어링 + D off-peak + F dormant** **(구현+리뷰반영 완료 — build green 408·실패0·skip2[live 게이트], 실 PG 가드 PASS, 커밋 보류·머지 시 Done. doc/33 §4–6 / DECISIONS D48, 브랜치 feature/scan-policy-pr2-pr3)** — C/F/override 를 단일 due 모델로 통합, D 는 그 위 파라미터 스위치. 1 PR. 리뷰 P1(findDueForScan nulls-first 결정화 — @Query ORDER BY 명시·실 PG 회귀가드)·P3-1(OffPeakWindow.zone invalid 폴백)·P3-2(ScanTier 밴드 전제 문서화) 전건 반영.
+  - [x] **PR2/PR3 — C 티어링 + D off-peak + F dormant** **(완료·머지 — build green 408·실패0·skip2[live 게이트], 실 PG 가드 PASS, PR #29 squash 6df371f. doc/33 §4–6 / DECISIONS D48)** — C/F/override 를 단일 due 모델로 통합, D 는 그 위 파라미터 스위치. 1 PR. 리뷰 P1(findDueForScan nulls-first 결정화 — @Query ORDER BY 명시·실 PG 회귀가드)·P3-1(OffPeakWindow.zone invalid 폴백)·P3-2(ScanTier 밴드 전제 문서화) 전건 반영.
     - [x] (통합 due) `DomainConfig.nextScanDueAt`(Instant, ddl-auto nullable, @Index) + `ScanTier.effectiveInterval`(override 파싱 ?? tier(lastSeenAt age)) 순수함수 — C active/inactive/default + F dormant band
     - [x] (C) `ScanSelector` due 쿼리 `findDueForScan`(`WHERE enabled AND (next_scan_due_at IS NULL OR <= now) ORDER BY next_scan_due_at ASC LIMIT K`, 이식·인덱스) + `scanTick` `touchScanSchedule`(now+effectiveInterval, skip/실패 포함). `intervalOverride` 최우선 배선(기존 P3 TODO 해소)
     - [x] (D) `OffPeakWindow` 판정(`schedule.off-peak-window`+`scan.off-peak-zone`, 자정 wrap) → off-peak 시 K=`off-peak-domains-per-tick`(ScanSelector)·윈도우=`off-peak-max-window`(scanTick→runScan 오버로드) 스위치, 코어 불변. 백필 우선=due 정렬이 가장 밀린 도메인 앞세움(Watermark join 불요). 쿼리캡 상향은 범위 밖(defer, ponytail)
     - [x] (F) dormant band(`age > dormant-after` → `dormant-interval` 최장)=effectiveInterval 1 분기. **삭제·비활성 없음**(무삭제 일관)
     - [x] 설정키(`tiering-enabled`·active/default/inactive-interval·active-threshold·off-peak-*·dormant-*) application.yml + **무회귀**(`tiering-enabled=false`→effectiveInterval=ZERO→nextScanDueAt 항상 now→LRS=PR1 동치, off-peak 미설정=항상 peak)
     - [x] 테스트 — `ScanTierTest`(active/inactive/dormant/default/override정상·실패폴백/tiering-off ZERO 밴드 경계)·`OffPeakWindowTest`(in/out·경계·자정wrap·blank/파싱실패=peak·zone)·`ScanSelectorTest`(due 술어 미due 제외·nullsFirst asc·K·off-peak K 스위치)·`DiscoverySchedulerTest`(touchScanSchedule=now+effectiveInterval·tiering-off PR1 동치·off-peak maxWindow 주입). 운영 Loki 단위 mock
-- [x] off-peak 시간대 제한 **(완료 — doc/33 D, PR2 `OffPeakWindow`·K/윈도우 스위치, build green·머지 시 Done)**
+- [x] off-peak 시간대 제한 **(완료 — doc/33 D, PR2 `OffPeakWindow`·K/윈도우 스위치, PR #29 머지)**
 - [ ] 부하/운영 메트릭 (쿼리수·바이트·429) Actuator/Micrometer 노출 + 알람 — doc/12 `DroppedNonApi`·doc/13 `DroppedByLimit` 카운트 재사용 가능 **(→ 계측은 doc/33 E PR1, 알람 연동은 별도 후속)**
 - [ ] Spring Batch JobRepository 실연결 (현재 `@Scheduled`만, `batch.job.enabled=false`)
-- [x] 도메인별 `intervalOverride` 스케줄 반영 (도메인 설정은 이미 영속, 스케줄러 반영만) **(완료 — doc/33 C, PR2 `ScanTier` override 최우선 파싱, build green·머지 시 Done)**
+- [x] 도메인별 `intervalOverride` 스케줄 반영 (도메인 설정은 이미 영속, 스케줄러 반영만) **(완료 — doc/33 C, PR2 `ScanTier` override 최우선 파싱, PR #29 머지)**
 - [ ] HA 단일 실행 보장 (ShedLock 또는 Quartz 클러스터) — 도입 시 **cross-instance 무효화**(effective 설정 캐시·매처 캐시 TTL/pub-sub, doc/11 §3·doc/15 후속) 함께
 
 ### P4. 외부 연동 (자체 기능 완료 후)
