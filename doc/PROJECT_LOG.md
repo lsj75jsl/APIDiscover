@@ -5,6 +5,21 @@
 
 ---
 
+## 2026-06-26 세션 39 — classifier recency 발산 signature 미스 수정(P3 정확도, doc/26 §2)
+
+### 한 일
+- **근본**: `priorFirstSeen` 은 analyze 에서 `signatureOf(rec)`=제약 튜플 키(method,스캔host,template)로 구축되는데 `Classifier` 가 `priorFirstSeen.get(d.signature())` 로 조회. `DiscoveredEndpoint.signature` 가 (method,스캔host,최종 template)와 발산(T1 {var} 승격 전 template 등)하면 recency miss → Zombie entrenchment 보너스 0 → severity band 과소. upsert(세션37/38)와 동일 발산이 recency 에 남은 것(무크래시·조용한 정확도).
+- **수정(식별 통일)**: 공유 util `model/EndpointIdentity.key(method,host,pathTemplate)` 추출(DB unique 제약·upsert·recency·영속 단일 진실원). `DiscoveryJobService.identityKey`(→signatureOf 도) 가 위임. `Classifier.classifyWithMetrics` 8-arg(+스캔 host) 추가, 7/6-arg 등 짧은 오버로드는 host=null 위임(빈 prior 전제 무해). 2곳 recency lookup 을 `priorFirstSeen.get(EndpointIdentity.key(d.method(), host, d.pathTemplate()))`로(host=스캔 파라미터, d.host() 아님 → foreign-host 도 영속 identity 와 정합). `analyze` 가 host 전달.
+- **무회귀**: 정상(비발산) 엔드포인트는 `d.signature()`==`EndpointIdentity.key(d.method,스캔host,template)`라 lookup 결과 동일. 빈 prior 오버로드 host=null 무해.
+- **테스트**: `ClassifierTest.priorFirstSeenEntrenchmentRaisesZombieSeverityBand` 8-arg 갱신(prior 키=EndpointIdentity.key, host 전달) + 신규 `recencyMatchesByIdentityKeyDespiteSignatureDivergence`(signature 발산 endpoint+deprecated spec+제약튜플 prior → band MEDIUM). ★진위: lookup 2곳 임시 원복(d.signature()) → 신규 가드 band LOW RED 확인 후 복원(단위, PG 불요).
+- **DiscoveredEndpoint.signature**: 식별 소비처 0 — 주석 "식별 키 아님(EndpointIdentity.key 사용)"·ponytail(테스트 발산 재현용만, 제거는 별도 cleanup).
+
+### 결과
+- `./gradlew build` BUILD SUCCESSFUL(단위, 운영 Loki 미호출). 발산 회귀가드 RED-without-fix 확인.
+
+### 다음 단계
+- 커밋 금지(매니저, 브랜치 fix/recency-identity-key). 후속(범위 밖·TASKS): (a) signature 원천 발산 정리(소비처 0이라 무해), (b) foreign-host 누수(LokiQueryBuilder |= domain substring → 이질 host endpoint 유입; 소스 exact host 필터·InventoryBuilder host 필터로 별도).
+
 ## 2026-06-26 세션 38 — discovered_endpoint unique 위반 host 축 정정(reviewer 실 PG probe, doc/26 §2)
 
 ### 한 일
