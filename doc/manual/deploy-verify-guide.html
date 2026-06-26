@@ -73,7 +73,7 @@ podman pod ps && podman ps --pod        # adc pod 의 db·app Running</code></pr
 
 <h2>4. CLI CSV 내보내기 (one-off, 서빙 무부하)</h2>
 <div class="step"><pre><code>podman run --rm --network host -v /opt/adc-exports:/exports \
-  localhost/apidiscover:test --adc.cli.export-domain=&lt;domain&gt;
+  localhost/apidiscover:test -domain -export &lt;domain&gt;
 # → /opt/adc-exports/&lt;domain&gt;-&lt;epochmillis&gt;.csv</code></pre></div>
 <ul>
   <li>인자가 ENTRYPOINT(<code>wait-for-db.sh</code>→<code>java -jar /app/app.jar</code>) 뒤에 append → CLI 모드(웹·스케줄러 미기동, Loki 미호출, 1 명령 후 종료).</li>

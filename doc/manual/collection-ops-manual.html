@@ -311,19 +311,43 @@ window <span class="op">=</span> [ <span class="hl">lastEnd</span> (없으면 en
 <h2 id="s4">4. 운영자 온디맨드 수집 CLI <span class="badge b-now">구현됨 · PR1</span></h2>
 <p class="legend">근거: doc/33 §7(scan) · doc/31 §B(export) · DECISIONS D45 / D43. 트리거 인자가 있으면 <code>main()</code> 이 <strong>웹 미기동 + <code>cli</code> 프로파일</strong>(스케줄러 미기동)로 1 명령 실행 후 종료.</p>
 
-<p>스케줄을 기다리지 않고 특정 도메인을 <strong>즉시</strong> 수집/내보낼 때 쓴다. 두 명령은 독립이다.</p>
+<p>스케줄을 기다리지 않고 특정 도메인을 <strong>즉시</strong> 조회·수집·내보낼 때 쓴다. 세 서브커맨드 모두 <code>-domain</code> 아래 단일대시 문법이다(트리거 인자가 있으면 CLI 모드로 1 명령 실행 후 종료).</p>
 
-<h3>4.1 즉시 API 수집 — <code>--adc.cli.scan-domain</code></h3>
-<pre><code># 특정 도메인 즉시 스캔(컨테이너)
-podman run --rm --network host \
-  localhost/apidiscover:test \
-  --adc.cli.scan-domain=&lt;domain&gt; [--adc.cli.window=PT1H] [--adc.cli.edge=&lt;hostname&gt;]
+<table>
+  <thead><tr><th>서브커맨드</th><th>동작</th><th>Loki</th></tr></thead>
+  <tbody>
+    <tr><td><code>-domain -ls</code></td><td>등록 도메인 목록</td><td>무관(DB only)</td></tr>
+    <tr><td><code>-domain -export &lt;도메인&gt;</code></td><td>결과 CSV 내보내기</td><td>무관(DB only)</td></tr>
+    <tr><td><code>-domain -scan &lt;도메인&gt; [-window &lt;ISO8601&gt;] [-edge &lt;hostname&gt;]</code></td><td>온디맨드 즉시 스캔</td><td><strong>운영 Loki 호출</strong> · watermark 미전진</td></tr>
+  </tbody>
+</table>
+<p class="legend">복수 서브커맨드·도메인 누락·<code>-domain</code> 단독은 usage 에러(exit 2)다.</p>
+
+<div class="callout note">
+  <span class="ct">컨테이너 실행 방식 — <code>exec</code> vs <code>run</code></span>
+  <ul style="margin:6px 0 0; padding-left:18px;">
+    <li>실행 중 컨테이너(<code>adc-app</code>)가 있으면 <strong>list·scan 은 <code>exec</code></strong> 로(새 컨테이너 불필요). <code>exec</code> 는 ENTRYPOINT(<code>wait-for-db.sh</code>)를 우회하므로 <code>java -jar /app/app.jar</code> 를 명시한다.</li>
+    <li><strong>export 는 <code>run -v</code></strong> 로. 서빙 pod 에는 <code>/exports</code> 가 마운트돼 있지 않아(CSV 는 PGDATA 밖) host 로 파일을 빼려면 볼륨을 단 새 one-off 컨테이너가 필요하다.</li>
+    <li>컨테이너 미가동 상태에선 어느 명령이든 one-off <code>podman run --rm --network host … &lt;명령&gt;</code> 으로 실행한다(인자는 ENTRYPOINT 뒤 append).</li>
+  </ul>
+</div>
+
+<h3>4.1 도메인 목록 — <code>-domain -ls</code></h3>
+<pre><code>podman exec adc-app java -jar /app/app.jar -domain -ls</code></pre>
+<ul>
+  <li>DB 에 등록된 도메인을 열거한다. <strong>Loki 미호출</strong>(DB only)이라 부하가 없다.</li>
+</ul>
+
+<h3>4.2 즉시 API 수집 — <code>-domain -scan</code></h3>
+<pre><code># 실행 중 컨테이너에 exec (권장)
+podman exec adc-app java -jar /app/app.jar \
+  -domain -scan &lt;도메인&gt; [-window PT1H] [-edge &lt;hostname&gt;]
 
 # 출력 예
 # scan example.com [2026-06-26T00:00:00Z ~ 2026-06-26T06:00:00Z]
 #   discovered=128 active=40 shadow=12 zombie=3 unused=7</code></pre>
 <ul>
-  <li><code>--adc.cli.window</code> 미지정 시 기본 윈도우 = <code>scan.max-window</code>(상한도 동일). <code>--adc.cli.edge</code> 미지정 시 도메인의 <code>hostnames</code> 전체를 수집, 지정 시 그 엣지만.</li>
+  <li><code>-window</code> 미지정 시 기본/상한 = <code>scan.max-window</code>. <code>-edge</code> 미지정 시 도메인의 <code>hostnames</code> 전체를 수집, 지정 시 그 엣지만.</li>
   <li>결과는 <code>ScanResult</code>(최신 결과) + <code>discovered_endpoint</code>(누적 카탈로그)에 반영된다.</li>
 </ul>
 <div class="callout danger">
@@ -331,10 +355,11 @@ podman run --rm --network host \
   온디맨드 스캔은 <strong>임시 윈도우만 보고 watermark 를 전진시키지 않는다</strong>. 만약 즉시 스캔이 <code>[now−1h, now)</code> 를 보고 watermark 를 당기면, 스케줄러가 그 사이 구간 <code>[lastEnd, now−1h)</code> 를 <strong>건너뛰어 데이터 갭</strong>이 생긴다. 그래서 온디맨드는 누적/최신 결과만 갱신하고, 증분 진행의 소유권은 스케줄러가 계속 가진다.
 </div>
 
-<h3>4.2 결과 내보내기(CSV) — <code>--adc.cli.export-domain</code></h3>
-<pre><code>podman run --rm --network host -v /opt/adc-exports:/exports \
-  localhost/apidiscover:test --adc.cli.export-domain=&lt;domain&gt;
-# → /exports/&lt;domain&gt;-&lt;epochmillis&gt;.csv  (호스트의 /opt/adc-exports 에 영속)</code></pre>
+<h3>4.3 결과 내보내기(CSV) — <code>-domain -export</code></h3>
+<pre><code># /exports 볼륨을 단 one-off 컨테이너로 실행 (서빙 pod 엔 /exports 미마운트)
+podman run --rm --network host -v /opt/adc-exports:/exports \
+  localhost/apidiscover:test -domain -export &lt;도메인&gt;
+# → /exports/&lt;도메인&gt;-&lt;epochmillis&gt;.csv  (호스트의 /opt/adc-exports 에 영속)</code></pre>
 <ul>
   <li>결합 Discovery 결과(<code>discovered_endpoint</code> ∪ 스펙)를 CSV 로 출력. 출력 디렉터리 기본 <code>/exports</code>(<code>adc.cli.output-dir</code>).</li>
   <li>CSV 에 내용이 나오려면 먼저 그 도메인이 스캔되어 <code>discovered_endpoint</code> 가 채워져 있어야 한다. 갓 디스커버리된 도메인은 다음 스캔 전까지 "검출 0건"(exit 3)이 정상.</li>
@@ -343,10 +368,10 @@ podman run --rm --network host \
 
 <h4>종료 코드(exit code)</h4>
 <table>
-  <thead><tr><th>코드</th><th><code>scan-domain</code></th><th><code>export-domain</code></th></tr></thead>
+  <thead><tr><th>코드</th><th><code>-scan</code></th><th><code>-export</code></th></tr></thead>
   <tbody>
     <tr><td><code>0</code></td><td>성공</td><td>성공(CSV 작성)</td></tr>
-    <tr><td><code>2</code></td><td>도메인 인자 미지정</td><td>도메인 인자 미지정</td></tr>
+    <tr><td><code>2</code></td><td>도메인 미지정(또는 usage 에러)</td><td>도메인 미지정(또는 usage 에러)</td></tr>
     <tr><td><code>3</code></td><td>도메인 미존재 또는 <code>enabled=false</code>(스캔 불가)</td><td>엔드포인트 0건(미존재 또는 미스캔)</td></tr>
     <tr><td><code>4</code></td><td>Loki 수집/분석 실패</td><td>CSV 쓰기 실패(I/O)</td></tr>
   </tbody>
@@ -378,7 +403,7 @@ podman run --rm --network host \
   <tbody>
     <tr><td>도메인 급증(디스커버리가 많이 등록)</td><td>커버리지가 느려지면 <code>domains-per-tick</code> ↑ 또는 <code>tick-interval</code> ↓. 단 <code>max-queries-per-hour</code> 를 함께 점검해 시간당 부하 상한 유지. (등록 자체는 Loki 부하와 무관.)</td></tr>
     <tr><td>Loki 부하 경보 / 429 빈발</td><td><code>throttle-on-error=true</code> 가 자동감속(이미 기본). 추가로 <code>max-queries-per-hour</code> 를 일시 하향, <code>domains-per-tick</code> 하향. <code>loki.errors</code> 추세 확인.</td></tr>
-    <tr><td>특정 도메인 결과가 급히 필요</td><td>스케줄을 기다리지 말고 <strong>온디맨드 CLI</strong>(<code>--adc.cli.scan-domain</code>)로 즉시 스캔(4장). watermark 미전진이라 스케줄 갭 없음.</td></tr>
+    <tr><td>특정 도메인 결과가 급히 필요</td><td>스케줄을 기다리지 말고 <strong>온디맨드 CLI</strong>(<code>-domain -scan</code>)로 즉시 스캔(4장). watermark 미전진이라 스케줄 갭 없음.</td></tr>
     <tr><td>백필이 오래 걸림(저티어 staleness)</td><td>현재는 <code>max-window</code> ↑ 로 1회 수집량을 늘릴 수 있으나 peak 부하 주의. off-peak 자동 가속·활동 티어링은 <span class="badge b-plan">PR2</span>.</td></tr>
   </tbody>
 </table>
