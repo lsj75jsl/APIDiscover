@@ -208,7 +208,7 @@ H2/PG 이식성이 떨어져 채택하지 않았다(엔티티 주석·doc/10 §1
 | `id` | `id` | `@Id @GeneratedValue(IDENTITY) Long` | BIGINT (auto-increment / IDENTITY) | ✔ | NOT NULL | DB 자동 채번(`spec_record` 스타일 일치) |
 | `host` | `host` | `String` | VARCHAR(255) | | nullable | 도메인 조회 키(**indexed**). 논리 FK → `domain_config.host` |
 | `method` | `method` | `String` | VARCHAR(255) | | nullable | unique 키 일부 |
-| `path_template` | `pathTemplate` | `String` | VARCHAR(255) | | nullable | unique 키 일부 |
+| `path_template` | `pathTemplate` | `@Column(columnDefinition="text") String` | text | | nullable | unique 키 일부. **임의 길이 경로** → text(varchar(255) 오버플로 회피, 실배포 발견·D40) |
 | `template_source` | `templateSource` | `String` | VARCHAR(255) | | nullable | `SPEC`/`INFERRED` (doc/01 `TemplateSource`, `@Enumerated` 아닌 plain String) |
 | `endpoint_kind` | `endpointKind` | `String` | VARCHAR(255) | | nullable | `WEB_PAGE`/`STATIC`/`API_CANDIDATE`/`UNKNOWN` (doc/04 `EndpointKind`, plain String) |
 | `kind_confidence` | `kindConfidence` | `double` | DOUBLE / double precision | | NOT NULL | endpoint_kind 신뢰도 |
