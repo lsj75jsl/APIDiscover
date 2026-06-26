@@ -29,6 +29,7 @@ import com.pentasecurity.apidiscover.domain.ScanResultRepository;
 import com.pentasecurity.apidiscover.domain.SpecRecord;
 import com.pentasecurity.apidiscover.domain.WatermarkRepository;
 import com.pentasecurity.apidiscover.ingest.LogWindow;
+import com.pentasecurity.apidiscover.ingest.LokiBudget;
 import com.pentasecurity.apidiscover.ingest.LokiClient;
 import com.pentasecurity.apidiscover.match.EndpointMatcherCache;
 import com.pentasecurity.apidiscover.ingest.LokiQueryBuilder;
@@ -111,6 +112,7 @@ class DiscoveryJobServiceTest {
             discoveredRepo,
             mock(LokiClient.class),
             mock(LokiQueryBuilder.class),
+            mock(LokiBudget.class),
             objectMapper,
             props());
 
@@ -349,7 +351,7 @@ class DiscoveryJobServiceTest {
                 specStore, new EndpointMatcherCache(), new Classifier(new ApiScorer()), resolver,
                 new ReportBuilder(), scanRepo, mock(DomainConfigRepository.class), mock(WatermarkRepository.class),
                 mock(DiscoveredEndpointRepository.class), mock(LokiClient.class), mock(LokiQueryBuilder.class),
-                objectMapper, props());
+                mock(LokiBudget.class), objectMapper, props());
         ScanResult active = acrmService.analyze(HOST, lines, window);
         assertThat(active.getReportJson()).contains("\"status\":\"ACTIVE\"");
 
@@ -547,7 +549,7 @@ class DiscoveryJobServiceTest {
                 new EndpointMatcherCache(), new Classifier(new ApiScorer()), resolver, new ReportBuilder(), scanRepo,
                 mock(DomainConfigRepository.class), mock(WatermarkRepository.class),
                 mock(DiscoveredEndpointRepository.class), mock(LokiClient.class),
-                mock(LokiQueryBuilder.class), objectMapper, props());
+                mock(LokiQueryBuilder.class), mock(LokiBudget.class), objectMapper, props());
 
         ScanResult result = cappedService.analyze(HOST, List.of(
                 line("GET", "/a/x", 200), line("GET", "/a/x", 200), line("GET", "/a/x", 200),
@@ -691,6 +693,6 @@ class DiscoveryJobServiceTest {
                 new ApiDiscoverProperties.Discovery(true, Duration.ofMinutes(10), Duration.ofMinutes(12),
                         Duration.ofHours(1), Duration.ofMinutes(2), 200,
                         "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$"),
-                new ApiDiscoverProperties.Scan(Duration.ofMinutes(5), 100, Duration.ZERO, 0, 0L, true));
+                new ApiDiscoverProperties.Scan(Duration.ofMinutes(5), 100, Duration.ZERO, 0, 0L, true, Duration.ZERO, 0));
     }
 }

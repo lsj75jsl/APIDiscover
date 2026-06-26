@@ -40,13 +40,15 @@ public record ApiDiscoverProperties(Loki loki, Schedule schedule, Central centra
             String hostPattern         // FQDN 검증 정규식
     ) {}
 
-    /** 엔드포인트 스캔 부하 운영정책 — B 틱당 예산·A 윈도우 상한·E 전역 레이트 가드 (doc/33 §8, PR1). */
+    /** 엔드포인트 스캔 부하 운영정책 — B 틱당 예산·A 윈도우 상한·E 전역 레이트 가드 (doc/33 §8/§14, PR1·PR1.1). */
     public record Scan(
             Duration tickInterval,     // B 스캔 틱 간격(짧게=순간부하 평탄화)
             int domainsPerTick,        // B 틱당 도메인 예산(least-recently-scanned 상위 K)
             Duration maxWindow,        // A per-scan 윈도우 상한(백필 슬라이스, 0/null=무제한=현행 무회귀)
             int maxQueriesPerHour,     // E 전역 시간당 쿼리 하드캡(0=무제한)
             long maxBytesPerHour,      // E 전역 시간당 응답바이트 하드캡(0=무제한)
-            boolean throttleOnError    // E 429/5xx 적응형 자동감속
+            boolean throttleOnError,   // E 429/5xx 적응형 자동감속
+            Duration sliceWindow,      // ① 부분전진 슬라이스 단위(0/null=loki.chunk-window 재사용, PR1.1 §14)
+            int maxQueriesPerScan      // ① per-scan 하드캡(슬라이스 경계, 0=무제한=현행, PR1.1 §14)
     ) {}
 }

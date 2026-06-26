@@ -169,3 +169,100 @@ apidiscover.scan:
 - **Spring Batch JobRepository 연결** — 별도 P3 TODO(현 `@Scheduled`).
 - **scan→export 단일 체인 플래그** — 순차 호출로 충족(§7), 필요 시 후속.
 - **메트릭 알람(임계·통지)** — Actuator 노출 후 알람 연동은 별도 P3.
+
+---
+
+# 보강 (PR1.1 + 도메인 목록 CLI) — 브랜치 `feature/scan-pr1.1-and-list-cli`
+
+> PR1(B+A+E, PR #26) 실배포 검증에서 드러난 결함 수정 + 운영자 도메인 목록 CLI. 근거 결정 **DECISIONS D46(PR1.1)·D47(목록 CLI)**.
+
+## 14. PR1.1 — 스캔 per-domain 폭주 수정 (실배포 발견)
+
+### 14.1 실배포 증거 / 근본 원인
+
+정책 이미지(무제한+PR1) VM 재배포: 디스커버리 정상(domain_config 352). **그러나** `scanTick` 이 단일 busy 도메인(`www.takigen.co.jp`)의 **max-window PT6H 백필**에서 `loki.queries` 1500+(2000줄/페이지×1500≈300만 줄) 미완 + **LokiBudget 독점** + **단일 @Scheduled 스레드 점유** → 타 도메인·디스커버리 기아(`discovered_endpoint`=0). 429=0(부하 자체는 throttle/budget 으로 묶임 — 문제는 **진척 0 + 기아**). reviewer 가 '수용가능'으로 본 도메인-granularity 오버슈트가 실문제로 확인.
+
+**근본 원인(코드 확인)** — 스캔은 집계가 아니라 `query_range` **로그 라인 전량 페이지네이션**(busy×큰윈도우=막대):
+1. **per-scan 무한**: `scanTick` 은 `budget.hasBudget()` 를 **도메인 사이에서만** 체크(L45). 한 `runScan`→`collect`→`queryRange` 내부(36 chunk × 다페이지)는 **중단점 없음**. `budget.record()` 는 응답마다 누적하나 **mid-scan 중단 로직 부재** → 한 도메인이 시간당 예산 전부 + 스레드 독점.
+2. **max-window PT6H**: chunk(PT10M) 36개 × 페이지 = 거대.
+3. **단일 스레드**: `SchedulingConfig` 에 `TaskScheduler` 빈 없음 → Spring 기본 풀 size=1 → `scanTick` 이 `DomainDiscoveryScheduler.discover` 블로킹.
+
+### 14.2 수정 설계 — ①+②+③ (최소·견고 조합)
+
+**★권장 = ①+②+③ 함께.** "② 소윈도우 단독으로 충분한가?" 에 대한 정직한 답: **불충분**. ② 는 흔한 경우만 줄이고 **하드 천장이 없다** — (a) 하이퍼busy 도메인 1슬라이스, (b) **D off-peak 대형 윈도우(PT24H)**, (c) 다운됐던 도메인 백필에서 폭주 재발. ① 의 **per-scan 하드캡 + 부분 watermark 전진**이 윈도우 크기·트래픽과 무관한 **구조적 보장**이며 D 안전의 전제다. ③ 은 ①·② 와 독립적으로 필요(스레드 격리).
+
+**① per-scan 하드캡 + 슬라이스-granular 부분 watermark 전진 (핵심·구조적 보장)**
+- **부분 전진 vs 윈도우 축소 재시도 — 부분 전진 채택**: 축소 재시도는 busy 도메인이 매번 같은 윈도우 head 에서 캡에 걸려 **영구 미진척(기아)**. 부분 전진은 **단조 진척 보장**(다음 틱이 이어서 resume) + 스레드/예산 즉시 반납.
+- **슬라이스-granular(멀티 hostname gap-free 핵심)**: 현 `collect` 는 hostname 마다 **전체 윈도우**를 queryRange → 부분 전진을 윈도우 중간에서 하면 hostname 별 consumed 지점이 달라 **데이터 갭** 위험. → **루프 반전**: 윈도우를 **슬라이스(=chunk-window PT10M)** 로 쪼개 **슬라이스 외부 / hostname 내부**로 순회. 한 슬라이스의 **모든 hostname 을 완료한 뒤에만** watermark 를 그 슬라이스 끝으로 전진 → 미스캔 구간 추월 없음(gap-free).
+- **하드캡**: `max-queries-per-scan`(예 50) — 슬라이스 경계에서 누적 쿼리수 체크, 초과 시 **마지막 완료 슬라이스 끝**까지만 `analyze`([from, consumedUpTo)) + watermark 전진하고 종료. 전역 `budget.hasBudget()` 도 슬라이스 경계에서 체크(④ 흡수 — query-granularity) → 소진 시 동일하게 부분 전진 후 종료.
+- 효과: 1 runScan ≈ `max-queries-per-scan` + 마지막 슬라이스 페이지 = **상한**. busy 도메인도 여러 틱에 걸쳐 슬라이스씩 전진(resume), 스레드·예산 즉시 반납.
+- **잔여 floor(정직)**: 단일 슬라이스(PT10M) 내 한 hostname 이 page-limit×다수면 그 슬라이스는 완주(원자 단위) — `slice-window`/`page-limit` 작게로 완화. watermark-safe 부분전진은 슬라이스 경계까지가 한계.
+
+**② max-window 기본값 축소 (PT6H → PT30M 제안)**
+- 흔한 경우 per-scan 윈도우(=watermark 틱당 전진)를 작게 → 슬라이스 수↓. **트레이드오프(정직)**: 백필 커버리지 시간↑(7일/30분=336슬라이스/도메인, 14k RR 와 곱해 느림) → **D off-peak 에서 `off-peak-max-window` 상향으로 가속**(그때 ① 가 안전 보장). 무회귀: 기본값 변경(문서화), 0/null=무제한 경로 유지.
+
+**③ 스캐너 스레드 격리**
+- `spring.task.scheduling.pool.size: 2`(권장 — Spring Boot 네이티브, 코드 0) 또는 `SchedulingConfig` 에 `ThreadPoolTaskScheduler` @Bean(poolSize 2~3). → `scanTick` 와 `discover` 가 **별 스레드** → scan 블로킹이 디스커버리 기아 유발 안 함. `fixedDelay` 자기 직렬화는 유지(틱 중첩 없음). ① 가 scanTick 시간을 묶어 격리와 상보.
+
+### 14.3 설정 키 / 변경 범위 / 무회귀
+
+- **설정(신규/변경)**:
+  ```
+  apidiscover.scan:
+    max-window: PT30M           # ② 기본값 축소(구 PT6H)
+    slice-window: PT10M         # ① 부분전진 슬라이스(미지정=loki.chunk-window 재사용)
+    max-queries-per-scan: 50    # ① per-scan 하드캡(0=무제한=현행 무회귀)
+  spring.task.scheduling.pool.size: 2   # ③ 스레드 격리
+  ```
+- **변경 범위**: `DiscoveryJobService.runScan`/`collect` → 슬라이스 외부·hostname 내부 순회 + 슬라이스별 watermark 전진 + per-scan 캡(`collectBounded` 반환 {lines, consumedUpTo}). `analyze`/분류/리포트 로직 **불변**(입력 윈도우만 부분 가능). `LokiClient` 슬라이스 단위 조회(queryRange 는 on-demand/discovery 용 유지 또는 위임). `SchedulingConfig`/application.yml ③ 설정.
+- **무회귀**: `max-queries-per-scan=0`=무제한=현행. 슬라이스 순회는 결과 동일(같은 윈도우 전량이면 동일 라인·dedup). 부분 전진은 watermark 가 데이터 ts 기준(now 무관)이라 결정적. 풀 size=2 는 동작 불변(동시성만). 정상-트래픽 도메인(소윈도우)은 캡 미발동=현행.
+- **검증**: 슬라이스 부분전진 단위테스트(캡 hit→consumedUpTo=마지막 완료 슬라이스·resume·gap 없음), busy 도메인 모사(캡 발동), 다도메인 분산(한 도메인이 예산/스레드 독점 안 함), 재배포 시 `discovered_endpoint` 점증·discover 비기아.
+- **dev 구현 완료(PR, build green 382·실패0·skip2=live 게이트)**: ① `DiscoveryJobService.collectBounded`(슬라이스 외부·hostname 내부, per-scan 캡·`budget.hasBudget()` 슬라이스 경계 체크, 부분 watermark 전진) + `runScan` 부분 소비분만 analyze·advanceWatermark, `collect`(온디맨드) 유지. ② `application.yml` max-window PT30M·slice-window PT10M·max-queries-per-scan 50. ③ `spring.task.scheduling.pool.size: 2`. 설정 `ApiDiscoverProperties.Scan` +sliceWindow·maxQueriesPerScan. 테스트 `ScanSliceBoundedTest`(캡/예산 부분전진·gap-free·무제한 현행 동치, 단위 mock). 무회귀: cap=0=현행, 슬라이스 순회 결과 동치(dedup), watermark 데이터 ts 결정적.
+
+## 15. 도메인 목록 CLI (`-domain -ls`)
+
+### 15.1 요구 / 실행형식
+
+운영자가 **수집된 도메인 목록만 확인**. ★사용자 지정 형식: `./{바이너리} -domain -ls`(**단일대시 플래그** — 기존 `--adc.cli.export-domain=X` 프로퍼티 스타일과 다름).
+
+### 15.2 설계
+
+- **main() raw-arg 감지**: Spring 은 `--key=value` 만 프로퍼티 바인딩 → 단일대시 `-domain`/`-ls` 는 non-option arg(String[]). `main()` 이 **raw args 에 `-domain` AND `-ls` 동시 존재** 감지 → CLI 모드(web NONE·`cli` 프로파일·스케줄러 미기동, 기존과 동일).
+- **내부 일관성**: 감지 시 `main()` 이 `--adc.cli.list-domains=true` 를 args 에 **주입**해 run → `CliProperties.listDomains` 바인딩 → `CliListRunner`(@Profile cli) 활성. **외부 UX(단일대시)와 내부(프로퍼티 구동 runner)를 분리** — 기존 export/scan runner 패턴과 균일.
+- **`CliListRunner`**: `domainRepo.findAll()`(host 정렬) → **stdout 출력**(사용자 '확인' 의도 → 파일 아님). 컬럼: `host`·`enabled`·`#hostnames`(또는 hostnames)·`discovered_at`·`last_seen_at`. 빈 목록=헤더+안내(정상), exit 0. DB 조회 실패=비0. **Loki 무관**(DB read only).
+- **CSV 파일 출력 옵션 미포함**(과설계 — '확인'은 stdout 충족, `--csv` 필요 시 후속).
+
+### 15.3 ★arg 스타일 reconciliation (권고)
+
+- **현재**: `--adc.cli.export-domain=X`·`--adc.cli.scan-domain=X`(프로퍼티 스타일, PR#23/#26 출하·런북/매뉴얼 참조). **신규**: `-domain -ls`(단일대시, 사용자 지정).
+- **권장 = (a) 최소 — 혼재 허용**: 신규 목록만 `-domain -ls`(사용자 명시 형식 존중), 기존 export/scan 은 **불변**(출하된 명령·런북 깨지 않음). 내부는 `--adc.cli.list-domains=true` 로 통일(runner 레이어 일관).
+- **(b) 전면 통일**(`-domain -ls`/`-scan`/`-export` 서브커맨드) 미채택 — **기존 명령 파괴**(런북/매뉴얼/배포 스크립트 회귀). 통일 CLI 문법은 원하면 **별도 의도된 마이그레이션**(전 명령 + 하위호환 동시)으로, 피스밀 금지. 사용자의 `-domain -ls` 를 향후 통일 문법의 seed 로 기록.
+
+### 15.4 무회귀
+
+- 신규 `CliListRunner` + `main()` raw-arg 감지(가산) + `CliProperties.listDomains`(가산). 기존 명령·서버 모드 불변. Loki·DB 쓰기 없음(read only).
+- **dev 구현 완료(PR)**: `main().isListDomains`(`-domain`+`-ls` 동시) → `--adc.cli.list-domains=true` 주입 → `CliListRunner`(@Profile cli, `findAll(Sort host)`→stdout host·enabled·#hostnames·discovered_at·last_seen_at, list()→exit code, 빈목록 0·DB오류 비0). `CliProperties.listDomains` 가산. 테스트 `CliListRunnerTest`(출력/빈목록/DB오류)·`MainArgModeTest`(감지·기존 export/scan 비회귀). 기존 `--adc.cli.export-domain=`/`scan-domain=` 불변(혼재 허용).
+
+## 16. PR 구조 권고 (14·15) — 매니저 최종결정
+
+- **권장 = 2 PR**. **PR1.1(§14, 긴급) 먼저·독립** — 실배포 기아/진척0 를 즉시 해소, watermark 부분전진 **정합성 정밀 리뷰** 필요라 단독 머지가 안전(배포 검증 언블록). **목록 CLI(§15) 별도** — 운영 편의, DB-only·저위험.
+- **공유 브랜치 실무**: `feature/scan-pr1.1-and-list-cli` 한 브랜치면 (i) PR1.1 먼저 분리 머지 후 §15 후속 PR, 또는 (ii) 한 PR 에 **명확히 분리된 2 커밋**(scan-fix / list-cli)으로 독립 리뷰 가능하게. 1 PR 도 무방하나 **긴급도·관심사 분리**상 2 가 낫다.
+
+## 17. dev 구현 체크리스트 (PR1.1 + 목록 CLI, D26)
+
+**PR1.1 — 스캔 폭주 수정 (§14)**
+- [ ] (③) `spring.task.scheduling.pool.size: 2`(또는 `SchedulingConfig` TaskScheduler @Bean) — scan/discover 스레드 격리.
+- [ ] (②) `scan.max-window` 기본값 PT6H→PT30M + `scan.slice-window`(미지정=chunk-window).
+- [ ] (①) `runScan`/`collect` 슬라이스 외부·hostname 내부 순회 → 슬라이스별 watermark 전진 + `max-queries-per-scan` 하드캡(슬라이스 경계)·`budget.hasBudget()` 슬라이스 체크 → 부분 전진(consumedUpTo) 후 종료.
+- [ ] 테스트 — 캡 hit 부분전진(consumedUpTo·resume·gap 없음)/busy 도메인 캡 발동/다도메인 비독점/슬라이스 멀티-hostname gap-free/무제한(0)=현행. 운영 Loki 단위 mock.
+
+**목록 CLI (§15)**
+- [ ] `main()` raw-arg `-domain -ls` 감지 → CLI 모드 + `--adc.cli.list-domains=true` 주입.
+- [ ] `CliProperties.listDomains` + `CliListRunner`(@Profile cli, findAll→stdout 컬럼, 빈 목록 exit 0, 오류 비0).
+- [ ] 테스트 — 출력 포맷·빈 목록·exit(System.exit 미경유 단위), 기존 export/scan 명령 비회귀.
+
+## 18. PR1.1·목록 CLI 범위 밖 / 후속
+
+- **통일 CLI 문법**(전 명령 단일대시 서브커맨드 + 하위호환) — §15.3, 원하면 별도 마이그레이션.
+- **목록 `--csv` 파일 출력** — stdout 으로 충족, 필요 시 후속.
+- **per-slice 하드캡 미만의 within-slice 부분전진** — 멀티-hostname gap 위험으로 미채택(slice-window 축소로 완화), §14.2 floor.

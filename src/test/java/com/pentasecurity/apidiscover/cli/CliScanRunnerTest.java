@@ -64,7 +64,7 @@ class CliScanRunnerTest {
     // --- helpers ---
 
     private CliScanRunner runner(String scanDomain, Duration window, String edge) {
-        CliProperties props = new CliProperties(null, "/exports", scanDomain, window, edge);
+        CliProperties props = new CliProperties(null, "/exports", scanDomain, window, edge, false);
         return new CliScanRunner(jobService, domainRepo, props, ctx);
     }
 

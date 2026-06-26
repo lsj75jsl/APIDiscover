@@ -50,6 +50,6 @@ class ScanSelectorTest {
                 new ApiDiscoverProperties.Central("https://central.internal"),
                 new ApiDiscoverProperties.Discovery(true, Duration.ofMinutes(10), Duration.ofMinutes(12),
                         Duration.ofHours(1), Duration.ofMinutes(2), 0, "^x$"),
-                new ApiDiscoverProperties.Scan(Duration.ofMinutes(5), domainsPerTick, Duration.ZERO, 0, 0L, true));
+                new ApiDiscoverProperties.Scan(Duration.ofMinutes(5), domainsPerTick, Duration.ZERO, 0, 0L, true, Duration.ZERO, 0));
     }
 }
