@@ -5,6 +5,34 @@
 
 ---
 
+## 2026-06-26 세션 38 — discovered_endpoint unique 위반 host 축 정정(reviewer 실 PG probe, doc/26 §2)
+
+### 한 일
+- **잔존 원인(host 축 발산, reviewer 확정)**: 직전(template 축) 수정이 키를 `identityKey(d.method(), d.host(), d.pathTemplate())`로 둬 host 만 `d.host()` 사용 → 신규 rec 는 `setHost(host 파라미터)`로 영속되므로 키·영속값·prior 키가 host 축에서 불일치. `LokiQueryBuilder` 의 `|= domain` substring 라인필터가 referer/URL/UA 에 도메인 든 다른 Host 라인도 매칭 → InventoryBuilder 가 파싱 Host(d.host())로 endpoint 생성 → `d.host()≠스캔도메인` 발생. 두 endpoint(GET "/", host D·E)가 키 'GET D /'·'GET E /'로 갈려 둘 다 신규 → 둘 다 `setHost(D)` INSERT (D,GET,/) → 충돌.
+- **수정(1글자)**: `upsertDiscovered` 키 host 를 `d.host()`→**스캔 `host` 파라미터**(`identityKey(d.method(), host, d.pathTemplate())`). 이제 키=영속 identity=prior 키 → 기존 행 항상 매칭(UPDATE)·d.host() 발산 무관 병합. method·path_template 축은 rec 가 `d.*` 로 영속되므로 그대로.
+- **테스트(실 PG, host 축 발산 신규 2건)**: `upsertMergesDivergentParsedHostsUnderScanHostOnRealPg`(intra-batch: GET "/" 둘, d.host() D/E 갈림, host param=D → 1행·E 미생성·last-writer) + `upsertMatchesExistingRowWhenParsedHostDivergesOnRealPg`(cross-batch: 기존 (D,GET,"/") + d.host()=E → 기존 행 UPDATE). ★진위: 수정 원복(d.host()) 시 실 PG 둘 다 `duplicate key ... discovered_endpoint_host_method_path_template_key` RED 확인 후 복원. 기존 가드(template 발산·intra-batch signature) 유지.
+
+### 결과
+- 일반 `./gradlew build` BUILD SUCCESSFUL. ★실 PG `./gradlew test`(podman) — host 축 가드 2건 PASS(skip 아님). 무회귀: 기존 가드 유지, 단일 튜플 경로·cap/prune 불변.
+
+### 다음 단계
+- 커밋 금지(매니저, 같은 브랜치 fix/discovered-endpoint-identity-key). VM 재배포 시 스캔 실패율 0 확인은 매니저.
+- **후속(범위 밖)**: (P3) classifier recency 가 `priorFirstSeen`(제약튜플 키)에 `d.signature()`(발산)로 lookup → 발산 endpoint recency miss(Zombie severity 과소·무크래시). 진짜 근본=`DiscoveredEndpoint.signature` 를 최종 resolved 값(method,스캔host,최종template)으로 생성하거나 d.signature() 소비처 전부 identityKey 통일 → upsert·recency 일괄 해소. 별도 설계 후속(TASKS).
+
+## 2026-06-26 세션 37 — discovered_endpoint unique 위반 근본 수정(제약튜플 키잉, PR #31 정정, doc/26 §2)
+
+### 한 일
+- **근본 원인(실 PG bind 로깅으로 확정)**: PR #31 배포 후에도 재현. examinee-portal.eiken.or.jp 온디맨드 스캔 ~30 UPDATE 후 `duplicate key ... (host,method,path_template)=(examinee-portal.eiken.or.jp,GET,/)`. `loadDiscovered` 가 `prior` 를 `signatureOf(rec)`=**(method+host+path_template)** 키로 적재하는데, `upsertDiscovered` 는 `prior.get(d.signature())`·`prior.put(d.signature())`(PR #31)로 **signature 키** 사용. `DiscoveredEndpoint.signature` 가 최종 path_template 과 발산("/" 등 정규화/방출 불일치)하면 기존 (GET,host,"/") 행을 miss → 신규 INSERT → unique 위반. PR #31 의 prior.put 도 signature 키라 무력(테스트가 signature==template 합성이라 발산 미커버).
+- **수정(제약 튜플 키잉, signature 폐기)**: `identityKey(method,host,pathTemplate)` 헬퍼 추가, `signatureOf(rec)` 도 이 헬퍼로 리팩터(동일 키 보장). `upsertDiscovered` 의 lookup/put 을 `identityKey(d.method(),d.host(),d.pathTemplate())`(지역변수 1회 계산)로 → prior 적재 키(=DB unique 제약 튜플)와 정확히 일치 → 기존 행 항상 매칭(UPDATE)·배치 내 동일 튜플 병합 → INSERT 충돌 불가. signature 의존 제거.
+- **테스트(실 PG, signature≠튜플 재현)**: `PostgresIntegrationTest.upsertMatchesExistingRowByConstraintTupleNotSignatureOnRealPg` — 기존 (host,GET,"/") 행 저장 + signature 발산(GET host /v1/legacy)·튜플=(GET,host,"/")인 DiscoveredEndpoint upsert → 1건 UPDATE(hits 5→99) 단언. `priorFor` 헬퍼가 loadDiscovered 처럼 제약 튜플 키로 prior 구성. ★진위: 수정 임시 원복(lookup 을 d.signature()로) 시 실 PG `duplicate key` red 확인 후 복원. PR #31 가드(upsertDiscoveredMergesIntraBatchDuplicateSignatureOnRealPg)도 유지.
+- **별도 플래그(범위 밖)**: signature 발산은 classifier recency(priorFirstSeen, signatureOf 키)도 같은 엔드포인트를 놓칠 수 있음(무크래시·조용한 정확도). 근본=signature 를 최종 template 과 일치 — TASKS 후속으로 기록.
+
+### 결과
+- 일반 `./gradlew build` BUILD SUCCESSFUL. ★실 PG `./gradlew test --tests "*PostgresIntegrationTest"`(podman) — 신규 발산 가드 PASS(skip 아님). 무회귀: PR #31 가드 유지, 단일 튜플 경로·cap/prune 불변.
+
+### 다음 단계
+- 커밋 금지(매니저, 브랜치 fix/discovered-endpoint-identity-key, PR #31 정정 대체). VM 재배포 시 스캔 실패율 0 확인은 매니저. signature 발산 근본 정리는 TASKS 후속.
+
 ## 2026-06-26 세션 36 — discovered_endpoint intra-batch 중복 버그 수정 (실배포 발견, doc/26 §2)
 
 ### 한 일
