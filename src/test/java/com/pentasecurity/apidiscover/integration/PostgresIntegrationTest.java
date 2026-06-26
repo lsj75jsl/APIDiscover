@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.pentasecurity.apidiscover.batch.DiscoveryJobService;
 import com.pentasecurity.apidiscover.classify.EffectiveClassificationResolver;
 import com.pentasecurity.apidiscover.domain.ClassificationConfig;
 import com.pentasecurity.apidiscover.domain.ClassificationConfigRepository;
@@ -21,12 +22,20 @@ import com.pentasecurity.apidiscover.domain.ScanResult;
 import com.pentasecurity.apidiscover.domain.ScanResultRepository;
 import com.pentasecurity.apidiscover.domain.SpecRecord;
 import com.pentasecurity.apidiscover.domain.SpecRecordRepository;
+import com.pentasecurity.apidiscover.ingest.LogWindow;
 import com.pentasecurity.apidiscover.ingest.LokiClient;
+import com.pentasecurity.apidiscover.match.EndpointMatcher;
+import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
+import com.pentasecurity.apidiscover.model.EndpointKind;
+import com.pentasecurity.apidiscover.model.ParamCandidates;
+import com.pentasecurity.apidiscover.model.TemplateSource;
 import com.pentasecurity.apidiscover.spec.SpecFormat;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -82,6 +91,7 @@ class PostgresIntegrationTest {
     @Autowired DomainConfigRepository domainRepo;
     @Autowired EffectiveClassificationResolver resolver;
     @Autowired com.pentasecurity.apidiscover.batch.DomainUpserter domainUpserter;
+    @Autowired DiscoveryJobService jobService;
 
     // 공유 컨텍스트·컨테이너(rollback 없음) → 메서드 간 상태 격리. round-trip 이 글로벌 설정(id=1)에
     // 의사 JSON 을 써넣어도 다음 테스트 오염 방지(globalRepo 비움 → resolver default). ClassificationControllerTest 선례.
@@ -184,6 +194,26 @@ class PostgresIntegrationTest {
         d.setPathTemplate(longPath);
         DiscoveredEndpointRecord saved = discoveredRepo.save(d); // varchar(255)면 여기서 실패했음
         assertThat(discoveredRepo.findById(saved.getId()).orElseThrow().getPathTemplate()).isEqualTo(longPath);
+    }
+
+    @Test
+    void upsertDiscoveredMergesIntraBatchDuplicateSignatureOnRealPg() {
+        // 한 스캔의 discovered 리스트에 동일 signature 2개(T1 {var} 승격으로 두 경로가 같은 template 로 수렴 등, doc/13).
+        // 수정 전: 2번째가 새 INSERT → unique(host,method,path_template) 위반 → 스캔 실패(결과 미저장).
+        // 수정 후: prior 즉시 등록 → 같은 rec UPDATE 병합(1건, last-writer-wins).
+        String host = "dup.example.com";
+        String method = "GET";
+        String template = "/api/items/{id}";
+        DiscoveredEndpoint first = endpoint(host, method, template, 10L);
+        DiscoveredEndpoint second = endpoint(host, method, template, 20L); // 동일 signature, hits 만 상이
+
+        jobService.upsertDiscovered(host, new HashMap<>(), List.of(first, second),
+                new EndpointMatcher(List.of()),
+                new LogWindow(Instant.EPOCH, Instant.parse("2026-06-26T00:00:00Z")));
+
+        List<DiscoveredEndpointRecord> recs = discoveredRepo.findByHost(host);
+        assertThat(recs).hasSize(1);                       // 중복 병합(2 INSERT 아님 = unique 위반 없음)
+        assertThat(recs.get(0).getHits()).isEqualTo(20L);  // last-writer-wins(마지막 d 반영)
     }
 
     /** raw_doc(@Lob byte[]) 는 String 과 매핑 다름(§6.2) — round-trip 은 위에서, 실 타입은 정보성 기록(text 단언 금지). */
@@ -306,6 +336,13 @@ class PostgresIntegrationTest {
         d.setEnabled(true);
         d.setNextScanDueAt(nextScanDueAt);
         return d;
+    }
+
+    private static DiscoveredEndpoint endpoint(String host, String method, String template, long hits) {
+        DiscoveredEndpoint.Metrics m = new DiscoveredEndpoint.Metrics(
+                hits, Instant.EPOCH, Instant.EPOCH, Map.of("2xx", hits), 1, 5, 10);
+        return new DiscoveredEndpoint(method + " " + host + " " + template, method, host, template,
+                TemplateSource.INFERRED, EndpointKind.UNKNOWN, 0.0, false, false, m, ParamCandidates.EMPTY);
     }
 
     private void registerDomain(String host) {

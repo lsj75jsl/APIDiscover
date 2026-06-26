@@ -48,6 +48,7 @@ class DiscoveredEndpointRecord {
 ```
 - **PK/조회**: 생성 id PK + **host 인덱스** + unique(host,method,pathTemplate). `findByHost(host)`(카탈로그), `findByHostAndVersion`(그룹), upsert=`findByHostAndMethodAndPathTemplate`. spec_record(id PK+host) 스타일 일치.
 - **upsert(스캔마다)**: firstSeen=min(기존,현재)·lastSeen=max·lastScanAt=window end·스냅샷 메트릭(hits/status/params) 최신 윈도우값·version 재계산. 누적 카탈로그.
+  - **★intra-batch dedup(실배포 발견)**: 한 스캔의 `discovered` 리스트에 동일 signature(METHOD+host+template)가 2개 이상일 수 있다(T1 통계 {var} 승격으로 두 경로가 같은 정규화 template 로 수렴, doc/13). 신규 record 생성 즉시 in-memory `prior` 맵에 등록해 후속 동일 signature 가 새 INSERT 가 아닌 같은 record UPDATE 로 병합되게 한다 → unique(host,method,path_template) 위반·스캔 전체 실패 방지. last-writer-wins 스냅샷 의미와 일관(추가 합산 불필요). 실 PG 회귀가드=PostgresIntegrationTest(mock 은 제약 미강제).
 - **카디널리티 가드**: 인벤토리 cap(host template 5000, doc/13) upsert 전 적용 + **retention prune**(lastSeen < now−retention, 예 180d → 삭제). EndpointHistory 는 spec-only 라 bound 됐지만 검출은 Shadow/inferred 포함 → cap+prune 필수(스캐너 noise 누적 방지).
 - **메트릭 분담(린)**: 카탈로그=identity+kind+version+recency+기본 활동(hits/status/params). **p50/p95·distinctClients·acrm 등 분석 상세는 reportJson(per-scan) 유지**(카탈로그 비대화 방지). severity(doc/24) 는 firstSeen 만 카탈로그서 읽고 나머지는 live Evidence.
 - **EndpointHistory 흡수**: doc/24 의 (host,specKey,firstSeen,lastSeen)→discovered_endpoint 의 (host,method,pathTemplate,firstSeen,lastSeen). severity recency=matched template 의 firstSeen 조회. `endpoint_history` 테이블·엔티티 제거(§8 마이그레이션).

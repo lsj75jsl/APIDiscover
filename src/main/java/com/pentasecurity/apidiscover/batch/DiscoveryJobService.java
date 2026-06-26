@@ -271,9 +271,13 @@ public class DiscoveryJobService {
     /**
      * 스캔 discovered → discovered_endpoint 누적 upsert (firstSeen min/lastSeen max/최신 윈도우 스냅샷, doc/26 §2).
      * prior = loadDiscovered 맵 재사용(단건 재조회 회피). cap 초과 신규 identity 는 drop(기존 갱신은 항상).
+     * <p>★intra-batch dedup(doc/26 §2): 신규 rec 를 즉시 {@code prior} 에 등록 → 한 배치의 동일 signature 중복
+     * (T1 통계 {var} 승격으로 두 template 가 같은 정규화로 수렴 등, doc/13)이 두 번째 INSERT 가 아닌 같은 rec UPDATE 로
+     * 병합돼 unique(host,method,path_template) 위반·스캔 실패를 방지(실배포 발견). last-writer-wins 스냅샷 의미 일관.
+     * <p>visibility: 실 PG intra-batch dup 회귀 테스트(PostgresIntegrationTest, 별 패키지)가 직접 호출 — 그 외엔 analyze 내부 전용.
      */
-    private void upsertDiscovered(String host, Map<String, DiscoveredEndpointRecord> prior,
-                                  List<DiscoveredEndpoint> discovered, EndpointMatcher matcher, LogWindow window) {
+    public void upsertDiscovered(String host, Map<String, DiscoveredEndpointRecord> prior,
+                                 List<DiscoveredEndpoint> discovered, EndpointMatcher matcher, LogWindow window) {
         Instant scanEnd = (window != null) ? window.to() : null;
         long count = prior.size();
         int dropped = 0;
@@ -289,6 +293,7 @@ public class DiscoveryJobService {
                 rec.setMethod(d.method());
                 rec.setPathTemplate(d.pathTemplate());
                 count++;
+                prior.put(d.signature(), rec); // 배치 내 동일 signature 후속분이 새 INSERT 대신 이 rec UPDATE 로 병합(unique 위반 방지)
             }
             DiscoveredEndpoint.Metrics m = d.metrics();
             rec.setFirstSeen(earliest(rec.getFirstSeen(), (m != null) ? m.firstSeen() : null));
