@@ -60,7 +60,7 @@ sum by (host, real_host, hostname) (
 ## 6. 가드 — 자동등록 폭증 차단
 
 - **호스트 형식 검증(신규)**: LogLineParser 는 `-`/빈값만 제외(`nullIfDash`)하고 **도메인 형식 미검증** → 디스커버리에 **FQDN 정규식**(예 `^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$`, 소문자화·점 1개 이상·scheme/port/path 불가) 추가 적용 → 변조·랜덤 Host 헤더 자동등록 차단. 정규식 설정 가능(§7).
-- **개수 상한**: `max-domains-per-run`(설정) — 카운트 desc 정렬 후 상한 적용(초과분 drop+로그). 폭증 1회 영향 격리.
+- **개수 상한**: `max-domains-per-run`(설정) — **0=무제한(전수 등록, 기본·사용자 지시)**, `>0` 이면 카운트 desc 정렬 후 상위 N 캡(초과분 drop+로그=가시화, 폭증 1회 영향 격리). 무제한 시 정렬·드롭 생략(dropped=0). ★이 캡은 **DB 업서트량만 제한**(벡터는 이미 수신)이라 Loki 부하와 무관 — 관측 ~14k 도메인 전수 등록 의도로 기본 0. 무제한 시 1회 ~14k upsert(대부분 lastSeenAt UPDATE, @DynamicUpdate) = PostgreSQL 감당 범위.
 - **서버측 topk(선택)**: 병적 카디널리티 방어로 `topk(N, sum by (domain)(...))` 래핑 가능(전송량·집계 상한). 단 결과가 이미 집계 벡터(경량)라 **client 측 max-domains-per-run 이 권위**, topk 는 belt-and-suspenders.
 - **셀렉터**: `{job="access_log"}` 단일 시작. Loki 타임아웃/429 빈발 시 **hostname 라벨별 분할 폴백**(`{job="access_log", hostname="X"}` 순회) — 측정 후 도입(§10).
 

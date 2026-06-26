@@ -36,7 +36,7 @@ public record ApiDiscoverProperties(Loki loki, Schedule schedule, Central centra
             Duration window,           // interval + 오버랩
             Duration bootstrapWindow,  // 첫 실행 1회
             Duration initialDelay,     // 스캔 스케줄과 stagger offset
-            int maxDomainsPerRun,      // 폭증 가드(카운트 desc 상한)
+            int maxDomainsPerRun,      // 0=무제한(전수 등록), >0=카운트 desc 상위 N 캡(폭증 가드)
             String hostPattern         // FQDN 검증 정규식
     ) {}
 }

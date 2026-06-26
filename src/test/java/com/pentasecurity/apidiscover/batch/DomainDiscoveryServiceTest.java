@@ -91,6 +91,21 @@ class DomainDiscoveryServiceTest {
                 .containsExactlyInAnyOrder("b.example.com", "c.example.com"); // 최저 a 가 drop
     }
 
+    @Test
+    void unlimitedWhenCapZeroRegistersAllDomains() {
+        when(loki.queryInstant(any(), any())).thenReturn(List.of(
+                sample("a.example.com", "E1", 10),
+                sample("b.example.com", "E1", 99),
+                sample("c.example.com", "E1", 50)));
+
+        DomainDiscoveryService.DiscoveryResult r = serviceWithCap(0).discover(NOW); // 0=무제한
+
+        assertThat(r.dropped()).isZero();
+        assertThat(r.inserted()).isEqualTo(3);
+        assertThat(db).extracting(DomainConfig::getHost)
+                .containsExactlyInAnyOrder("a.example.com", "b.example.com", "c.example.com"); // 전수 등록
+    }
+
     // --- ★무삭제 + 사용자 설정 보존 ---
 
     @Test
