@@ -59,26 +59,93 @@ LokiClient 보호(동시 2·200ms·page-limit·MAX_ATTEMPTS 백오프) **위에*
 
 ---
 
-# 다음 (C + D) — 후속 PR 권장
+# C + D + F — PR2/PR3 상세 (브랜치 `feature/scan-policy-pr2-pr3`)
 
-## 4. C. 활동 기반 티어링 (per-domain 주기 차등)
+> PR1(B+A+E, 머지·실배포 검증) 토대 위. **C(티어)·F(dormant)·intervalOverride 를 단일 due 모델로 통합**하고, D(off-peak)는 그 위의 **파라미터 스위치**. 근거 결정 **DECISIONS D48**.
 
-- **티어**: lastSeenAt(디스커버리 갱신, doc/30)·검출활동(hits/최근 discovered)으로 active(짧게 PT30M)·default(PT2H)·inactive(길게 PT6H+) 구분.
-- **due 판정**: 틱 선택을 "enabled **AND due**(`now − lastScanAttemptAt ≥ tierInterval`) ORDER BY lastScanAttemptAt asc LIMIT K" 로 — 티어가 빈도 변조. `DomainConfig.intervalOverride`(기존, 미배선) = 명시 per-domain override(티어보다 우선) → **기존 P3 'intervalOverride 스케줄 반영' TODO 를 이 정책으로 배선**.
-- active 신호: `now − lastSeenAt ≤ active-threshold`(예 24h). 무회귀: 미설정/콜드=default 티어.
+## 4. 통합 due 모델 (C·F·override 합성) — ★핵심
 
-## 5. D. off-peak 백필
+현 `ScanSelector` 는 `lastScanAttemptAt` asc(LRS) top-K — **주기 무관**. 티어링은 도메인별 "다음 스캔 due" 를 도입한다.
 
-- **off-peak(`schedule.off-peak-window` 01–06, 현재 config-only·미배선 → 여기서 배선)**: 백필(watermark 많이 뒤처진 도메인)을 off-peak 에 **큰 예산·큰 윈도우**(`off-peak-domains-per-tick`·`off-peak-max-window`)로 집중. peak 엔 **델타·active 티어만**, 백필 도메인 디프라이오리티.
-- 구현: 틱이 현재시각이 off-peak 인지 판정 → 예산/윈도우상한/선택조건 스위치(peak: due+active 우선·max-window 작게 / off-peak: 백필(lastEnd 오래된 순) 우선·max-window 크게).
+### 4.1 due 계산 위치 — DB 쿼리(persisted `nextScanDueAt`) vs 메모리 필터
 
----
+- **★권장 = persisted `nextScanDueAt`(신규 필드) + DB 술어 선택**. 매니저 질문(DB 쿼리 vs 메모리 필터)에 대한 분석:
+  - **메모리 필터 비채택(견고성 결함)**: LRS 순서 ≠ due 순서. 예) inactive(6h주기) 도메인이 1h 전 스캔=미due 인데 `lastScanAttemptAt` 은 오래됨 → LRS 앞. active(30m주기) 도메인이 35m 전 스캔=due 인데 LRS 뒤. → LRS 순 후보 페이지를 메모리 필터하면 **미due 도메인 벽 뒤의 due 도메인을 놓침**(over-fetch 로도 보장 불가).
+  - **순수 SQL due 계산 비현실적**: tier interval 은 `lastSeenAt` 구간별 CASE + Duration 산술 필요 → JPQL Duration 빈약·네이티브 interval 은 H2/PG 방언 차이(이식성 결함). `intervalOverride` 는 ISO-8601 **String** 이라 SQL 비교 불가.
+  - **채택**: 스캔 시점에 Java 로 `effectiveInterval` 계산 → `nextScanDueAt = now + effectiveInterval` 를 **영속**. 선택은 단순·이식·인덱스 가능한 **타임스탬프 술어**:
+    `WHERE enabled AND (next_scan_due_at IS NULL OR next_scan_due_at <= :now) ORDER BY next_scan_due_at ASC` + `LIMIT K`. → C(티어)·F(dormant)·override 가 **단일 값으로 collapse**, due 정렬=가장 밀린 순(자연 우선순위·FIFO·무기아). null=미스캔=즉시 due(맨 앞).
 
-# 보조 (F) — 선택, 후속
+### 4.2 effectiveInterval (C 티어 + F dormant + override)
+
+```
+effectiveInterval(domain, now):
+  if domain.intervalOverride != null:  return Duration.parse(intervalOverride)   // 명시 override 최우선(기존 P3 TODO 배선)
+  if domain.lastSeenAt == null:        return default-interval                    // 신호 부재=보수적 중간
+  age = now − domain.lastSeenAt
+  if age <= active-threshold (PT24H):  return active-interval   (PT30M)           // C active
+  if age >  dormant-after  (P14D):     return dormant-interval  (P1D)             // F dormant(최장)
+  else:                                return inactive-interval (PT6H)            // C inactive
+```
+- **C**: active(최근 트래픽=자주)·inactive(뜸=드물게)·default(신호 없음). 신호=`lastSeenAt`(디스커버리 갱신, doc/30). 검출활동(discovered_endpoint.lastSeen) 가중은 join 필요 → 후속(§범위 밖), 1차는 lastSeenAt.
+- **F**: dormant = `age > dormant-after` → **최장 주기**(스캔 우선순위 강등). **★삭제 아님**(무삭제 일관, doc/30 D42) — interval 만 최장. C 의 최하 band 로 자연 통합(별도 로직 아님).
+- **override**: `DomainConfig.intervalOverride`(기존 String, 미배선) → 파싱해 최우선. 잘못된 형식=무시+로그(폴백 tier).
+
+### 4.3 스캔 시 갱신
+
+`scanTick` 이 attempt 마다 `lastScanAttemptAt=now` + **`nextScanDueAt = now + effectiveInterval(domain, now)`** 동시 기록(기존 `touchLastScanAttempt` → `touchScanSchedule(host, now, nextDueAt)` 확장, @Modifying 단일·2컬럼). skip/실패도 갱신(재선택·기아 방지, PR1 동일 원칙). effectiveInterval 은 슬라이스의 in-memory DomainConfig 로 계산.
+
+## 5. D. off-peak 백필 — 파라미터 스위치 (due 모델 위)
+
+off-peak 는 **due 술어를 바꾸지 않고** 예산·윈도우만 스위치(due 정렬이 이미 가장-밀린-우선 → 백필 자연 전면). peak=증분·소윈도우, off-peak=대윈도우 백필 가속.
+
+| 파라미터 | peak | off-peak | 효과 |
+|---|---|---|---|
+| 틱당 도메인 K | `domains-per-tick`(100) | `off-peak-domains-per-tick`(500) | off-peak 더 많은 도메인 |
+| per-scan 윈도우 상한 | `max-window`(PT30M) | `off-peak-max-window`(PT24H) | **백필 가속**(밀린 도메인이 1스캔에 더 많이 따라잡음) |
+| 시간당 쿼리 캡(E) | `max-queries-per-hour` | `off-peak-max-queries-per-hour`(선택, 미설정=동일) | off-peak 천장 상향(선택) |
+
+- **off-peak 판정**: `schedule.off-peak-window`("01:00-06:00", 현 config-only) 파싱 + `scan.off-peak-zone`(신규, 기본 시스템 zone) 로 현재 로컬시각 비교. **경계/자정 wrap**(start>end, 예 22:00-06:00) 처리. 미설정/빈값=off-peak 없음(항상 peak=무회귀).
+- **백필 우선순위**: 별도 watermark-lag 정렬 쿼리(Watermark join) **불요** — due 정렬(`nextScanDueAt asc`)이 가장 밀린(=가장 오래 미스캔=백필 대상) 도메인을 이미 앞세움. off-peak 의 큰 윈도우가 그들을 빠르게 따라잡게 함. (전용 lag 정렬은 후속 정교화 — §범위 밖.)
+- PR1 `windowFor(max-window)`·`ScanSelector(domains-per-tick)`·`LokiBudget(max-queries-per-hour)` 에 **off-peak 값 주입**(현재시각 기준 선택). 코어 로직 불변, 값만 스위치.
 
 ## 6. F. 비활성 디프라이오리티 (삭제 아님)
 
-- `now − lastSeenAt > dormant-after`(예 14일) 도메인 → **최장 티어(dormant-interval, 예 1일)** 로 강등. **삭제 절대 없음**(무삭제 요건, doc/30 D42 일관) — 우선순위 강등만. C 티어링의 dormant 티어 확장.
+§4.2 의 dormant band 가 곧 F — `age > dormant-after(P14D)` → `dormant-interval`(최장, 예 P1D). 스캔 빈도 최저로 강등, **삭제·비활성 없음**(무삭제 일관). C 의 effectiveInterval 한 분기라 **추가 컴포넌트 0**(PR3 분리 시에도 1 band 추가).
+
+## 6.1 변경 범위 / 설정 / 무회귀
+
+- **신규 필드**: `DomainConfig.nextScanDueAt`(Instant, ddl-auto nullable). `lastScanAttemptAt` 유지(관측·touch). 기존행 null→즉시 due(1회 스캔 후 정상화).
+- **변경**: `ScanSelector.selectForTick()` — LRS → due 술어 쿼리(`findDueForScan(now, pageable)`) + off-peak K 스위치. `DiscoveryScheduler.scanTick()` — off-peak max-window/budget 주입, `touchScanSchedule`(nextScanDueAt 계산). 신규 `ScanTier`(effectiveInterval 순수함수, 테스트 용이)·`OffPeakWindow`(판정 순수함수). `DomainConfigRepository` due 쿼리 + 인덱스(next_scan_due_at).
+- **설정(신규)**:
+  ```
+  apidiscover.scan:
+    tiering-enabled: true            # false=PR1 LRS 동작(무회귀 스위치)
+    active-interval: PT30M
+    default-interval: PT2H
+    inactive-interval: PT6H
+    active-threshold: PT24H
+    off-peak-domains-per-tick: 500
+    off-peak-max-window: PT24H
+    off-peak-max-queries-per-hour: 0  # 0=peak 값과 동일
+    off-peak-zone: ""                 # 빈값=시스템 기본
+    dormant-after: P14D               # F
+    dormant-interval: P1D             # F
+  # schedule.off-peak-window: "01:00-06:00" (기존 재사용)
+  ```
+- **무회귀**: `tiering-enabled=false` → `nextScanDueAt` 항상 now(즉시 due) → 선택=LRS = **PR1 정확 동치**(롤백 스위치). off-peak-window 미설정 → 항상 peak. 신규 필드 ddl-auto nullable. 코어 스캔(collectBounded·analyze·budget) 불변.
+
+## 6.2 PR 구조 권고 (매니저 결정)
+
+- **★권장 = C+D+F 한 PR**. 셋이 **단일 due 모델 공유**(F=C 의 1 band, D=그 위 파라미터 스위치) — 분리 시 `ScanSelector`/`scanTick` 을 2~3회 재수술. F 는 너무 작아(1 band+설정) 단독 PR 은 오버헤드.
+- **분리 시(차선)**: 매니저 원안 `PR2=C+D / PR3=F` 보다 **`(C+F)=due 모델 / D=off-peak 스위치`** 가 더 응집적(F 는 due 모델 일부, D 는 직교 스위치). C+D 를 묶고 F 를 떼면 due 모델이 두 PR 에 걸침(비응집).
+- 셋 다 사용자 요청·소규모·고응집 → **1 PR** 권장. 분리 원하면 (C+F)+(D).
+
+## 6.3 리스크 (정직)
+
+- **티어-변경 lag**: `nextScanDueAt` 은 스캔 시점 계산 → 디스커버리가 `lastSeenAt` 을 올려 active 로 바뀌어도 **다음 실제 스캔까지 반영 지연**(최대 직전 interval). 엔드포인트 디스커버리엔 허용(실시간 아님). 완화(후속): DomainUpserter 가 dormant/inactive→fresh 트래픽 시 `nextScanDueAt` 하향 — 결합 증가라 defer.
+- **off-peak zone 오설정**: zone 이 실 저트래픽 시간대와 어긋나면 백필이 peak 에 몰림 → zone 명시 필요(타깃 트래픽 로컬 TZ).
+- **due 쏠림**: 장애·재기동 후 다수 도메인이 동시 due(nextScanDueAt 과거/null) → 틱 예산·E 캡이 자연 평탄화(PR1 이월), 기아 없음(due 정렬 FIFO).
+- **HA**: 단일 인스턴스 전제(`nextScanDueAt` 커서·in-memory 예산). 복수 시 기존 HA TODO(ShedLock+예산 DB-backing).
 
 ---
 
@@ -156,12 +223,10 @@ apidiscover.scan:
 - [x] `ApiDiscoverProperties.Scan` 레코드 + application.yml 기본값(§8, PR1 키만 — C/D/F 키는 PR2/PR3 시 추가).
 - [x] 테스트 — windowFor 상한/LRS nulls-first(@DataJpaTest)/scanTick 커서 전진(skip·실패)·예산 break/budget 캡·롤오버·Micrometer/온디맨드 exit·scanOnDemand 위임(watermark 미전진). 운영 Loki 보호(단위 mock, 실호출 `-Dloki.live` 게이트 미실행).
 
-**PR2 — 다음 (C+D)**
-- [ ] (C) 티어(lastSeenAt/활동) + due 판정 선택 + `intervalOverride` 배선(기존 TODO 해소).
-- [ ] (D) off-peak 윈도우 배선(`schedule.off-peak-window`) — off-peak 백필 우선·예산/윈도우 상향, peak 델타·active 우선.
-
-**PR3 — 보조 (F, 선택)**
-- [ ] (F) dormant 티어(`dormant-after`→최장 주기, 무삭제).
+**PR2/PR3 — C+D+F (1 PR)** — *구현+리뷰반영 완료(build green 408·실패0·skip2=live 게이트, 실 PG 가드 PASS, 커밋 보류·머지 시 Done). 리뷰 P1=`findDueForScan` @Query `order by nextScanDueAt asc nulls first` 명시(Pageable Sort 미방출→PG NULLS LAST 기아 회귀 차단)+실 PG 회귀가드, P3-1=`OffPeakWindow.zone` invalid 폴백, P3-2=`ScanTier` 밴드 전제 javadoc. 신규 `DomainConfig.nextScanDueAt`(ddl-auto nullable·@Index) + 순수함수 `ScanTier.effectiveInterval`(override 파싱 ?? lastSeenAt age 티어: active/inactive/default + F dormant)·`OffPeakWindow`(HH:mm-HH:mm 판정·자정 wrap·zone). `DomainConfigRepository.findDueForScan`(due 술어)+`touchScanSchedule`(2컬럼 UPDATE, 구 touchLastScanAttempt 대체). `ScanSelector`(due 쿼리+off-peak K, Clock 주입)·`DiscoveryScheduler.scanTick`(off-peak maxWindow·touchScanSchedule[now+effectiveInterval], ApiDiscoverProperties 주입)·`DiscoveryJobService.runScan(host,maxWindow)` 오버로드+`nextWindow(host,maxWindow)`. application.yml scan 키 가산. 테스트 `ScanTierTest`·`OffPeakWindowTest`·`ScanSelectorTest`·`DiscoverySchedulerTest`(단위 mock·운영 Loki 미호출).*
+- [x] (C) 티어(lastSeenAt age) + due 판정 선택(`findDueForScan` nextScanDueAt 술어) + `intervalOverride` 최우선 배선(기존 TODO 해소).
+- [x] (D) off-peak 윈도우 배선(`schedule.off-peak-window`+`scan.off-peak-zone`) — off-peak 시 K=`off-peak-domains-per-tick`·윈도우=`off-peak-max-window` 상향, peak 델타·소윈도우. 쿼리캡 상향은 범위 밖(ponytail defer). 백필 우선=due 정렬(Watermark join 불요).
+- [x] (F) dormant 티어(`dormant-after`→`dormant-interval` 최장 주기, 무삭제)=effectiveInterval 1 band.
 
 ## 13. 범위 밖 / 후속
 

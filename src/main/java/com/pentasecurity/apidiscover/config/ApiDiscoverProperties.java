@@ -40,7 +40,7 @@ public record ApiDiscoverProperties(Loki loki, Schedule schedule, Central centra
             String hostPattern         // FQDN 검증 정규식
     ) {}
 
-    /** 엔드포인트 스캔 부하 운영정책 — B 틱당 예산·A 윈도우 상한·E 전역 레이트 가드 (doc/33 §8/§14, PR1·PR1.1). */
+    /** 엔드포인트 스캔 부하 운영정책 — B 틱당 예산·A 윈도우 상한·E 전역 레이트 가드 (doc/33 §8/§14, PR1·PR1.1) + C/D/F 티어링(§4–6, PR2/PR3 D48). */
     public record Scan(
             Duration tickInterval,     // B 스캔 틱 간격(짧게=순간부하 평탄화)
             int domainsPerTick,        // B 틱당 도메인 예산(least-recently-scanned 상위 K)
@@ -49,6 +49,17 @@ public record ApiDiscoverProperties(Loki loki, Schedule schedule, Central centra
             long maxBytesPerHour,      // E 전역 시간당 응답바이트 하드캡(0=무제한)
             boolean throttleOnError,   // E 429/5xx 적응형 자동감속
             Duration sliceWindow,      // ① 부분전진 슬라이스 단위(0/null=loki.chunk-window 재사용, PR1.1 §14)
-            int maxQueriesPerScan      // ① per-scan 하드캡(슬라이스 경계, 0=무제한=현행, PR1.1 §14)
+            int maxQueriesPerScan,     // ① per-scan 하드캡(슬라이스 경계, 0=무제한=현행, PR1.1 §14)
+            // --- C 활동 티어 + F dormant + D off-peak (doc/33 §4–6, D48). off-peak 쿼리캡 상향은 범위 밖(ponytail: LokiBudget 시간당 stateful → 경계 스위치 지저분, 필요 시 후속). ---
+            boolean tieringEnabled,      // C false=PR1 LRS 동작(무회귀 롤백 스위치). nextScanDueAt 항상 now=즉시 due.
+            Duration activeInterval,     // C active 티어 주기(lastSeenAt age <= active-threshold)
+            Duration defaultInterval,    // lastSeenAt 부재=신호 없음 보수적 중간
+            Duration inactiveInterval,   // C inactive 티어 주기
+            Duration activeThreshold,    // C lastSeenAt age 이내=active 티어
+            int offPeakDomainsPerTick,   // D off-peak 틱당 도메인 K 상향
+            Duration offPeakMaxWindow,   // D off-peak per-scan 윈도우 상향(백필 가속)
+            String offPeakZone,          // D off-peak 판정 zone(빈값=시스템 기본)
+            Duration dormantAfter,       // F dormant 진입 age(이후 최장 주기로 강등, 삭제 아님)
+            Duration dormantInterval     // F dormant 최장 주기
     ) {}
 }

@@ -10,6 +10,7 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.Table;
 import java.time.Instant;
@@ -23,7 +24,7 @@ import org.hibernate.annotations.DynamicUpdate;
 // @Version(낙관락)은 D18 §5(last-writer-wins) 결정대로 미도입 — @DynamicUpdate 는 컬럼 범위 축소라 그 결정과 일관.
 @Entity
 @DynamicUpdate
-@Table(name = "domain_config")
+@Table(name = "domain_config", indexes = @Index(columnList = "next_scan_due_at"))
 public class DomainConfig {
 
     @Id
@@ -54,6 +55,9 @@ public class DomainConfig {
 
     /** 스캔 라운드로빈 커서(doc/33 §1 B) — least-recently-scanned asc nulls-first. attempt 마다 전진(skip 포함). ddl-auto. */
     private Instant lastScanAttemptAt;
+
+    /** 다음 스캔 due 시각(doc/33 §4, D48) — 스캔 시 now+effectiveInterval 갱신, null=즉시 due. ddl-auto nullable, index. */
+    private Instant nextScanDueAt;
 
     private Instant createdAt;
     private Instant updatedAt;
@@ -128,6 +132,14 @@ public class DomainConfig {
 
     public void setLastScanAttemptAt(Instant lastScanAttemptAt) {
         this.lastScanAttemptAt = lastScanAttemptAt;
+    }
+
+    public Instant getNextScanDueAt() {
+        return nextScanDueAt;
+    }
+
+    public void setNextScanDueAt(Instant nextScanDueAt) {
+        this.nextScanDueAt = nextScanDueAt;
     }
 
     public Instant getCreatedAt() {

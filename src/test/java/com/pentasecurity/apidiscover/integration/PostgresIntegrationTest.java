@@ -24,7 +24,9 @@ import com.pentasecurity.apidiscover.domain.SpecRecordRepository;
 import com.pentasecurity.apidiscover.ingest.LokiClient;
 import com.pentasecurity.apidiscover.spec.SpecFormat;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -36,6 +38,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -276,7 +279,34 @@ class PostgresIntegrationTest {
         assertThat(after.getDiscoveredAt()).isEqualTo(Instant.parse("2026-06-01T00:00:00Z")); // 최초 발견 불변
     }
 
+    // --- P1: findDueForScan null 정렬 결정화(실 PG) — PG 기본 ASC=NULLS LAST 회귀 가드(D48) ---
+
+    @Test
+    void findDueForScanOrdersNullsFirstOnRealPg() {
+        // dated-due(과거 서로 다른 값) 여러 개 + null(신규 미스캔) 1개 → null 이 LIMIT K 안 맨 앞이어야 함.
+        // PG 기본 ASC=NULLS LAST 였으면 null 이 후미라 top-K 에서 탈락 → 이 단언이 빨강(회귀 검출).
+        Instant now = Instant.parse("2026-06-26T12:00:00Z");
+        domainRepo.save(due("dated1.example.com", now.minus(Duration.ofHours(1))));
+        domainRepo.save(due("dated2.example.com", now.minus(Duration.ofHours(2))));
+        domainRepo.save(due("dated3.example.com", now.minus(Duration.ofHours(3)))); // 가장 오래
+        domainRepo.save(due("never.example.com", null));                            // null=즉시 due
+
+        List<DomainConfig> top2 = domainRepo.findDueForScan(now, PageRequest.of(0, 2)); // K=2
+
+        assertThat(top2).hasSize(2);
+        assertThat(top2.get(0).getHost()).as("nulls first — 신규 미스캔이 맨 앞").isEqualTo("never.example.com");
+        assertThat(top2.get(1).getHost()).as("그다음 가장 오래된 dated").isEqualTo("dated3.example.com");
+    }
+
     // --- helpers ---
+
+    private DomainConfig due(String host, Instant nextScanDueAt) {
+        DomainConfig d = new DomainConfig();
+        d.setHost(host);
+        d.setEnabled(true);
+        d.setNextScanDueAt(nextScanDueAt);
+        return d;
+    }
 
     private void registerDomain(String host) {
         DomainConfig dc = new DomainConfig();
