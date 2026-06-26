@@ -82,7 +82,7 @@
 - [ ] Spring Batch JobRepository 실연결 (현재 `@Scheduled`만, `batch.job.enabled=false`)
 - [x] 도메인별 `intervalOverride` 스케줄 반영 (도메인 설정은 이미 영속, 스케줄러 반영만) **(완료 — doc/33 C, PR2 `ScanTier` override 최우선 파싱, PR #29 머지)**
 - [ ] HA 단일 실행 보장 (ShedLock 또는 Quartz 클러스터) — 도입 시 **cross-instance 무효화**(effective 설정 캐시·매처 캐시 TTL/pub-sub, doc/11 §3·doc/15 후속) 함께
-- [ ] **CLI 문법 `-domain` 서브커맨드 통일** **(구현 완료 — build green, 커밋 보류·머지 시 Done. doc/33 §15·DECISIONS D47 갱신, 브랜치 feature/cli-domain-subcommand)** — 전 명령 단일대시 `-domain` 서브커맨드로 교체(사용자 확정).
+- [x] **CLI 문법 `-domain` 서브커맨드 통일** **(완료·머지 — build green 413, PR #30 squash 37820d6. doc/33 §15·DECISIONS D47 갱신. 리뷰 P1/P2=0·P3 2건 전건 반영)** — 전 명령 단일대시 `-domain` 서브커맨드로 교체(사용자 확정). HTML 매뉴얼 동기는 technical_writer 후속.
   - [x] `main().parseCli`(순수·static) 신문법→내부 `--adc.cli.*` translate: `-domain -ls`/`-export <도메인>`/`-scan <도메인> [-window <ISO8601>] [-edge <hostname>]`. `-domain` 없음=서버, 단독·도메인 누락=usage+exit(2). 기존 `isListDomains`/`isCliMode`/`CLI_TRIGGERS` 제거.
   - [x] ★기존 `--adc.cli.export-domain=`/`scan-domain=` 사용자 트리거 제거(직접 입력 시 CLI 미진입). CliProperties·3 런너·바인딩 불변(최소 변경).
   - [x] 테스트 `MainArgModeTest` 갱신(신문법 3종 주입 단언·기존 문법 제거 회귀=서버 모드·usage 에러 경로). md 문서 동기(doc/31·32 §4·33 §7/§15·D47). HTML 매뉴얼=technical_writer 후속(미터치).
