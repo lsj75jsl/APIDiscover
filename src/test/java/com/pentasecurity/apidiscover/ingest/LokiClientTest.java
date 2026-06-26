@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pentasecurity.apidiscover.config.ApiDiscoverProperties;
 import com.sun.net.httpserver.HttpExchange;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.time.Clock;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
@@ -40,7 +42,9 @@ class LokiClientTest {
     }
 
     private LokiClient client() {
-        return new LokiClient(props("http://localhost:" + port), new ObjectMapper());
+        ApiDiscoverProperties p = props("http://localhost:" + port);
+        LokiBudget budget = new LokiBudget(p, new SimpleMeterRegistry(), Clock.systemUTC());
+        return new LokiClient(p, new ObjectMapper(), budget);
     }
 
     private final LogWindow window =
@@ -137,6 +141,7 @@ class LokiClientTest {
                 new ApiDiscoverProperties.Central("https://central.internal"),
                 new ApiDiscoverProperties.Discovery(true, Duration.ofMinutes(10), Duration.ofMinutes(12),
                         Duration.ofHours(1), Duration.ofMinutes(2), 200,
-                        "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$"));
+                        "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$"),
+                new ApiDiscoverProperties.Scan(Duration.ofMinutes(5), 100, Duration.ZERO, 0, 0L, true));
     }
 }

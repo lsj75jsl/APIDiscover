@@ -102,7 +102,8 @@ public class DiscoveryJobService {
     }
 
     /**
-     * 한 도메인 스캔 실행: Loki 수집(S0) → 분석. 윈도우 산정은 watermark 기반(TODO).
+     * 한 도메인 스캔 실행: Loki 수집(S0) → 분석. 윈도우 = watermark 증분([lastEnd, now−lag), 미스캔=backfill 시작점),
+     * per-scan 상한 {@code scan.max-window} 로 슬라이스(A, doc/33 §2). skip-if-current·advance-on-success.
      */
     public void runScan(String host) {
         DomainConfig cfg = domainRepo.findById(host).orElse(null);
@@ -129,6 +130,34 @@ public class DiscoveryJobService {
         String logql = queryBuilder.build(edgeHostname, domain);
         List<String> lines = lokiClient.queryRange(logql, window);
         return analyze(domain, lines, window);
+    }
+
+    /**
+     * 운영자 온디맨드 스캔 (doc/33 §7, CLI). edge 지정 시 그 엣지만, 미지정 시 도메인 hostnames 전체 collect → analyze.
+     * ★watermark 미전진(임시 스냅샷만 — 전진 시 스케줄러가 [lastEnd, now−win) skip=데이터 갭). 누적(discovered_endpoint)·
+     * 최신 결과(ScanResult)만 갱신, 증분 진행은 스케줄러가 계속 소유.
+     */
+    public ScanResult scanOnDemand(String domain, LogWindow window, String edge) {
+        if (edge != null && !edge.isBlank()) {
+            return runOnDemand(edge, domain, window); // 단일 엣지
+        }
+        DomainConfig cfg = domainRepo.findById(domain)
+                .orElseThrow(() -> new IllegalArgumentException("domain not found: " + domain));
+        return analyze(domain, collect(cfg, window), window);
+    }
+
+    /**
+     * 온디맨드 윈도우: [to−win, to), to=now−lag, win=min(requested 또는 max-window, max-window) (doc/33 §7).
+     * now() 는 CLI 경계 1회 — 임시 스냅샷이라 watermark 무관.
+     */
+    public LogWindow onDemandWindow(Duration requested) {
+        Duration max = props.scan().maxWindow();
+        Duration win = (requested != null) ? requested : max;
+        if (max != null && !max.isZero() && win.compareTo(max) > 0) {
+            win = max; // 상한 적용
+        }
+        Instant to = Instant.now().minus(props.schedule().ingestLag());
+        return new LogWindow(to.minus(win), to);
     }
 
     /**
@@ -385,20 +414,30 @@ public class DiscoveryJobService {
         return new LogWindow(from, to);
     }
 
-    /** watermark 기반 증분 윈도우 (doc/05 §3). 신규 구간 없으면 empty. */
+    /** watermark 기반 증분 윈도우 (doc/05 §3). 신규 구간 없으면 empty. per-scan 상한=scan.max-window(A). */
     Optional<LogWindow> nextWindow(String host) {
         Instant lastEnd = watermarkRepo.findById(host).map(w -> w.getLastEnd()).orElse(null);
         return windowFor(Instant.now(), lastEnd,
-                props.schedule().ingestLag(), props.schedule().initialBackfill());
+                props.schedule().ingestLag(), props.schedule().initialBackfill(), props.scan().maxWindow());
     }
 
-    /** 순수 함수(테스트용): now·lastEnd 로 윈도우 산정. lastEnd 없으면 backfill. */
+    /**
+     * 순수 함수(테스트용): now·lastEnd 로 윈도우 산정. lastEnd 없으면 backfill 시작점.
+     * (end−start) &gt; maxWindow 면 end=start+maxWindow 로 절단(A, doc/33 §2) → 백필을 max-window 씩 여러 틱 점진.
+     * maxWindow null/zero = 무제한(현행 무회귀).
+     */
     static Optional<LogWindow> windowFor(Instant now, Instant lastEnd,
-                                         Duration ingestLag, Duration backfill) {
+                                         Duration ingestLag, Duration backfill, Duration maxWindow) {
         Instant end = now.minus(ingestLag);
         Instant start = (lastEnd != null) ? lastEnd : end.minus(backfill);
         if (!start.isBefore(end)) {
             return Optional.empty(); // 신규 구간 없음
+        }
+        if (maxWindow != null && !maxWindow.isZero()) {
+            Instant capped = start.plus(maxWindow);
+            if (capped.isBefore(end)) {
+                end = capped; // 백필 슬라이스 — watermark 가 max-window 씩 전진
+            }
         }
         return Optional.of(new LogWindow(start, end));
     }

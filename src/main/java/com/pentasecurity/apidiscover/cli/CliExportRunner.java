@@ -48,6 +48,10 @@ public class CliExportRunner implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
+        // export-domain 미지정 = 이 명령 대상 아님(scan-domain 등 다른 CLI 명령일 수 있음) → no-op(다른 runner 가 처리)
+        if (props.exportDomain() == null || props.exportDomain().isBlank()) {
+            return;
+        }
         int code = export(System.currentTimeMillis());
         // 웹/스케줄 미기동(비데몬 스레드 없음) → 자연 종료. 명시 exit 로 코드 보장(Spring 컨텍스트 정리 포함).
         System.exit(SpringApplication.exit(context, () -> code));

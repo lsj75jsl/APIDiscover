@@ -5,6 +5,21 @@
 
 ---
 
+## 2026-06-26 세션 32 — PR1: 스캔 부하정책 B+A+E + 온디맨드 스캔 CLI (doc/33 D45)
+
+### 한 일 (PR1 필수만 — C/D=PR2, F=PR3 미착수)
+- **A(윈도우 상한)**: `windowFor` 5-arg(+maxWindow) — (end−start)>maxWindow 시 end=start+maxWindow 절단(백필 슬라이스, 미스캔 7일 일괄 pull 차단). `nextWindow` 가 `scan.max-window` 전달. 0/null=무제한(현행 무회귀). runScan line105 TODO 주석 해소.
+- **B(틱 예산+라운드로빈)**: `DomainConfig.lastScanAttemptAt`(ddl-auto) + `findByEnabledIsTrue(Pageable)`(Sort asc NULLS FIRST=미스캔 우선) + `touchLastScanAttempt`(@Modifying 단일컬럼 UPDATE=lost-update 무관) + `ScanSelector`(LRS K, PR2 확장점) + `DiscoveryScheduler.scanTick()`(@Scheduled scan.tick-interval, 전수순회 대체) — K 슬라이스, attempt 마다 커서 전진(skip·실패 포함, runScan 전 별도 tx), 예산 소진 break 이월, 도메인 격리.
+- **E(전역 레이트 가드+계측)**: `LokiBudget`(시간당 쿼리/바이트 하드캡, 초과=hasBudget false→틱 이월, 0=무제한, Clock 주입 롤오버) + `LokiClient` Micrometer(loki.queries·response.bytes·errors{status}) + 적응형 throttle(429/5xx level+1·성공 −1, ≤16×min-interval, throttle-on-error 게이트). LokiClient ctor +LokiBudget, requestWithRetry 가 응답마다 budget.record.
+- **온디맨드 CLI(§7)**: `CliScanRunner`(@Profile cli, `--adc.cli.scan-domain`[/`--window`/`--edge`], scan()→exit code/run()→System.exit) + `scanOnDemand`(edge→runOnDemand/미지정→collect+analyze, ★watermark 미전진=임시 스냅샷) + `onDemandWindow`(상한=max-window). main() scan-domain 트리거 추가, CliExportRunner.run() blank=no-op(두 CLI 명령 공존). exit 0/2(미지정)/3(미존재·미enabled)/4(Loki).
+- **설정**: `ApiDiscoverProperties.Scan`(tick-interval PT5M·domains-per-tick 100·max-window PT6H·max-queries-per-hour 3000·max-bytes-per-hour 0·throttle-on-error true) + application.yml. `Clock` @Bean(앱 클래스). 기존 설정 불변(schedule.default-interval 은 defaultWindow 잔여 용도 유지).
+
+### 결과
+- `./gradlew build` BUILD SUCCESSFUL, 총 **374(+12) 실패 0 skip 2**(둘 다 -Dloki.live 게이트=운영 Loki 미호출). 신규: LokiBudgetTest 4·ScanSelectorTest 1(@DataJpaTest nulls-first)·DiscoverySchedulerTest 2(커서 전진 skip/실패·예산 break)·CliScanRunnerTest 4·windowFor 캡 1. 단위 전부 LokiClient/응답 mock — 운영 Loki 미호출. doc/33 §0.1 운영자 요약의 PR1 노브(tick/domains-per-tick/max-window/max-queries-per-hour/throttle-on-error) = 구현 기본값 일치.
+
+### 다음 단계
+- 커밋 금지(매니저 PR1). 실 Loki 부하·온디맨드 실스캔 검증은 매니저 실배포(-Dloki.live·테스트서버). PR2=C(티어링·intervalOverride 배선)+D(off-peak), PR3=F(dormant). doc/18 영향: `domain_config.last_scan_attempt_at` 컬럼 sync=technical_writer 후속.
+
 ## 2026-06-25 세션 31 — 긴급 성능 수정: 디스커버리 LogQL 서버 coalesce → 클라이언트 coalesce (doc/30 §1, D42)
 
 ### 한 일 (DomainDiscoveryService + 테스트 + doc 만 — 매니저 인프라 수정분 wait-for-db/hostNetwork/Dockerfile/adc.yaml 미터치)

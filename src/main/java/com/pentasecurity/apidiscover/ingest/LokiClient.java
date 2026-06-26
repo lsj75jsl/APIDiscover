@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -27,17 +28,22 @@ public class LokiClient {
 
     private static final Logger log = LoggerFactory.getLogger(LokiClient.class);
     private static final int MAX_ATTEMPTS = 4;
+    private static final int MAX_THROTTLE_LEVEL = 4; // 적응형 throttle 상한: min-interval × 2^level (≤16×)
     private static final Set<Integer> RETRYABLE = Set.of(429, 502, 503, 504);
 
     private final ApiDiscoverProperties props;
     private final ObjectMapper objectMapper;
+    private final LokiBudget budget;
     private final HttpClient http;
     /** 동시 쿼리 상한 (max-concurrent-queries, doc/05 §2.4). */
     private final Semaphore concurrencyGate;
+    /** 적응형 throttle 레벨 (E, doc/33 §3): 429/5xx 시 증가·성공 시 감쇠. min-interval × 2^level 슬립. */
+    private final AtomicInteger throttleLevel = new AtomicInteger(0);
 
-    public LokiClient(ApiDiscoverProperties props, ObjectMapper objectMapper) {
+    public LokiClient(ApiDiscoverProperties props, ObjectMapper objectMapper, LokiBudget budget) {
         this.props = props;
         this.objectMapper = objectMapper;
+        this.budget = budget;
         this.concurrencyGate = new Semaphore(Math.max(1, props.loki().maxConcurrentQueries()));
         this.http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
     }
@@ -123,9 +129,13 @@ public class LokiClient {
             throttle();
             HttpResponse<String> response = send(request);
             int status = response.statusCode();
+            String body = response.body();
+            budget.record(status, (body != null) ? body.length() : 0L); // E 계측·시간당 누적
             if (status == 200) {
-                return parseData(response.body());
+                relaxThrottle(); // 성공 → 적응형 throttle 감쇠
+                return parseData(body);
             }
+            escalateThrottle(); // 429/5xx → 지속 감속
             if (RETRYABLE.contains(status) && attempt < MAX_ATTEMPTS - 1) {
                 log.warn("Loki {} (attempt {}/{}), backing off", status, attempt + 1, MAX_ATTEMPTS);
                 backoff(attempt);
@@ -160,9 +170,22 @@ public class LokiClient {
         }
     }
 
-    /** 쿼리 간 최소 간격(스로틀, doc/05 §2.4). */
+    /** 쿼리 간 최소 간격(스로틀, doc/05 §2.4) × 적응형 배수(2^level, E throttle-on-error). */
     private void throttle() {
-        sleep(props.loki().minQueryInterval().toMillis());
+        long base = props.loki().minQueryInterval().toMillis();
+        sleep(base << throttleLevel.get()); // level=0 이면 base(현행)
+    }
+
+    /** 429/5xx → throttle 레벨 +1(상한까지). throttle-on-error=false 면 no-op(현행). */
+    private void escalateThrottle() {
+        if (props.scan().throttleOnError()) {
+            throttleLevel.updateAndGet(l -> Math.min(l + 1, MAX_THROTTLE_LEVEL));
+        }
+    }
+
+    /** 성공 → throttle 레벨 −1(0 까지) 감쇠. */
+    private void relaxThrottle() {
+        throttleLevel.updateAndGet(l -> Math.max(l - 1, 0));
     }
 
     /** 지수 백오프: base * 2^attempt (base = min-query-interval). */

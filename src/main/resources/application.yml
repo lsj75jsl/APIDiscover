@@ -32,6 +32,13 @@ apidiscover:
     ingest-lag: "PT10M"
     initial-backfill: "P7D"
     off-peak-window: "01:00-06:00" # (선택) 백필/대용량 저부하 시간대
+  scan:                            # 엔드포인트 스캔 부하 운영정책 (doc/33, B+A+E)
+    tick-interval: "PT5M"          # B 스캔 틱(전수순회 대체) — 구 schedule.default-interval 트리거 대체
+    domains-per-tick: 100          # B 틱당 도메인 예산(least-recently-scanned 상위 K)
+    max-window: "PT6H"             # A per-scan 윈도우 상한(백필 슬라이스, 0=무제한)
+    max-queries-per-hour: 3000     # E 전역 시간당 쿼리 하드캡(0=무제한)
+    max-bytes-per-hour: 0          # E 전역 시간당 바이트 하드캡(0=무제한)
+    throttle-on-error: true        # E 429/5xx 적응형 자동감속
   discovery:                       # 도메인 자동 디스커버리 (doc/30, 서버측 집계)
     enabled: true
     interval: "PT10M"              # 롤링 주기
