@@ -419,12 +419,14 @@ PR1 실배포 검증: 단일 busy 도메인(www.takigen.co.jp)의 max-window PT6
 - **③ 스레드 격리**: `spring.task.scheduling.pool.size=2`(또는 TaskScheduler @Bean) → scanTick·discover 별 스레드(fixedDelay 자기직렬화 유지). SchedulingConfig 기본 풀=1 이 기아 원인.
 - **변경**: `DiscoveryJobService.runScan`/`collect` 슬라이스 순회·부분전진(`collectBounded`→{lines,consumedUpTo}), analyze/분류 불변. 무회귀: max-queries-per-scan=0=현행, 슬라이스 순회 결과동일(dedup), watermark 데이터 ts 결정적, 풀=2 동작불변.
 
-### D47. 운영자 도메인 목록 CLI `-domain -ls` (doc/33 §15) — 채택(구현·머지)
-운영자가 수집 도메인 목록만 확인. ★사용자 지정 단일대시 `./{바이너리} -domain -ls`(기존 `--adc.cli.export-domain=` 프로퍼티 스타일과 다름).
-- **main() raw-arg 감지**: `-domain` AND `-ls` 동시 존재(non-option args) → CLI 모드(web NONE·cli 프로파일). 내부적으로 `--adc.cli.list-domains=true` 주입 → `CliProperties.listDomains` → `CliListRunner`(@Profile cli) — 외부 단일대시 UX·내부 프로퍼티 구동 runner 분리(기존 패턴 균일).
-- **출력**: `domainRepo.findAll()` → **stdout**(사용자 '확인' 의도, 파일 아님). 컬럼 host·enabled·#hostnames·discovered_at·last_seen_at. 빈 목록=정상 exit 0, DB 오류 비0. Loki 무관(read only). `--csv` 옵션 미포함(과설계).
-- **★arg 스타일(권장 = 혼재 허용)**: 신규 목록만 `-domain -ls`(사용자 명시 존중), 기존 export/scan(`--adc.cli.X=`)은 불변(출하 명령·런북 비파괴). 전면 통일(단일대시 서브커맨드) 미채택 — 기존 명령 파괴. 통일 문법은 원하면 별도 마이그레이션(하위호환 동시), 피스밀 금지. `-domain -ls` 를 향후 통일 seed 로 기록.
-- **PR 구조(권장 = 2 PR)**: PR1.1(D46, 긴급·watermark 정합 정밀리뷰) 먼저·독립, 목록 CLI 별도(DB-only 저위험). 공유 브랜치면 분리 2커밋으로 독립 리뷰. 1 PR 도 무방하나 긴급도·관심사 분리상 2 권장.
+### D47. 운영자 CLI 문법 — 단일대시 `-domain` 서브커맨드 통일 (doc/33 §15) — 채택(목록 머지 후 전면 통일)
+운영자 CLI 를 전부 단일대시 `-domain` 서브커맨드로 통일(사용자 확정). 신문법:
+- `-domain -ls` — 도메인 목록(stdout, host·enabled·#hostnames·discovered_at·last_seen_at, 빈 목록 exit0·DB오류 비0, Loki 무관)
+- `-domain -export <도메인>` — CSV 내보내기(doc/31)
+- `-domain -scan <도메인> [-window <ISO8601>] [-edge <hostname>]` — 온디맨드 스캔(doc/33 §7)
+- **구현**: `main().parseCli`(순수·테스트 가능) 가 신문법 감지 → 내부 `--adc.cli.list-domains=true`/`export-domain=`/`scan-domain=`(+`window=`/`edge=`)로 translate 후 web NONE·cli 프로파일 부팅. CliProperties·CliExportRunner·CliScanRunner·CliListRunner 런너/바인딩 불변(외부 단일대시 UX·내부 프로퍼티 구동 분리 = 최소 변경). `-domain` 없음=서버 모드, `-domain` 단독·도메인 누락=usage+exit(2).
+- **★기존 `--adc.cli.export-domain=`/`scan-domain=` 사용자 트리거 제거**(직접 입력 시 CLI 미진입). 초기 채택은 (a) 혼재 허용이었으나, 목록 CLI 머지 후 사용자가 (b) **전면 통일** 결정 — 아직 외부 출하 전·테스트 단계라 출하 파괴 없음(피스밀 금지 단서대로 전 명령 동시 교체). HTML 매뉴얼 동기는 technical_writer 후속.
+- **갱신 이력**: 최초 D47=목록 `-domain -ls` 만(혼재 허용·전면통일 미채택). → 사용자 결정으로 전면 통일·기존 트리거 제거로 갱신(브랜치 feature/cli-domain-subcommand).
 
 ### D48. 스캔 정책 PR2/PR3 — C 활동 티어링 + D off-peak + F dormant (통합 due 모델, doc/33 §4–6) — 채택·구현+리뷰반영(1 PR, build green 408·실 PG 가드 PASS·커밋 보류)
 PR1(B+A+E) 토대 위 C(티어)·F(dormant)·intervalOverride 를 **단일 due 모델**로 통합, D(off-peak)는 그 위 파라미터 스위치. P3, 단일 인스턴스 전제.

@@ -63,18 +63,18 @@ podman run --rm --network host localhost/apidiscover:test -domain -ls
 
 # (b) 특정 도메인 API 결과 CSV
 podman run --rm --network host -v /opt/adc-exports:/exports \
-  localhost/apidiscover:test --adc.cli.export-domain=<domain>
+  localhost/apidiscover:test -domain -export <domain>
 # → /opt/adc-exports/<domain>-<epochmillis>.csv
 
 # (c) 특정 도메인 즉시 스캔(운영자 온디맨드, watermark 미전진)
 podman run --rm --network host localhost/apidiscover:test \
-  --adc.cli.scan-domain=<domain> [--window=PT30M] [--edge=<hostname>]
+  -domain -scan <domain> [-window PT30M] [-edge <hostname>]
 ```
-- 인자는 ENTRYPOINT(`wait-for-db.sh`→`java -jar /app/app.jar`) 뒤에 append → CLI 모드(웹·스케줄러 미기동, 1 명령 후 종료). 목록/내보내기는 Loki 미호출(DB only), scan-domain 만 Loki 호출(부하보호 준수).
-- 목록(`-domain -ls`)은 단일대시 `-domain`+`-ls`, 내보내기/스캔은 `--adc.cli.X=` 스타일(혼재, D47).
+- 인자는 ENTRYPOINT(`wait-for-db.sh`→`java -jar /app/app.jar`) 뒤에 append → CLI 모드(웹·스케줄러 미기동, 1 명령 후 종료). 목록/내보내기는 Loki 미호출(DB only), scan 만 Loki 호출(부하보호 준수).
+- ★전 명령 단일대시 `-domain` 서브커맨드로 통일(`-ls`/`-export`/`-scan`, D47 갱신) — 기존 `--adc.cli.X=` 사용자 트리거 제거(직접 입력 시 CLI 모드 미진입).
 - export exit: 0 성공 / 2 도메인 미지정 / 3 도메인 미존재·검출 0건 / 4 쓰기 실패.
 - CSV 15열+헤더: host·method·path_template·status·source·confidence·severity·estimated·spec_ref·preflight_ambiguous·low_confidence·param_query·param_path·first_seen·last_seen. (score 는 미영속 → 범위 밖.)
-- 대안: `podman exec adc-app java -jar /app/app.jar --adc.cli.export-domain=<domain>`(서빙 컨테이너 2nd JVM, 자원 점유 — exec 는 ENTRYPOINT 우회라 `java -jar` 명시).
+- 대안: `podman exec adc-app java -jar /app/app.jar -domain -export <domain>`(서빙 컨테이너 2nd JVM, 자원 점유 — exec 는 ENTRYPOINT 우회라 `java -jar` 명시).
 
 ## 5. 종료/정리
 

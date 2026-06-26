@@ -155,7 +155,7 @@ off-peak 는 **due 술어를 바꾸지 않고** 예산·윈도우만 스위치(d
 
 운영자가 특정 도메인 API 정보가 **즉시** 필요할 때 스케줄러를 안 기다리고 CLI 로 바로 스캔.
 
-- **명령**: `--adc.cli.scan-domain=<domain>` [옵션 `--adc.cli.window=PT1H` / `--adc.cli.edge=<hostname>`]. 무인자=서버, `export-domain`(기존 CSV)·`scan-domain`(신규) 분기. `@Profile("cli")`·`web(NONE)`·스케줄러 미기동 = 기존(doc/31 §B1) 동일.
+- **명령**: `-domain -scan <domain>` [옵션 `-window PT1H` / `-edge <hostname>`](단일대시 서브커맨드, D47 통일문법 — 내부 `--adc.cli.scan-domain=`/`window=`/`edge=` 로 translate). `-domain` 없음=서버. `@Profile("cli")`·`web(NONE)`·스케줄러 미기동 = 기존(doc/31 §B1) 동일.
 - **동작**: 윈도우 산정(기본 `window` 옵션 또는 `scan.max-window` 기본, **상한=max-window**) → 수집(--edge 지정 시 그 엣지만 `runOnDemand(edge,domain,win)`; 미지정 시 도메인 hostnames 전체 collect) → `analyze`(ScanResult 영속 + discovered_endpoint upsert).
 - **★watermark 관계(설계 답)**: 온디맨드는 **임시 윈도우만, watermark 전진 안 함**(`runOnDemand` 이 현재도 advanceWatermark 미호출 — 기존 동작). 이유: 즉시 스캔이 [now−1h, now) 을 보고 watermark 를 당기면 스케줄러가 [lastEnd, now−1h) 를 **skip → 데이터 갭**. 임시 스냅샷은 누적(discovered_endpoint)·최신 결과(ScanResult)만 갱신하고, 증분 진행은 스케줄러가 계속 소유.
 - **출력/종료코드**: 스캔 후 **요약(검출 수·Active/Zombie/Shadow/Unused 카운트) 출력** + exit(성공 0 / 도메인 미존재·미enabled 비0 / Loki 실패 비0). 기존 `CliExportRunner` exit 패턴 동형.
@@ -288,7 +288,7 @@ apidiscover.scan:
 
 ### 15.1 요구 / 실행형식
 
-운영자가 **수집된 도메인 목록만 확인**. ★사용자 지정 형식: `./{바이너리} -domain -ls`(**단일대시 플래그** — 기존 `--adc.cli.export-domain=X` 프로퍼티 스타일과 다름).
+운영자가 **수집된 도메인 목록만 확인**: `./{바이너리} -domain -ls`. CLI 전 명령이 **단일대시 `-domain` 서브커맨드로 통일**됨(D47, §15.3) — 구 `--adc.cli.X=` 프로퍼티 트리거는 제거(이 절 최초안의 '프로퍼티 스타일과 대조' 서술은 통일 이후 무효).
 
 ### 15.2 설계
 
@@ -297,16 +297,19 @@ apidiscover.scan:
 - **`CliListRunner`**: `domainRepo.findAll()`(host 정렬) → **stdout 출력**(사용자 '확인' 의도 → 파일 아님). 컬럼: `host`·`enabled`·`#hostnames`(또는 hostnames)·`discovered_at`·`last_seen_at`. 빈 목록=헤더+안내(정상), exit 0. DB 조회 실패=비0. **Loki 무관**(DB read only).
 - **CSV 파일 출력 옵션 미포함**(과설계 — '확인'은 stdout 충족, `--csv` 필요 시 후속).
 
-### 15.3 ★arg 스타일 reconciliation (권고)
+### 15.3 ★arg 스타일 통일 (사용자 확정 — 전면 통일 채택)
 
-- **현재**: `--adc.cli.export-domain=X`·`--adc.cli.scan-domain=X`(프로퍼티 스타일, PR#23/#26 출하·런북/매뉴얼 참조). **신규**: `-domain -ls`(단일대시, 사용자 지정).
-- **권장 = (a) 최소 — 혼재 허용**: 신규 목록만 `-domain -ls`(사용자 명시 형식 존중), 기존 export/scan 은 **불변**(출하된 명령·런북 깨지 않음). 내부는 `--adc.cli.list-domains=true` 로 통일(runner 레이어 일관).
-- **(b) 전면 통일**(`-domain -ls`/`-scan`/`-export` 서브커맨드) 미채택 — **기존 명령 파괴**(런북/매뉴얼/배포 스크립트 회귀). 통일 CLI 문법은 원하면 **별도 의도된 마이그레이션**(전 명령 + 하위호환 동시)으로, 피스밀 금지. 사용자의 `-domain -ls` 를 향후 통일 문법의 seed 로 기록.
+- **사용자 결정**: §15.3 원안의 (b) **전면 통일** 채택(피스밀 금지 단서대로 *전 명령 동시 교체*로 수행). 기존 `--adc.cli.export-domain=X`·`--adc.cli.scan-domain=X` 사용자 트리거는 **제거**(아직 외부 출하 전·테스트 단계라 파괴 없음).
+- **신문법(전부 단일대시 `-domain` 서브커맨드)**:
+  - `-domain -ls` — 도메인 목록
+  - `-domain -export <도메인>` — CSV 내보내기
+  - `-domain -scan <도메인> [-window <ISO8601>] [-edge <hostname>]` — 온디맨드 스캔
+- **내부 translate**: `main().parseCli` 가 신문법 감지 → 내부 `--adc.cli.list-domains=true`/`export-domain=`/`scan-domain=`(+`window=`/`edge=`)로 변환 후 주입. **외부 UX(단일대시)와 내부(프로퍼티 구동 runner)를 분리** — CliProperties·CliExportRunner·CliScanRunner·CliListRunner 불변(최소 변경).
 
 ### 15.4 무회귀
 
-- 신규 `CliListRunner` + `main()` raw-arg 감지(가산) + `CliProperties.listDomains`(가산). 기존 명령·서버 모드 불변. Loki·DB 쓰기 없음(read only).
-- **dev 구현 완료(PR)**: `main().isListDomains`(`-domain`+`-ls` 동시) → `--adc.cli.list-domains=true` 주입 → `CliListRunner`(@Profile cli, `findAll(Sort host)`→stdout host·enabled·#hostnames·discovered_at·last_seen_at, list()→exit code, 빈목록 0·DB오류 비0). `CliProperties.listDomains` 가산. 테스트 `CliListRunnerTest`(출력/빈목록/DB오류)·`MainArgModeTest`(감지·기존 export/scan 비회귀). 기존 `--adc.cli.export-domain=`/`scan-domain=` 불변(혼재 허용).
+- `main().parseCli`(신문법→주입, 순수·테스트 가능) + CLI 런너/바인딩 불변. `-domain` 없으면 서버 모드(무회귀). `-domain` 단독·`-export`/`-scan` 도메인 누락=usage+exit(2).
+- **dev 구현 완료(PR, 통일문법)**: `parseCli` → `-domain -ls`/`-export D`/`-scan D [-window/-edge]` → 내부 `--adc.cli.*` 주입 → 각 런너(@Profile cli) 활성. 테스트 `MainArgModeTest`(신문법 3종 주입 단언·기존 `--adc.cli.X=` 제거 회귀=서버 모드·usage 에러 경로). ★기존 사용자 트리거 제거(직접 입력 시 CLI 미진입).
 
 ## 16. PR 구조 권고 (14·15) — 매니저 최종결정
 
@@ -315,19 +318,19 @@ apidiscover.scan:
 
 ## 17. dev 구현 체크리스트 (PR1.1 + 목록 CLI, D26)
 
-**PR1.1 — 스캔 폭주 수정 (§14)**
-- [ ] (③) `spring.task.scheduling.pool.size: 2`(또는 `SchedulingConfig` TaskScheduler @Bean) — scan/discover 스레드 격리.
-- [ ] (②) `scan.max-window` 기본값 PT6H→PT30M + `scan.slice-window`(미지정=chunk-window).
-- [ ] (①) `runScan`/`collect` 슬라이스 외부·hostname 내부 순회 → 슬라이스별 watermark 전진 + `max-queries-per-scan` 하드캡(슬라이스 경계)·`budget.hasBudget()` 슬라이스 체크 → 부분 전진(consumedUpTo) 후 종료.
-- [ ] 테스트 — 캡 hit 부분전진(consumedUpTo·resume·gap 없음)/busy 도메인 캡 발동/다도메인 비독점/슬라이스 멀티-hostname gap-free/무제한(0)=현행. 운영 Loki 단위 mock.
+**PR1.1 — 스캔 폭주 수정 (§14)** — *구현·머지 완료(PR #27, D46)*
+- [x] (③) `spring.task.scheduling.pool.size: 2`(또는 `SchedulingConfig` TaskScheduler @Bean) — scan/discover 스레드 격리.
+- [x] (②) `scan.max-window` 기본값 PT6H→PT30M + `scan.slice-window`(미지정=chunk-window).
+- [x] (①) `runScan`/`collect` 슬라이스 외부·hostname 내부 순회 → 슬라이스별 watermark 전진 + `max-queries-per-scan` 하드캡(슬라이스 경계)·`budget.hasBudget()` 슬라이스 체크 → 부분 전진(consumedUpTo) 후 종료.
+- [x] 테스트 — 캡 hit 부분전진(consumedUpTo·resume·gap 없음)/busy 도메인 캡 발동/다도메인 비독점/슬라이스 멀티-hostname gap-free/무제한(0)=현행. 운영 Loki 단위 mock.
 
-**목록 CLI (§15)**
-- [ ] `main()` raw-arg `-domain -ls` 감지 → CLI 모드 + `--adc.cli.list-domains=true` 주입.
-- [ ] `CliProperties.listDomains` + `CliListRunner`(@Profile cli, findAll→stdout 컬럼, 빈 목록 exit 0, 오류 비0).
-- [ ] 테스트 — 출력 포맷·빈 목록·exit(System.exit 미경유 단위), 기존 export/scan 명령 비회귀.
+**목록 CLI (§15)** — *구현·머지 완료(PR #27/#28); 이후 D47 전면 통일로 트리거 문법 갱신(feature/cli-domain-subcommand)*
+- [x] `main().parseCli` 가 신문법(`-domain -ls`/`-export`/`-scan`) 감지 → 목록은 `--adc.cli.list-domains=true` 주입(통일 전 raw-arg `-domain -ls` 감지에서 parseCli 로 일반화).
+- [x] `CliProperties.listDomains` + `CliListRunner`(@Profile cli, findAll→stdout 컬럼, 빈 목록 exit 0, 오류 비0).
+- [x] 테스트 — `CliListRunnerTest`(출력 포맷·빈 목록·exit, System.exit 미경유 단위) + `MainArgModeTest`(신문법 3종 주입·기존 문법 제거 회귀·복수 서브커맨드 모호 거부).
 
 ## 18. PR1.1·목록 CLI 범위 밖 / 후속
 
-- **통일 CLI 문법**(전 명령 단일대시 서브커맨드 + 하위호환) — §15.3, 원하면 별도 마이그레이션.
+- **통일 CLI 문법**(전 명령 단일대시 `-domain` 서브커맨드) — **완료**(D47 갱신·feature/cli-domain-subcommand): 구 `--adc.cli.X=` 사용자 트리거 제거, `main().parseCli` 가 신문법→내부 프로퍼티 translate. HTML 매뉴얼 동기는 technical_writer 후속.
 - **목록 `--csv` 파일 출력** — stdout 으로 충족, 필요 시 후속.
 - **per-slice 하드캡 미만의 within-slice 부분전진** — 멀티-hostname gap 위험으로 미채택(slice-window 축소로 완화), §14.2 floor.

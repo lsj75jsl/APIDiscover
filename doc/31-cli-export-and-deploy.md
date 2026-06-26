@@ -13,7 +13,7 @@
 
 ## B1. CLI 모드 — 서버와 분리, 실행 후 종료
 
-- **트리거**: `--adc.cli.export-domain=<domain>` 인자. `main()` 에서 CLI 인자 감지 시 `new SpringApplicationBuilder(App.class).web(WebApplicationType.NONE).profiles("cli").run(args)` 로 기동(웹 미기동).
+- **트리거**: `-domain -export <domain>`(단일대시 서브커맨드, D47 통일문법). `main().parseCli` 가 신문법 감지·내부 `--adc.cli.export-domain=<domain>` 로 translate → `new SpringApplicationBuilder(App.class).web(WebApplicationType.NONE).profiles("cli").run(args+주입)` 기동(웹 미기동). 런너/바인딩은 내부 프로퍼티 그대로(불변).
 - **스케줄러/Loki 차단**: 현재 `@EnableScheduling` 이 main 클래스에 무조건 부착 → **`SchedulingConfig`(@Configuration @EnableScheduling) 로 분리하고 `@Profile("!cli")`** 부여. CLI 모드는 스케줄러(스캔·디스커버리)·Loki 미기동. (batch.job.enabled=false 는 기존대로.)
 - **실행체**: `CliExportRunner implements CommandLineRunner`(`@Profile("cli")`) — `adc.cli.export-domain` 읽어 1 도메인 내보내고, `SpringApplication.exit`→`System.exit(code)`(성공 0 / 미존재·오류 비0). 웹·스케줄 미기동이라 비데몬 스레드 없음 → 자연 종료(명시 exit 로 코드 보장).
 - **확장 형태(과설계 금지)**: 명령 디스패치는 "어떤 `adc.cli.*` 인자가 있나" 수준의 단순 분기만. 향후 명령은 프로퍼티/서브분기 추가로 자연 확장. **일반 CLI 프레임워크(picocli 등) 미도입**(신규 의존 0).
@@ -52,8 +52,8 @@
 ## B4. 컨테이너에서 DB 접속 + 실행
 
 PostgreSQL(네트워크)이라 파일잠금 무관. 같은 pod 의 PG 에 접속(§C2, **pod=localhost:5432**):
-- **권장 — one-off `podman run` 으로 pod 합류**: `podman run --rm --pod adc -v /opt/adc-exports:/exports <img> --adc.cli.export-domain=foo.example.com` → netns 공유(localhost:5432)·exports 마운트·실행 후 `--rm`. 서빙 app 컨테이너에 부하 안 줌, 수명 깔끔. (인자는 exec-form ENTRYPOINT `java -jar /app/app.jar` 뒤에 append.)
-- **대안 — `podman exec`**: `podman exec adc-app java -jar /app/app.jar --adc.cli.export-domain=foo ...` → 같은 컨테이너 2nd JVM(localhost:5432·기존 exports 마운트 가시). 빠르나 서빙 컨테이너 자원 점유.
+- **권장 — one-off `podman run` 으로 pod 합류**: `podman run --rm --pod adc -v /opt/adc-exports:/exports <img> -domain -export foo.example.com` → netns 공유(localhost:5432)·exports 마운트·실행 후 `--rm`. 서빙 app 컨테이너에 부하 안 줌, 수명 깔끔. (인자는 exec-form ENTRYPOINT `java -jar /app/app.jar` 뒤에 append.)
+- **대안 — `podman exec`**: `podman exec adc-app java -jar /app/app.jar -domain -export foo.example.com` → 같은 컨테이너 2nd JVM(localhost:5432·기존 exports 마운트 가시). 빠르나 서빙 컨테이너 자원 점유.
 - 두 방식 모두 §C2 토폴로지의 JDBC URL 과 **동일 접속**(pod→localhost). 절차 문서화(§C4).
 
 ---
@@ -83,7 +83,7 @@ PostgreSQL(네트워크)이라 파일잠금 무관. 같은 pod 의 PG 에 접속
 
 1. 빌드: `podman build -t apidiscover:test .`
 2. 기동: `podman play kube adc.yaml`(또는 pod 스크립트) — host `/opt/adc`=PGDATA, `/opt/adc-exports`=CSV.
-3. CLI: `podman run --rm --pod adc -v /opt/adc-exports:/exports apidiscover:test --adc.cli.export-domain=<domain>` → `/opt/adc-exports/<domain>-<ts>.csv`.
+3. CLI: `podman run --rm --pod adc -v /opt/adc-exports:/exports apidiscover:test -domain -export <domain>` → `/opt/adc-exports/<domain>-<ts>.csv`.
 4. **운영 주의(필수 문구)**: 대상 Loki(192.168.8.100:3200)는 **운영 서버** — 컨테이너 스캔/디스커버리도 부하보호(윈도우·limit·throttle·동시성) 준수, 대용량은 **off-peak**. 임시 확인도 창/limit 작게.
 
 ---
