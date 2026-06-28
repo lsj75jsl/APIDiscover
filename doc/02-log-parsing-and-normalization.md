@@ -72,6 +72,8 @@ $server_port ^|^ $type
 
 정규화는 **2단계 우선순위**로 진행한다.
 
+> **전처리(파서, 1곳)**: `LogLineParser` 가 `rawPath` 산출 시 query(`?...`) + **matrix 파라미터(`;key=value`, RFC3986)** 를 제거한다(세그먼트별 첫 `;` 이후 절단). `rawPath` 가 스펙 매칭·휴리스틱 추론 공통 입력이므로 한 번 정리해 둘 다 정상화한다. 특히 `;jsessionid=...` 등 세션ID 가 세그먼트에 붙으면 ① 스펙 미매칭 ② 세션ID마다 별도 template → **카디널리티 폭증**(실배포 `eos-st.komeda.co.jp POST /st/login;jsessionid=...` 발견). matrix `;` 는 endpoint identity 와 무관(세션 노이즈)이라 전부 제거 안전. (참고: `RefererSignalExtractor.refererPath` 는 query/fragment 만 제거하고 matrix 는 미제거 — referer matrix 는 드물고 PAGE_URLS 는 coverage-gated 보조신호라 영향 미미, 일관성 후속만.)
+
 ### 3.1 1단계 — 스펙 우선 매칭 (가장 정확)
 
 업로드된 문서(S)가 있으면, concrete path 를 먼저 문서 템플릿에 매칭한다.
