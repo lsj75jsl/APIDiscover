@@ -37,6 +37,20 @@ spec:
           value: adc
         - name: SPRING_DATASOURCE_PASSWORD
           value: adc
+        # --- 스캔 처리율 튜닝 (application.yml 속성 env override, 재빌드 불요·pod 재시작만, doc/33) ---
+        # ★운영 Loki 부하 일부 증가 감수. 값만 바꿔 play kube 재적용하면 반영(이미지 불변).
+        - name: APIDISCOVER_SCAN_DOMAINSPERTICK       # scan.domains-per-tick 100→300 (틱당 선택↑, 미스캔 backlog 가속)
+          value: "300"
+        - name: APIDISCOVER_SCAN_TICKINTERVAL         # scan.tick-interval PT5M→PT3M (틱 빈도↑, 20회/hr)
+          value: "PT3M"
+        - name: APIDISCOVER_SCAN_MAXQUERIESPERHOUR    # scan.max-queries-per-hour 3000→8000 (시간당 쿼리 천장↑)
+          value: "8000"
+        - name: APIDISCOVER_LOKI_PAGELIMIT            # loki.page-limit 2000→5000 (쿼리당 로그↑→스캔당 쿼리↓, D7 1e8 금지 준수)
+          value: "5000"
+        - name: APIDISCOVER_SCAN_OFFPEAKZONE          # scan.off-peak-zone ""→Asia/Seoul (off-peak 01-06 을 실 저부하 시간에 정렬)
+          value: "Asia/Seoul"
+        - name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE   # 설정값 검증용 configprops 노출(내부)
+          value: "health,info,metrics,configprops"
       ports:
         - containerPort: 8080      # hostNetwork=true 라 host:8080 직접 바인드(hostPort 매핑 불요)
   volumes:

@@ -78,6 +78,22 @@ podman run --rm --network host localhost/apidiscover:test \
 - CSV 15열+헤더: host·method·path_template·status·source·confidence·severity·estimated·spec_ref·preflight_ambiguous·low_confidence·param_query·param_path·first_seen·last_seen. (score 는 미영속 → 범위 밖.)
 - 대안: `podman exec adc-app java -jar /app/app.jar -domain -export <domain>`(서빙 컨테이너 2nd JVM, 자원 점유 — exec 는 ENTRYPOINT 우회라 `java -jar` 명시).
 
+## 4.5 설정 변경 — ★이미지 재빌드 불요 (env override)
+
+`application.yml` 값은 이미지에 baked 되지만, **Spring Boot 환경변수가 이를 override** 한다(relaxed binding: `apidiscover.scan.domains-per-tick` → `APIDISCOVER_SCAN_DOMAINSPERTICK`). 따라서 운영 튜닝은 **이미지 재빌드 없이 `adc.yaml` 의 env 만 바꿔 pod 재적용**한다.
+
+```bash
+# adc.yaml 의 app 컨테이너 env 수정 후(레포 반영) — 같은 이미지로 재시작만:
+podman pod stop adc && podman pod rm adc && podman play kube /root/adc.yaml
+podman inspect adc-app --format '{{.Image}}'        # 재시작 전후 동일 = 재빌드 안 함
+podman exec adc-app env | grep APIDISCOVER_          # env 주입 확인
+curl -s localhost:8080/actuator/configprops          # (노출 시) 바인딩 구조 확인(값은 마스킹)
+```
+
+스캔 처리율 튜닝 env(현 적용, doc/33 — 운영 Loki 부하 일부 증가 감수):
+- `APIDISCOVER_SCAN_DOMAINSPERTICK`(틱당 선택 K)·`APIDISCOVER_SCAN_TICKINTERVAL`(틱 빈도)·`APIDISCOVER_SCAN_MAXQUERIESPERHOUR`(시간당 쿼리 천장)·`APIDISCOVER_LOKI_PAGELIMIT`(쿼리당 로그, 1e8 금지)·`APIDISCOVER_SCAN_OFFPEAKZONE`(off-peak 판정 TZ).
+- 검증: 적용 후 scan complete 율·`loki.queries` 증가·미스캔(never-scanned) 감소로 바인딩 확인(configprops 는 값 마스킹).
+
 ## 5. 종료/정리
 
 ```bash
