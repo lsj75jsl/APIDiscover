@@ -72,7 +72,8 @@ public class LogLineParser {
             }
 
             String requestUri = f[F_REQUEST_URI];
-            String rawPath = stripQuery(requestUri);
+            // ★matrix 파라미터(;key=value, RFC3986) 제거 — ;jsessionid 등 세션ID 가 세그먼트에 붙어 엔드포인트가 분리·부풀려지는 것 방지.
+            String rawPath = stripMatrixParams(stripQuery(requestUri));
             List<QueryParamObs> queryParams = queryParams(requestUri);
 
             int status = Integer.parseInt(f[F_STATUS].trim());
@@ -116,6 +117,27 @@ public class LogLineParser {
         }
         int q = uri.indexOf('?');
         return q < 0 ? uri : uri.substring(0, q);
+    }
+
+    /**
+     * 세그먼트별(/ 분리) 첫 ';' 이후 제거 — RFC3986 matrix 파라미터(예 {@code ;jsessionid=X}). leading slash 보존.
+     * {@code /a;p=1/b;q=2}→{@code /a/b}, {@code /st/login;jsessionid=X}→{@code /st/login}. ';' 없으면 조기반환(무오버헤드).
+     * matrix 구분자 ';' 는 endpoint identity 와 무관(세션ID 노이즈)이라 전부 제거 안전(doc/02 §3.2).
+     */
+    private static String stripMatrixParams(String path) {
+        if (path == null || path.indexOf(';') < 0) {
+            return path;
+        }
+        String[] segs = path.split("/", -1);
+        StringBuilder sb = new StringBuilder(path.length());
+        for (int i = 0; i < segs.length; i++) {
+            if (i > 0) {
+                sb.append('/');
+            }
+            int semi = segs[i].indexOf(';');
+            sb.append(semi >= 0 ? segs[i].substring(0, semi) : segs[i]);
+        }
+        return sb.toString();
     }
 
     /**

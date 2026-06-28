@@ -115,6 +115,21 @@ class LogLineParserTest {
     }
 
     @Test
+    void stripsMatrixParamsFromPath() {
+        // ;jsessionid 등 RFC3986 matrix 파라미터 제거 — 세션ID별 엔드포인트 분리·부풀림 방지(실배포 eos-st.komeda.co.jp)
+        assertThat(pathOf("/st/login;jsessionid=FC4C5D2A9B")).isEqualTo("/st/login");
+        assertThat(pathOf("/a;p=1/b;q=2")).isEqualTo("/a/b");          // 멀티세그먼트
+        assertThat(pathOf("/p;s=1?q=2")).isEqualTo("/p");              // matrix + query 동시
+        assertThat(pathOf("/normal/path")).isEqualTo("/normal/path");  // ';' 없으면 불변
+        assertThat(pathOf("/")).isEqualTo("/");                        // 루트 불변
+    }
+
+    /** SAMPLE 의 request(field6)·request_uri(field9) 를 uri 로 치환 → 파싱된 rawPath 반환. */
+    private String pathOf(String uri) {
+        return parser.parse(SAMPLE.replace("/users/12345?expand=orders", uri)).orElseThrow().rawPath();
+    }
+
+    @Test
     void rejectsNonHttpMethod() {
         String bad = SAMPLE.replace("GET /users/12345?expand=orders HTTP/1.1", "GARBAGE line");
         assertThat(parser.parse(bad)).isEmpty();

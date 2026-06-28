@@ -5,6 +5,20 @@
 
 ---
 
+## 2026-06-29 세션 44 — 경로 matrix 파라미터(;jsessionid) 정규화(실배포 발견, doc/02 §3)
+
+### 한 일
+- **근본**: `LogLineParser` 의 `rawPath = stripQuery(requestUri)` 가 query(`?`)만 제거, matrix 파라미터(`;key=value`, RFC3986)는 잔존. `/st/login;jsessionid=FC4C...`(실배포 eos-st.komeda.co.jp POST)가 rawPath 로 남아 ① SPEC 매칭 미스 ② 세션ID마다 별도 template → 카디널리티 폭증(엔드포인트 부풀림). rawPath 가 matcher.match·PathNormalizer.inferTemplate 공통 입력이라 양쪽 오염.
+- **수정(파서 1곳)**: `rawPath = stripMatrixParams(stripQuery(requestUri))`. `stripMatrixParams` = 세그먼트별(`/` 분리) 첫 `;` 이후 제거(leading slash 보존, `;` 없으면 조기반환=무오버헤드). `/a;p=1/b;q=2`→`/a/b`, `/st/login;jsessionid=X`→`/st/login`. matrix `;` 는 endpoint identity 와 무관(세션 노이즈)이라 전부 제거 안전. PathNormalizer/매칭 코드 불변.
+- **referer 적용 여부**: `RefererSignalExtractor.refererPath` 는 query/fragment 만 제거·matrix 미제거 — referer matrix 드물고 PAGE_URLS 는 coverage-gated 보조신호라 영향 미미. 헬퍼 노출/중복 회피 위해 미적용, TASKS 선택 후속 메모만(매니저 지시의 '과하면 생략' 채택).
+- **테스트**: `LogLineParserTest.stripsMatrixParamsFromPath`(jsessionid·멀티세그먼트 `/a;x=1/b;y=2`→`/a/b`·matrix+query `/p;s=1?q=2`→`/p`·';' 없는 정상 불변·`/` 불변). 기존 파서 테스트 무회귀.
+
+### 결과
+- `./gradlew build` BUILD SUCCESSFUL. 전체 432(+1) 실패0 skip2(둘 다 -Dloki.live=운영 Loki 미호출). LogLineParserTest 8 green. 운영 Loki 미호출(파싱 단위).
+
+### 다음 단계
+- 커밋 금지(매니저, 브랜치 fix/strip-matrix-params). 기존 DB `;jsessionid` 행은 재스캔 시 `/st/login` 새 적재 + retention(180d) 자연 정리(forward fix) — 매니저 재배포 반영. referer matrix strip 은 선택 후속.
+
 ## 2026-06-26 세션 43 — `-domain -ls` stdout 표 → CSV 파일(사용자 Option B, doc/33 §15)
 
 ### 한 일
