@@ -9,11 +9,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.pentasecurity.apidiscover.api.dto.DomainDtos.SpecMetaView;
+import com.pentasecurity.apidiscover.domain.SpecMetaProjection;
 import com.pentasecurity.apidiscover.domain.SpecRecord;
 import com.pentasecurity.apidiscover.spec.SpecFormat;
 import com.pentasecurity.apidiscover.spec.SpecStore;
-import java.time.Instant;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -36,21 +37,26 @@ class SpecControllerTest {
     }
 
     @Test
-    void metaReturnsActiveDocumentsWithFilenameSortedDeterministically() {
-        when(specStore.activeRecords(HOST)).thenReturn(List.of(
-                rec("users", "u.yaml", 2L), rec("orders", "o.yaml", 1L)));
+    void metaMapsProjectionsToViewsWithFilename() {
+        // ★projection 조회(activeSpecMetas) — rawDoc oid 미접근. 정렬은 repo @Query(여기선 repo 순서 보존 매핑 검증)
+        when(specStore.activeSpecMetas(HOST)).thenReturn(List.of(
+                proj("orders", "o.yaml", 1L), proj("users", "u.yaml", 2L)));
 
         List<SpecMetaView> list = controller.meta(HOST);
 
-        assertThat(list).extracting(SpecMetaView::specName).containsExactly("orders", "users"); // specName asc 정렬
+        assertThat(list).extracting(SpecMetaView::specName).containsExactly("orders", "users");
         assertThat(list).extracting(SpecMetaView::filename).containsExactly("o.yaml", "u.yaml");
         assertThat(list).allSatisfy(v -> assertThat(v.active()).isTrue());
     }
 
     @Test
     void metaEmptyWhenNoActiveSpec() {
-        when(specStore.activeRecords(HOST)).thenReturn(List.of());
+        when(specStore.activeSpecMetas(HOST)).thenReturn(List.of());
         assertThat(controller.meta(HOST)).isEmpty(); // 200 + [](404 아님)
+    }
+
+    private static SpecMetaProjection proj(String specName, String filename, long version) {
+        return new SpecMetaProjection(SpecFormat.OPENAPI, version, 5, Instant.EPOCH, specName, filename, true);
     }
 
     private static SpecRecord rec(String specName, String filename, long version) {

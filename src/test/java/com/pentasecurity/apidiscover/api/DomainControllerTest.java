@@ -18,7 +18,7 @@ import com.pentasecurity.apidiscover.domain.DomainConfig;
 import com.pentasecurity.apidiscover.domain.DomainConfigRepository;
 import com.pentasecurity.apidiscover.domain.ScanResult;
 import com.pentasecurity.apidiscover.domain.ScanResultRepository;
-import com.pentasecurity.apidiscover.domain.SpecRecord;
+import com.pentasecurity.apidiscover.domain.SpecMetaProjection;
 import com.pentasecurity.apidiscover.model.ClassificationProfile;
 import com.pentasecurity.apidiscover.model.SpecMergeStrategy;
 import com.pentasecurity.apidiscover.spec.SpecFormat;
@@ -49,7 +49,7 @@ class DomainControllerTest {
 
     @Test
     void createNormalizesHostBeforeSave() {
-        when(specStore.activeMeta(any())).thenReturn(Optional.empty());
+        when(specStore.latestSpecMeta(any())).thenReturn(Optional.empty());
         when(repo.existsById("example.com")).thenReturn(false);
         when(repo.save(any(DomainConfig.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -81,7 +81,7 @@ class DomainControllerTest {
 
     @Test
     void updateLooksUpByNormalizedPathHost() {
-        when(specStore.activeMeta(any())).thenReturn(Optional.empty());
+        when(specStore.latestSpecMeta(any())).thenReturn(Optional.empty());
         DomainConfig existing = new DomainConfig();
         existing.setHost("example.com");
         when(repo.findById("example.com")).thenReturn(Optional.of(existing));
@@ -101,7 +101,7 @@ class DomainControllerTest {
 
     @Test
     void getLooksUpByNormalizedPathHost() {
-        when(specStore.activeMeta(any())).thenReturn(Optional.empty());
+        when(specStore.latestSpecMeta(any())).thenReturn(Optional.empty());
         DomainConfig existing = new DomainConfig();
         existing.setHost("example.com");
         when(repo.findById("example.com")).thenReturn(Optional.of(existing));
@@ -126,7 +126,7 @@ class DomainControllerTest {
 
     @Test
     void listReturnsArrayBodyWithPaginationHeaders() {
-        when(specStore.activeMeta(any())).thenReturn(Optional.empty());
+        when(specStore.latestSpecMeta(any())).thenReturn(Optional.empty());
         // 전체 1500건 가정, page0 = 2건 샘플(헤더 정합만 검증)
         when(repo.findAll(any(Pageable.class))).thenReturn(
                 new PageImpl<>(List.of(dc("a.example.com"), dc("b.example.com")),
@@ -169,7 +169,7 @@ class DomainControllerTest {
 
     @Test
     void updateAppliesOnlyPresentFieldsKeepingOthers() {
-        when(specStore.activeMeta(any())).thenReturn(Optional.empty());
+        when(specStore.latestSpecMeta(any())).thenReturn(Optional.empty());
         DomainConfig existing = existing();
         when(repo.findById("example.com")).thenReturn(Optional.of(existing));
         when(repo.save(any(DomainConfig.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -186,7 +186,7 @@ class DomainControllerTest {
 
     @Test
     void updateEmptyHostnamesClearsButNullKeeps() {
-        when(specStore.activeMeta(any())).thenReturn(Optional.empty());
+        when(specStore.latestSpecMeta(any())).thenReturn(Optional.empty());
         when(repo.findById("example.com")).thenReturn(Optional.of(existing()));
         when(repo.save(any(DomainConfig.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -197,7 +197,7 @@ class DomainControllerTest {
 
     @Test
     void updateFullPayloadIsNoRegression() {
-        when(specStore.activeMeta(any())).thenReturn(Optional.empty());
+        when(specStore.latestSpecMeta(any())).thenReturn(Optional.empty());
         when(repo.findById("example.com")).thenReturn(Optional.of(existing()));
         when(repo.save(any(DomainConfig.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -213,7 +213,7 @@ class DomainControllerTest {
 
     @Test
     void createWithNullEnabledDefaultsToTrueAndEmptyHostnames() {
-        when(specStore.activeMeta(any())).thenReturn(Optional.empty());
+        when(specStore.latestSpecMeta(any())).thenReturn(Optional.empty());
         when(repo.existsById("example.com")).thenReturn(false);
         when(repo.save(any(DomainConfig.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -232,7 +232,7 @@ class DomainControllerTest {
         d.setHost("example.com");
         d.setEnabled(true);
         when(repo.findById("example.com")).thenReturn(Optional.of(d));
-        when(specStore.activeMeta("example.com")).thenReturn(Optional.of(spec("users-api.yaml", 18)));
+        when(specStore.latestSpecMeta("example.com")).thenReturn(Optional.of(spec("users-api.yaml", 18)));
         ScanResult sr = new ScanResult();
         sr.setHost("example.com");
         sr.setLastScanAt(Instant.EPOCH);
@@ -253,7 +253,7 @@ class DomainControllerTest {
         DomainConfig d = new DomainConfig();
         d.setHost("example.com");
         when(repo.findById("example.com")).thenReturn(Optional.of(d));
-        when(specStore.activeMeta("example.com")).thenReturn(Optional.empty());
+        when(specStore.latestSpecMeta("example.com")).thenReturn(Optional.empty());
         when(scanRepo.findById("example.com")).thenReturn(Optional.empty());
 
         var view = controller.get("example.com");
@@ -263,17 +263,9 @@ class DomainControllerTest {
         assertThat(view.effectiveClassification()).isNotNull(); // resolver 는 항상 effective 반환(MIDDLE 기본)
     }
 
-    private static SpecRecord spec(String filename, int endpointCount) {
-        SpecRecord r = new SpecRecord();
-        r.setHost("example.com");
-        r.setSpecName("default");
-        r.setFilename(filename);
-        r.setFormat(SpecFormat.OPENAPI);
-        r.setSpecVersion(3L);
-        r.setEndpointCount(endpointCount);
-        r.setUploadedAt(Instant.EPOCH);
-        r.setActive(true);
-        return r;
+    private static SpecMetaProjection spec(String filename, int endpointCount) {
+        // ★REST 메타는 projection(rawDoc oid 미접근, doc/28) — latestSpecMeta 가 SpecMetaProjection 반환
+        return new SpecMetaProjection(SpecFormat.OPENAPI, 3L, endpointCount, Instant.EPOCH, "default", filename, true);
     }
 
     private static DomainConfig existing() {

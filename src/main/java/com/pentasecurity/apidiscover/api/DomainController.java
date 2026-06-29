@@ -64,7 +64,7 @@ public class DomainController {
         int safePage = Math.max(0, page);
         int safeSize = Math.min(Math.max(1, size), MAX_PAGE_SIZE); // [1,1000] clamp
         Page<DomainConfig> p = repo.findAll(PageRequest.of(safePage, safeSize, Sort.by("host")));
-        // ponytail: toView 가 도메인별 specStore.activeMeta() 호출 → page 당 최대 1000회(기존 14k 전건에서 page-bounded 로 완화).
+        // ponytail: toView 가 도메인별 specStore.latestSpecMeta() 호출 → page 당 최대 1000회(기존 14k 전건에서 page-bounded 로 완화).
         // batch spec meta 로드는 SpecStore 배치 API 신설이 필요해 후속(doc/35 M1) — page 상한으로 폭주는 이미 차단.
         List<DomainView> body = p.getContent().stream().map(this::toView).toList();
         return ResponseEntity.ok()
@@ -95,7 +95,7 @@ public class DomainController {
     @GetMapping("/{host}")
     public DomainDetailView get(@PathVariable String host) {
         DomainConfig d = find(requireNormalizedHost(host)); // 경로 host 정규화(등록 정규화와 자기일관, 대문자 경로 매칭)
-        SpecMetaView spec = specStore.activeMeta(d.getHost()).map(SpecMetaView::of).orElse(null);
+        SpecMetaView spec = specStore.latestSpecMeta(d.getHost()).map(SpecMetaView::of).orElse(null); // projection(rawDoc oid 미접근, doc/28)
         SpecMergeStrategy mode = d.getSpecMergeStrategy() != null ? d.getSpecMergeStrategy() : SpecMergeStrategy.MERGE;
         Instant lastScanAt = scanRepo.findById(d.getHost()).map(ScanResult::getLastScanAt).orElse(null);
         var effective = classificationResolver.resolve(d.getHost()).toView(); // 공유 빌더(EffectiveClassification.toView)
@@ -161,7 +161,7 @@ public class DomainController {
 
     /** 목록(M1) 경량 뷰 — spec 메타만(lastScanAt·effectiveClassification 미조회=page 당 N+1 회귀 방지). */
     private DomainView toView(DomainConfig d) {
-        SpecMetaView spec = specStore.activeMeta(d.getHost()).map(SpecMetaView::of).orElse(null);
+        SpecMetaView spec = specStore.latestSpecMeta(d.getHost()).map(SpecMetaView::of).orElse(null); // projection(rawDoc oid 미접근, doc/28)
         SpecMergeStrategy mode = d.getSpecMergeStrategy() != null ? d.getSpecMergeStrategy() : SpecMergeStrategy.MERGE;
         return new DomainView(d.getHost(), d.isEnabled(), d.getHostnames(), d.getIntervalOverride(), mode, d.getBasePathStrip(), spec);
     }

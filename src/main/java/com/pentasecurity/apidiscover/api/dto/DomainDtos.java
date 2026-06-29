@@ -1,6 +1,7 @@
 // 중앙 서버 연동 REST DTO 묶음 (doc/07 §3)
 package com.pentasecurity.apidiscover.api.dto;
 
+import com.pentasecurity.apidiscover.domain.SpecMetaProjection;
 import com.pentasecurity.apidiscover.domain.SpecRecord;
 import com.pentasecurity.apidiscover.model.EffectiveClassificationView;
 import com.pentasecurity.apidiscover.model.SpecMergeStrategy;
@@ -64,10 +65,16 @@ public final class DomainDtos {
             String filename,    // 원본 파일명(PUT ?filename=), 기존행/미전달 null
             boolean active      // 활성 버전 여부
     ) {
-        /** SpecRecord → 메타 뷰 매핑(단일 진실원, upload/M2/M4/M6 공유). */
+        /** SpecRecord → 메타 뷰 매핑(업로드 응답 등 엔티티 보유 경로). */
         public static SpecMetaView of(SpecRecord r) {
             return new SpecMetaView(r.getFormat(), r.getSpecVersion(), r.getEndpointCount(), r.getUploadedAt(),
                     r.getSpecName(), r.getFilename(), r.isActive());
+        }
+
+        /** SpecMetaProjection → 메타 뷰 매핑(★REST 메타 조회 — rawDoc oid 미접근, doc/28). */
+        public static SpecMetaView of(SpecMetaProjection p) {
+            return new SpecMetaView(p.format(), p.specVersion(), p.endpointCount(), p.uploadedAt(),
+                    p.specName(), p.filename(), p.active());
         }
     }
 

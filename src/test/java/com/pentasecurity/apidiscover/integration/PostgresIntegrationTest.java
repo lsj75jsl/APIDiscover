@@ -322,6 +322,127 @@ class PostgresIntegrationTest {
                 .andExpect(jsonPath("$.findings[*].pathTemplate", hasItem("/api/orders/{id}")));
     }
 
+    // --- 실배포 버그 회귀가드: rawDoc=@Lob oid → 트랜잭션 밖 메타조회(M2/M4/M6) projection 으로 LOB materialize 회피(doc/28) ---
+
+    @Test
+    void specMetaEndpointsDoNotMaterializeRawDocOidInAutoCommit() throws Exception {
+        // ★실 PG 전용 회귀(H2 재현 불가): rawDoc 보유 active SpecRecord 영속 후, REST 메타 GET(트랜잭션 밖 auto-commit)이 200.
+        // fix(projection) 미적용 시 엔티티 로드가 oid 를 materialize → "Large Objects may not be used in auto-commit mode" 500.
+        String host = "specmeta.example.com";
+        registerDomain(host);
+        SpecRecord spec = new SpecRecord();
+        spec.setHost(host);
+        spec.setSpecName("default");
+        spec.setFilename("users-api.yaml");
+        spec.setFormat(SpecFormat.OPENAPI);
+        spec.setSpecVersion(1L);
+        spec.setEndpointCount(3);
+        spec.setCanonicalJson("[]");
+        spec.setRawDoc("raw-spec-bytes".getBytes(StandardCharsets.UTF_8)); // ★oid LOB 영속
+        spec.setUploadedAt(Instant.EPOCH);
+        spec.setActive(true);
+        specRepo.save(spec);
+
+        // M6 GET /spec — projection(rawDoc 미선택) → 200·List(filename 포함). 500(JpaSystemException) 아님.
+        mvc.perform(get("/api/v1/domains/{host}/spec", host))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].filename").value("users-api.yaml"))
+                .andExpect(jsonPath("$[0].endpointCount").value(3));
+
+        // M2 GET /domains/{host} — spec 메타 projection → 200(spec.filename 포함).
+        mvc.perform(get("/api/v1/domains/{host}", host))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.spec.filename").value("users-api.yaml"));
+
+        // M4 GET /scan-status — latestSpec projection(스캔 결과 선행 필요)
+        ScanResult sr = new ScanResult();
+        sr.setHost(host);
+        sr.setVersion("v1");
+        sr.setReportJson("{\"summary\":\"ok\"}");
+        scanRepo.save(sr);
+        mvc.perform(get("/api/v1/domains/{host}/scan-status", host))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.latestSpec.filename").value("users-api.yaml"));
+    }
+
+    @Test
+    void forHostEndpointsTolerateRawDocOidSpecOnRealPg() throws Exception {
+        // ★실 PG 전용 회귀(doc/28 §10·D51): forHost(/discovery·/result M5)가 spec 보유 도메인의 SpecRecord 엔티티(rawDoc oid)를
+        // loadActiveCanonical/activeRecords 로 로드 → forHost @Transactional(readOnly) 없으면 auto-commit LOB materialize 500.
+        String host = "forhost.example.com";
+        registerDomain(host);
+        SpecRecord spec = new SpecRecord();
+        spec.setHost(host);
+        spec.setSpecName("default");
+        spec.setFormat(SpecFormat.OPENAPI);
+        spec.setSpecVersion(1L);
+        spec.setEndpointCount(0);
+        spec.setCanonicalJson("[]");                                  // active spec → loadActiveCanonical 진입
+        spec.setRawDoc("raw-spec-bytes".getBytes(StandardCharsets.UTF_8)); // ★oid LOB
+        spec.setUploadedAt(Instant.EPOCH);
+        spec.setActive(true);
+        specRepo.save(spec);
+        DiscoveredEndpointRecord d = new DiscoveredEndpointRecord();  // findings 생성용 검출 1건
+        d.setHost(host);
+        d.setMethod("POST");
+        d.setPathTemplate("/api/orders/{id}");
+        d.setTemplateSource("INFERRED");
+        d.setEndpointKind("API_CANDIDATE");
+        d.setKindConfidence(0.95);
+        d.setFirstSeen(Instant.EPOCH);
+        d.setLastSeen(Instant.EPOCH);
+        d.setLastScanAt(Instant.EPOCH);
+        d.setHits(100);
+        d.setStatusDistJson("{\"2xx\":100}");
+        d.setHadQuery(true);
+        d.setNonBrowserUa(true);
+        discoveredRepo.save(d);
+
+        // /discovery — forHost: activeRecords/loadActiveCanonical 엔티티(rawDoc oid) 로드를 readOnly tx 로 감싸 안전 → 200(500 아님)
+        mvc.perform(get("/api/v1/domains/{host}/discovery", host))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.findings").isArray());
+
+        // /result(M5) — serve-time rationale 가산도 forHost 경유 → 200(rationale 배열)
+        ScanResult r = new ScanResult();
+        r.setHost(host);
+        r.setVersion("v1");
+        r.setReportJson("{\"summary\":\"ok\"}");
+        scanRepo.save(r);
+        mvc.perform(get("/api/v1/domains/{host}/result", host))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.rationale").isArray());
+    }
+
+    @Test
+    void specListNullSpecNameOrdersFirstDeterministicallyOnRealPg() throws Exception {
+        // ★실 PG 회귀(h2-pg-null-ordering-trap): M6 projection ORDER BY 'specName asc nulls first' 가 PG 에서 결정적인지.
+        // nulls first 제거 시 H2 는 통과(ASC=NULLS FIRST 기본)하나 PG 는 NULLS LAST 로 순서 발산 → 아래 단언 RED.
+        String host = "nullsort.example.com";
+        registerDomain(host);
+        specRepo.save(activeSpec(host, null, "a-null.yaml", 1L));    // specName=null (레거시 행)
+        specRepo.save(activeSpec(host, "zzz", "b-zzz.yaml", 2L));    // specName 비-null
+
+        mvc.perform(get("/api/v1/domains/{host}/spec", host))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].filename").value("a-null.yaml")) // null specName 우선(nulls first)
+                .andExpect(jsonPath("$[1].filename").value("b-zzz.yaml"));
+    }
+
+    private static SpecRecord activeSpec(String host, String specName, String filename, long version) {
+        SpecRecord r = new SpecRecord();
+        r.setHost(host);
+        r.setSpecName(specName);
+        r.setFilename(filename);
+        r.setFormat(SpecFormat.OPENAPI);
+        r.setSpecVersion(version);
+        r.setEndpointCount(1);
+        r.setCanonicalJson("[]");
+        r.setUploadedAt(Instant.EPOCH);
+        r.setActive(true);
+        return r;
+    }
+
     // --- L53: 조건부 GET 304 (reportJson @Lob TEXT read 동시 검증) ---
 
     @Test

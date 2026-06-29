@@ -4,6 +4,8 @@ package com.pentasecurity.apidiscover.domain;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface SpecRecordRepository extends JpaRepository<SpecRecord, Long> {
 
@@ -15,4 +17,17 @@ public interface SpecRecordRepository extends JpaRepository<SpecRecord, Long> {
 
     /** 새 버전 업로드 시 비활성화할 기존 활성 레코드. */
     List<SpecRecord> findByHostAndActiveIsTrue(String host);
+
+    /**
+     * ★REST 메타 조회용 projection (doc/28·35 M2/M4/M6) — 메타 컬럼만 SELECT(rawDoc oid·canonicalJson·warningsJson 미선택)라
+     * 트랜잭션 밖(auto-commit) 조회에서도 oid materialize 없이 안전. specName asc·specVersion asc 정렬(결정적, M6 목록).
+     * ★{@code nulls first} 명시(specName 레거시 null 가능): H2 ASC=NULLS FIRST 가 PG ASC=NULLS LAST 발산을 가림(h2-pg-null-ordering-trap,
+     * D48 findDueForScan 동형) → 기존 인메모리 {@code Comparator.nullsFirst} 동작·결정성 일치 위해 JPQL 에 명시(PG/H2 동일).
+     * 엔티티 반환({@code findByHostAndActiveIsTrue}·{@code findFirst...})은 스캔 경로(@Transactional analyze)용으로 유지.
+     */
+    @Query("select new com.pentasecurity.apidiscover.domain.SpecMetaProjection("
+            + "s.format, s.specVersion, s.endpointCount, s.uploadedAt, s.specName, s.filename, s.active) "
+            + "from SpecRecord s where s.host = :host and s.active = true "
+            + "order by s.specName asc nulls first, s.specVersion asc")
+    List<SpecMetaProjection> findActiveSpecMetas(@Param("host") String host);
 }

@@ -2,9 +2,7 @@
 package com.pentasecurity.apidiscover.api;
 
 import com.pentasecurity.apidiscover.api.dto.DomainDtos.SpecMetaView;
-import com.pentasecurity.apidiscover.domain.SpecRecord;
 import com.pentasecurity.apidiscover.spec.SpecStore;
-import java.util.Comparator;
 import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -31,14 +29,12 @@ public class SpecController {
         return SpecMetaView.of(specStore.upload(host, content, filename));
     }
 
-    /** 도메인의 active 스펙 문서 목록 (doc/35 M6) — 문서별 filename·uploadedAt 포함. 무스펙=빈 배열(200, 404 아님). */
+    /**
+     * 도메인의 active 스펙 문서 목록 (doc/35 M6) — 문서별 filename·uploadedAt 포함. 무스펙=빈 배열(200, 404 아님).
+     * ★projection 조회(rawDoc oid 미접근, doc/28) — 트랜잭션 밖(auto-commit) 에서도 LOB materialize 500 없이 안전. specName/version 정렬은 repo.
+     */
     @GetMapping
     public List<SpecMetaView> meta(@PathVariable String host) {
-        return specStore.activeRecords(host).stream()
-                .sorted(Comparator.comparing(SpecRecord::getSpecName,
-                                Comparator.nullsFirst(Comparator.naturalOrder()))
-                        .thenComparingLong(SpecRecord::getSpecVersion)) // 결정적 순서
-                .map(SpecMetaView::of)
-                .toList();
+        return specStore.activeSpecMetas(host).stream().map(SpecMetaView::of).toList();
     }
 }

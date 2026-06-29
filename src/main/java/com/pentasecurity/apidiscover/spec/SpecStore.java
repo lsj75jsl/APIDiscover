@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pentasecurity.apidiscover.domain.DomainConfigRepository;
+import com.pentasecurity.apidiscover.domain.SpecMetaProjection;
 import com.pentasecurity.apidiscover.domain.SpecRecord;
 import com.pentasecurity.apidiscover.domain.SpecRecordRepository;
 import com.pentasecurity.apidiscover.match.EndpointMatcherCache;
@@ -166,14 +167,32 @@ public class SpecStore {
                 .orElse(SpecMergeStrategy.MERGE);
     }
 
-    /** 활성 스펙 메타(없으면 empty). 멀티문서면 최신 버전 1건(존재 판정·단건 메타). */
+    /**
+     * 활성 스펙 메타(없으면 empty). 멀티문서면 최신 버전 1건(존재 판정·단건 메타).
+     * ★엔티티 반환(rawDoc oid 포함) — 스캔 경로(@Transactional analyze)에서만 호출. REST 메타 조회는 {@link #latestSpecMeta}/{@link #activeSpecMetas}(projection) 사용.
+     */
     public Optional<SpecRecord> activeMeta(String host) {
         return repo.findFirstByHostAndActiveIsTrueOrderBySpecVersionDesc(host);
     }
 
-    /** 활성 문서 집합(멀티 스펙). SpecSource documents·결합 뷰 입력 (doc/26 §4/§7). */
+    /** 활성 문서 집합(멀티 스펙, ★엔티티). SpecSource documents·결합 뷰 입력 (doc/26 §4/§7) — 스캔 경로(@Transactional)에서만. */
     public List<SpecRecord> activeRecords(String host) {
         return repo.findByHostAndActiveIsTrue(host);
+    }
+
+    /**
+     * ★REST 메타 목록(M6 GET /spec) — rawDoc oid 미접근 projection(doc/28). 트랜잭션 밖(auto-commit) 조회 안전. specName/version 정렬.
+     */
+    public List<SpecMetaProjection> activeSpecMetas(String host) {
+        return repo.findActiveSpecMetas(host);
+    }
+
+    /**
+     * ★REST 단건 메타(M2 GET /domains/{host}·M4 GET /scan-status) — 최신 active(specVersion 최대). projection 이라 oid 미접근.
+     */
+    public Optional<SpecMetaProjection> latestSpecMeta(String host) {
+        return repo.findActiveSpecMetas(host).stream()
+                .max(Comparator.comparingLong(SpecMetaProjection::specVersion));
     }
 
     /**

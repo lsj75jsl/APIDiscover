@@ -56,7 +56,7 @@ public class ScanController {
     @GetMapping("/scan-status")
     public ScanStatusView status(@PathVariable String host) {
         ScanResult r = find(host);
-        SpecMetaView latestSpec = specStore.activeMeta(host).map(SpecMetaView::of).orElse(null);
+        SpecMetaView latestSpec = specStore.latestSpecMeta(host).map(SpecMetaView::of).orElse(null); // projection(rawDoc oid 미접근, doc/28)
         return new ScanStatusView(r.getHost(), r.getState(), r.getLastScanAt(), r.getVersion(),
                 new SummaryView(r.getDiscovered(), r.getActive(), r.getShadow(), r.getZombie(), r.getUnused()),
                 r.getTotalDropped(), latestSpec);
