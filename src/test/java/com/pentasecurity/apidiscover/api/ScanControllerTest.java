@@ -1,8 +1,11 @@
-// ScanController 단위 테스트 — /scan-status latestSpec(M4) + /result serve-time rationale·ETag 불변(M5) (doc/35)
+// ScanController 단위 테스트 — /scan-status latestSpec(M4) + /result rationale·ETag(M5) + /scan-now 동기스캔(A1) (doc/35)
 package com.pentasecurity.apidiscover.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -13,9 +16,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pentasecurity.apidiscover.api.dto.DomainDtos.ScanStatusView;
 import com.pentasecurity.apidiscover.batch.CombinedDiscoveryService;
 import com.pentasecurity.apidiscover.batch.DiscoveryJobService;
+import com.pentasecurity.apidiscover.batch.DomainRegistrar;
+import com.pentasecurity.apidiscover.domain.DomainConfig;
 import com.pentasecurity.apidiscover.domain.ScanResult;
 import com.pentasecurity.apidiscover.domain.ScanResultRepository;
 import com.pentasecurity.apidiscover.domain.SpecRecord;
+import com.pentasecurity.apidiscover.ingest.LogWindow;
 import com.pentasecurity.apidiscover.model.ApiBasis;
 import com.pentasecurity.apidiscover.model.Classification;
 import com.pentasecurity.apidiscover.model.CombinedDiscovery;
@@ -24,10 +30,13 @@ import com.pentasecurity.apidiscover.model.SpecMergeStrategy;
 import com.pentasecurity.apidiscover.model.SpecSource;
 import com.pentasecurity.apidiscover.spec.SpecFormat;
 import com.pentasecurity.apidiscover.spec.SpecStore;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 class ScanControllerTest {
 
@@ -37,9 +46,10 @@ class ScanControllerTest {
     private final DiscoveryJobService jobService = mock(DiscoveryJobService.class);
     private final SpecStore specStore = mock(SpecStore.class);
     private final CombinedDiscoveryService combined = mock(CombinedDiscoveryService.class);
+    private final DomainRegistrar registrar = mock(DomainRegistrar.class);
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final ScanController controller =
-            new ScanController(scanRepo, jobService, specStore, combined, objectMapper);
+            new ScanController(scanRepo, jobService, specStore, combined, registrar, objectMapper);
 
     @Test
     void statusIncludesLatestSpecFilenameAndApiCount() {
@@ -102,6 +112,89 @@ class ScanControllerTest {
     void resultNoReportReturns204() {
         when(scanRepo.findById(HOST)).thenReturn(Optional.of(scan())); // reportJson null
         assertThat(controller.result(HOST, null).getStatusCode().value()).isEqualTo(204);
+    }
+
+    // --- A1: POST /scan-now 동기 즉시 스캔 (전부 mock, 운영 Loki 미호출) ---
+
+    @Test
+    void scanNowAutoRegistersScansAndReturnsCombined() {
+        LogWindow w = new LogWindow(Instant.EPOCH, Instant.EPOCH.plusSeconds(3600));
+        when(registrar.registerIfAbsent(HOST)).thenReturn(domainConfig());
+        when(jobService.onDemandWindow(any())).thenReturn(w);
+        when(jobService.scanOnDemand(eq(HOST), eq(w), isNull())).thenReturn(scan());
+        CombinedDiscovery expected = combinedWith(List.of());
+        when(combined.forHost(HOST)).thenReturn(expected);
+
+        CombinedDiscovery result = controller.scanNow(HOST, null);
+
+        assertThat(result).isSameAs(expected);                 // /discovery 일관 결과 반환
+        verify(registrar).registerIfAbsent(HOST);              // 미등록 자동등록
+        verify(jobService).scanOnDemand(HOST, w, null);        // watermark 미전진 경로
+    }
+
+    @Test
+    void scanNowIsIdempotentForExistingDomain() {
+        // registerIfAbsent 멱등 — 기존 도메인도 중복 등록 없이 스캔/반환(registrar 가 멱등 보장)
+        when(registrar.registerIfAbsent(HOST)).thenReturn(domainConfig());
+        when(jobService.onDemandWindow(any())).thenReturn(new LogWindow(Instant.EPOCH, Instant.EPOCH.plusSeconds(60)));
+        when(jobService.scanOnDemand(eq(HOST), any(), isNull())).thenReturn(scan());
+        when(combined.forHost(HOST)).thenReturn(combinedWith(List.of()));
+
+        assertThat(controller.scanNow(HOST, null)).isNotNull();
+        verify(registrar).registerIfAbsent(HOST);
+    }
+
+    @Test
+    void scanNowNormalizesHostBeforeRegisterAndScan() {
+        LogWindow w = new LogWindow(Instant.EPOCH, Instant.EPOCH.plusSeconds(60));
+        when(registrar.registerIfAbsent(HOST)).thenReturn(domainConfig());
+        when(jobService.onDemandWindow(any())).thenReturn(w);
+        when(jobService.scanOnDemand(eq(HOST), eq(w), isNull())).thenReturn(scan());
+        when(combined.forHost(HOST)).thenReturn(combinedWith(List.of()));
+
+        controller.scanNow("API.Example.COM", null); // 대문자 → 정규화 "api.example.com"
+
+        verify(registrar).registerIfAbsent(HOST);
+        verify(jobService).scanOnDemand(HOST, w, null);
+        verify(combined).forHost(HOST);
+    }
+
+    @Test
+    void scanNowPassesWindowToOnDemandWindow() {
+        Duration window = Duration.ofHours(2);
+        when(registrar.registerIfAbsent(HOST)).thenReturn(domainConfig());
+        when(jobService.onDemandWindow(window)).thenReturn(new LogWindow(Instant.EPOCH, Instant.EPOCH.plusSeconds(7200)));
+        when(jobService.scanOnDemand(eq(HOST), any(), isNull())).thenReturn(scan());
+        when(combined.forHost(HOST)).thenReturn(combinedWith(List.of()));
+
+        controller.scanNow(HOST, window);
+
+        verify(jobService).onDemandWindow(window); // window 파라미터 위임(기본은 onDemandWindow 내부 max-window)
+    }
+
+    @Test
+    void scanNowBlankHostReturns400() {
+        assertThatThrownBy(() -> controller.scanNow("  ", null))
+                .isInstanceOfSatisfying(ResponseStatusException.class,
+                        e -> assertThat(e.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST));
+        verify(registrar, never()).registerIfAbsent(any());
+    }
+
+    @Test
+    void scanNowMapsLokiFailureToBadGateway() {
+        when(registrar.registerIfAbsent(HOST)).thenReturn(domainConfig());
+        when(jobService.onDemandWindow(any())).thenReturn(new LogWindow(Instant.EPOCH, Instant.EPOCH.plusSeconds(60)));
+        when(jobService.scanOnDemand(any(), any(), any())).thenThrow(new IllegalStateException("Loki query failed"));
+
+        assertThatThrownBy(() -> controller.scanNow(HOST, null))
+                .isInstanceOfSatisfying(ResponseStatusException.class,
+                        e -> assertThat(e.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY));
+    }
+
+    private static DomainConfig domainConfig() {
+        DomainConfig d = new DomainConfig();
+        d.setHost(HOST);
+        return d;
     }
 
     private static CombinedDiscovery combinedWith(List<EndpointRationale> rationale) {
