@@ -5,6 +5,17 @@
 
 ---
 
+## 2026-06-29 세션 49 — REST API 사용 매뉴얼 신규 작성 (사용자 요청, 문서만, TW)
+
+### 한 일
+- VM 신규 이미지 재배포(8b37f89, 데이터 보존) 후 라이브 캡처본 기반으로 `doc/manual/api-rest-manual.html` 신규 작성. 전 엔드포인트(8그룹/18종)별 메서드·경로·용도·curl 예시·실제 응답 JSON + Loki 호출 표기(⚠️=POST /scan·POST /hostnames/.../query 만).
+- 컨트롤러 6종(`DomainController`·`ScanController`·`CombinedDiscoveryController`·`SpecController`·`ClassificationController`·`HostQueryController`) 라우트·상태코드 교차검증. ★브리프의 `GET /domains` 트림 예시(host 문자열 배열)는 실제 `List<DomainView>` 객체 배열이라 정확한 shape 로 기술(N+1 spec 조회 주의 일치). `GET /hostnames/{hostname}/domains` 만 `List<String>`.
+- 조건부 GET(ETag `"version"`→304) 실증 절, ★현재 제약사항 절(인증 없음·8080 외부차단·무페이지네이션 N+1·effective 재계산·카탈로그 vs 스캔 수치 차·최신1건 보관·Loki 부하·dropped 미노출), ★TODO 절(인증 최우선 등) 포함.
+
+### 결과
+- HTMLParser OK·HTML 태그 균형 EMPTY·전 엔드포인트 12경로·§4/§5·실데이터 정합 검증. 자기완결(외부 의존 0). 운영 Loki 미호출(캡처 데이터만). main 직접 커밋.
+- 다음 단계: 매니저 검증 대기.
+
 ## 2026-06-29 세션 48 — API 판단 근거 노출 매뉴얼 §4.3 갱신 (PR #38 후속, 문서만, TW)
 
 ### 한 일

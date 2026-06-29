@@ -121,6 +121,9 @@
 
 ## Done
 
+### REST API 사용 매뉴얼 신규 작성 (2026-06-29, 사용자 요청, 문서만) — TW
+- [x] `doc/manual/api-rest-manual.html` 신규 — 전 엔드포인트(도메인 CRUD·scan-status·result·discovery(신규 rationale)·spec·classification·hostnames·actuator) 18종 사용법(curl)+라이브 실데이터 응답 예시(VM 재배포 8b37f89 캡처)+조건부 GET(ETag 304 실증)+현재 제약사항·TODO 절. 자기완결 HTML. 컨트롤러 6종 라우트·상태코드(201/204/202·ETag) 교차검증.
+
 ### API 판단 근거(점수 산출 내역) 노출 — /discovery 가시화 (2026-06-29, doc/34 / DECISIONS D49, PR #38 dcdd4dc) — build green 457
 - [x] **API 판단 근거 노출** — A(조회 시 재계산), 스키마 변경 0. corsPreflight=discovered_endpoint OPTIONS 행 도출(컬럼 추가 불요).
   - [x] `ApiScorer.scoreExplain()`(신호별 key/weight/fired/contribution + total) + `score()`=`scoreExplain().total` 위임(단일 진실원). `weightsAsMap`(14키).
