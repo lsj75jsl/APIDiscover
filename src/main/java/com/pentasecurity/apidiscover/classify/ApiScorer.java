@@ -4,6 +4,11 @@ package com.pentasecurity.apidiscover.classify;
 import com.pentasecurity.apidiscover.match.ApiHintMatcher;
 import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
 import com.pentasecurity.apidiscover.model.EndpointKind;
+import com.pentasecurity.apidiscover.model.ScoreBreakdown;
+import com.pentasecurity.apidiscover.model.SignalContribution;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -187,65 +192,79 @@ public class ApiScorer {
     /**
      * API 후보 점수 (clamp 0..1). corsPreflight = 같은 host+template 이 OPTIONS 로 관측됐는지.
      * explicit-hint 모드(hints 에 api 힌트 설정)면 내장 path-shape 신호를 비활성하고 pathHint 만 가산(doc/09 §2.3).
+     * <p>★단일 진실원: {@link #scoreExplain} 에 위임(total 동치). 신호 발화 조건은 scoreExplain 1곳에만 존재(드리프트 차단).
      */
     public double score(DiscoveredEndpoint d, boolean corsPreflight, ApiHintMatcher hints) {
-        double s = 0.0;
+        return scoreExplain(d, corsPreflight, hints).total();
+    }
+
+    /**
+     * 점수 산출 내역(판단 근거 노출, doc/34 §3) — 평가된 신호별 (key·effective weight·fired·contribution) + total.
+     * {@code score()} 와 동일 로직 1:1 미러(같은 발화 조건·같은 가산 순서) → {@code total == score()}(테스트 고정).
+     * explicit-hint 모드면 path-shape 대신 pathHint 만 평가(mode 구분), 그 외 신호는 양 모드 공통.
+     */
+    public ScoreBreakdown scoreExplain(DiscoveredEndpoint d, boolean corsPreflight, ApiHintMatcher hints) {
+        List<SignalContribution> sigs = new ArrayList<>();
 
         // host/cors 는 양 모드 공통
-        if (hasApiHost(d)) {
-            s += w.hostApiSubdomain();
-        }
-        if (corsPreflight) {
-            s += w.corsPreflight();
-        }
+        sigs.add(sig("hostApiSubdomain", w.hostApiSubdomain(), hasApiHost(d)));
+        sigs.add(sig("corsPreflight", w.corsPreflight(), corsPreflight));
 
         if (hints.isExplicitHintMode()) {
             // explicit-hint 모드: 내장 path-shape 비활성, 힌트 매치 시 pathHint (doc/09 §2.3)
-            if (hints.apiHinted(d.pathTemplate())) {
-                s += w.pathHint();
-            }
+            sigs.add(sig("pathHint", w.pathHint(), hints.apiHinted(d.pathTemplate())));
         } else {
             // pathless strict: 내장 path-shape 신호(현행)
             String[] segs = segments(d.pathTemplate());
-            if (hasApiSegment(segs)) {
-                s += w.apiSegment();
-            }
-            if (hasGraphqlSegment(segs)) {
-                s += w.graphqlSegment();
-            }
-            if (anyMatch(segs, VERSION_SEG)) {
-                s += w.versionSegment();
-            }
-            if (anyIn(segs, ID_TOKENS)) {
-                s += w.pathIdSegment();
-            }
-            if (anyIn(segs, MACHINE)) {
-                s += w.machineEndpoint();
-            }
+            sigs.add(sig("apiSegment", w.apiSegment(), hasApiSegment(segs)));
+            sigs.add(sig("graphqlSegment", w.graphqlSegment(), hasGraphqlSegment(segs)));
+            sigs.add(sig("versionSegment", w.versionSegment(), anyMatch(segs, VERSION_SEG)));
+            sigs.add(sig("pathIdSegment", w.pathIdSegment(), anyIn(segs, ID_TOKENS)));
+            sigs.add(sig("machineEndpoint", w.machineEndpoint(), anyIn(segs, MACHINE)));
         }
 
-        // method/query/ua/repeat/static 는 양 모드 공통
-        if (isWriteMethod(d)) {
-            s += w.writeMethod();
-        }
-        if (d.hadQuery()) {
-            s += w.query();
-        }
-        if (d.nonBrowserUa()) {
-            s += w.nonBrowserUa();
-        }
-        if (d.metrics() != null && d.metrics().hits() >= w.repeatMinCount()) {
-            s += w.repeatBonus();
-        }
-        if (d.endpointKind() == EndpointKind.STATIC) {
-            s += w.staticAssetPenalty();
-        }
+        // method/query/ua/repeat/static/responseType 는 양 모드 공통
+        sigs.add(sig("writeMethod", w.writeMethod(), isWriteMethod(d)));
+        sigs.add(sig("query", w.query(), d.hadQuery()));
+        sigs.add(sig("nonBrowserUa", w.nonBrowserUa(), d.nonBrowserUa()));
+        sigs.add(sig("repeatBonus", w.repeatBonus(),
+                d.metrics() != null && d.metrics().hits() >= w.repeatMinCount()));
+        sigs.add(sig("staticAssetPenalty", w.staticAssetPenalty(), d.endpointKind() == EndpointKind.STATIC));
         // 응답타입 API 신호(doc/17 §2): dominant $type ∈ {xhr,fetch,json,api,ajax} → API_CANDIDATE 만 양성 가산.
         // WEB_PAGE/UNKNOWN/$type 부재 무가산·무감점, STATIC 과 상호배타(kind 단일값 → 동시 발화 불가).
-        if (d.endpointKind() == EndpointKind.API_CANDIDATE) {
-            s += w.responseTypeApi();
+        sigs.add(sig("responseTypeApi", w.responseTypeApi(), d.endpointKind() == EndpointKind.API_CANDIDATE));
+
+        double raw = 0.0;
+        for (SignalContribution s : sigs) {
+            raw += s.contribution(); // 미발화=0.0 가산(부동소수 합 불변) → score() 와 동일 total
         }
-        return Math.max(0.0, Math.min(1.0, Math.round(s * 1000.0) / 1000.0));
+        double total = Math.max(0.0, Math.min(1.0, Math.round(raw * 1000.0) / 1000.0));
+        return new ScoreBreakdown(total, sigs);
+    }
+
+    /** 신호 1건 — fired 면 contribution=weight(staticAssetPenalty 는 음수), 아니면 0.0. */
+    private static SignalContribution sig(String key, double weight, boolean fired) {
+        return new SignalContribution(key, weight, fired, fired ? weight : 0.0);
+    }
+
+    /** effective 가중치 14신호(§4.3) 를 key→value 맵으로 (doc/34 §2 effectiveClassification.weights). 키=WEIGHT_KEYS 명. */
+    public static Map<String, Double> weightsAsMap(Weights w) {
+        Map<String, Double> m = new LinkedHashMap<>();
+        m.put("hostApiSubdomain", w.hostApiSubdomain());
+        m.put("corsPreflight", w.corsPreflight());
+        m.put("apiSegment", w.apiSegment());
+        m.put("graphqlSegment", w.graphqlSegment());
+        m.put("versionSegment", w.versionSegment());
+        m.put("pathIdSegment", w.pathIdSegment());
+        m.put("machineEndpoint", w.machineEndpoint());
+        m.put("writeMethod", w.writeMethod());
+        m.put("query", w.query());
+        m.put("nonBrowserUa", w.nonBrowserUa());
+        m.put("staticAssetPenalty", w.staticAssetPenalty());
+        m.put("repeatBonus", w.repeatBonus());
+        m.put("pathHint", w.pathHint());
+        m.put("responseTypeApi", w.responseTypeApi());
+        return m;
     }
 
     private static boolean hasApiHost(DiscoveredEndpoint d) {

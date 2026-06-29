@@ -5,6 +5,22 @@
 
 ---
 
+## 2026-06-29 세션 47 — API 판단 근거(점수 산출 내역) 노출 (doc/34, A=조회시 재계산, 스키마 변경 0)
+
+### 한 일
+- **사용자 요구**: "어떤 항목에 어떤 점수로 어떤 기준으로 API 판단됐는지"를 `GET /discovery` 에서 노출. 권위 스펙=doc/34 §3+§7. 사용자 확인 완료=A(조회시 재계산).
+- **`ApiScorer.scoreExplain(d,cors,hints)→ScoreBreakdown{total, signals[SignalContribution{key,weight,fired,contribution}]}`**: 14신호 평가 내역. `score()` 를 `scoreExplain().total()` 위임 → **발화 조건 단일 진실원**(드리프트 차단). 부동소수 합 동일(미발화=0.0 가산)이라 기존 score 값 무변경. `weightsAsMap`(effective 14키 맵) 추가.
+- **`Classifier` explain 변형**: 8-arg(스캔 경로) core 에 nullable `rationaleOut` 추가한 9-arg core 로 리팩터(8-arg→9-arg null 위임). `rationaleOut!=null`(=`classifyExplained` 진입점, /discovery 전용)일 때만 각 finding 과 병렬로 근거 수집 — Shadow=ScoreBasis(scoreExplain·gate·mode·signals)·Active/Zombie=SpecMatchBasis(deprecated/estimated)·Unused=SpecOnlyBasis. **스캔 경로(rationaleOut=null)는 findings/dropped/preflight 바이트 동일**(report_json·ETag 불변). WebPage=KindBasis 는 Classifier 가 WebPage finding 미산출이라 생성처 없음(sealed 4종 완전성만).
+- **모델 신규(model 패키지, classify→model 단방향 유지)**: `SignalContribution`·`ScoreBreakdown`·`ApiBasis`(sealed 4종 `@JsonTypeInfo` "type" 판별자)·`EndpointRationale`·`EffectiveClassificationView`. `CombinedDiscovery` 에 `effectiveClassification`·`rationale` 2필드 가산 + **6-arg 하위호환 생성자**(CLI export 등 findings-only 경로 무회귀). 
+- **`CombinedDiscoveryService.forHost`**: `classifyExplained` 호출·`effectiveView`(profile·threshold·weightsSource(CUSTOM=custom)·14키 weights) 동봉. eff·discovered 이미 보유 → 추가 조회 0.
+
+### 결과
+- `./gradlew build` BUILD SUCCESSFUL. 전체 **457**(+12) 실패0 errors0 skip2(-Dloki.live). 신규 `ClassifierExplainTest` 7(rationale↔findings 정합·분류별 basis·basis JSON "type"·스캔경로 findings 동일)·`ApiScorerTest`+3(scoreExplain 동치·신호 내역·mode)·`CombinedDiscoveryServiceTest`+2(effective MIDDLE/CUSTOM·rationale 병렬). ReportBuilderTest·CliExportRunnerTest·DomainCsvWriterTest green=스캔/리포트/CLI 무회귀. 운영 Loki 미호출(mock/정적).
+- ETag/조건부GET 무영향: /discovery 는 plain GET, report_json 은 별도 스캔 경로 산출(CombinedDiscovery 미사용).
+
+### 다음 단계
+- 커밋 금지(매니저, 브랜치 feat/api-rationale-exposure). 매니저 리뷰/머지. 매뉴얼 §4.3(effective 확인·점수 내역 예시·분류별 근거 차이)은 technical_writer 후속(dev 범위 밖).
+
 ## 2026-06-29 세션 46 — DB 테이블 명세 HTML + ER Diagram 신규 작성 (사용자 요청, 문서만, TW)
 
 ### 한 일
