@@ -5,6 +5,18 @@
 
 ---
 
+## 2026-06-29 세션 58 — REST API 매뉴얼 M7a(spec 멀티문서 + API 상태추적) 갱신 (PR #44/#45 머지+재배포 201d0b5, 문서만, TW)
+
+### 한 일
+- `doc/manual/api-rest-manual.html` §2.4 를 M7a 머지 + 재업로드 500 수정 + 재배포 라이브 실데이터에 맞춰 갱신. SpecController·SpecChanges·SpecStore 실코드 교차검증.
+- **PUT /spec 보강** — `?filename`→specName 도출(정규화 trim·소문자, 미전달/빈=`default`), 다른 filename=별개 문서·동일 filename 재업로드=새 버전(구버전 active=false 보존=diff 기준), `Content-Type: application/octet-stream` 명시. 재업로드 200(이전 self-invocation tx 500 수정 PR #45). 기존 예시의 부정확한 `specName:"default"`(filename=petstore-v1.json) → 도출 규칙대로 교정.
+- **신규 GET /spec/changes 절** — specName 별 현 active vs 직전 diff(ADDED/DELETED/UPDATED·UNCHANGED 미보고), 동일성=method+pathTemplate, `?specName/status/from/to` 파라미터, 실데이터 JSON(spec-demo.example.com v1→v2). ★`updatedScope:"deprecated_version_only"` 한계 자기노출 콜아웃(deprecated·version 만, query/body param 미검출·path 변경=ADDED+DELETED, M7b 후속). 최초=previousVersion null·전ADDED, 무스펙=documents:[], servers /v2 prefix 반영 명시.
+- **요약표** GET /spec/changes 행 추가·GET /spec specName 보강. **TODO** 'M7 보류' 제거 → M7b(param-level UPDATED)만 유지(M7a 완료 명시). oid→bytea(D51) TODO 유지.
+
+### 결과
+- HTMLParser OK·HTML 태그 균형 EMPTY·신규/변경 정합·앵커 s2-1~s2-6·실데이터(updatedScope·comparedVersion·201d0b5) 검증. 자기완결(외부 의존 0). 운영 Loki 미호출(spec=파싱·DB only). main 직접 커밋. TASKS M7a 매뉴얼 후속 [x].
+- 다음 단계: 매니저 검증 대기.
+
 ## 2026-06-29 세션 57 — 실배포 버그: PUT /spec 동일 filename 재업로드 500 (rawDoc oid · @Transactional self-invocation)
 
 ### 한 일
