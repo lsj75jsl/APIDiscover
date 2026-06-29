@@ -9,12 +9,20 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.pentasecurity.apidiscover.api.dto.DomainDtos.DomainUpsert;
+import com.pentasecurity.apidiscover.api.dto.DomainDtos.DomainView;
 import com.pentasecurity.apidiscover.domain.DomainConfig;
 import com.pentasecurity.apidiscover.domain.DomainConfigRepository;
+import com.pentasecurity.apidiscover.model.SpecMergeStrategy;
 import com.pentasecurity.apidiscover.spec.SpecStore;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -97,6 +105,125 @@ class DomainControllerTest {
 
         verify(repo).existsById("example.com");
         verify(repo).deleteById("example.com");
+    }
+
+    // --- M1: GET /domains 페이지네이션 (배열 body + 헤더) ---
+
+    @Test
+    void listReturnsArrayBodyWithPaginationHeaders() {
+        when(specStore.activeMeta(any())).thenReturn(Optional.empty());
+        // 전체 1500건 가정, page0 = 2건 샘플(헤더 정합만 검증)
+        when(repo.findAll(any(Pageable.class))).thenReturn(
+                new PageImpl<>(List.of(dc("a.example.com"), dc("b.example.com")),
+                        PageRequest.of(0, 1000, Sort.by("host")), 1500));
+
+        var resp = controller.list(0, 1000);
+
+        assertThat(resp.getBody()).extracting(DomainView::host) // body=JSON 배열(페이지 객체 아님)
+                .containsExactly("a.example.com", "b.example.com");
+        assertThat(resp.getHeaders().getFirst("X-Total-Count")).isEqualTo("1500");
+        assertThat(resp.getHeaders().getFirst("X-Total-Pages")).isEqualTo("2"); // ceil(1500/1000)
+        assertThat(resp.getHeaders().getFirst("X-Current-Page")).isEqualTo("0");
+    }
+
+    @Test
+    void listClampsSizeToMaxAndNegativePageToZero() {
+        ArgumentCaptor<Pageable> cap = ArgumentCaptor.forClass(Pageable.class);
+        when(repo.findAll(cap.capture())).thenReturn(new PageImpl<>(List.of()));
+
+        controller.list(-5, 9999); // page<0 → 0, size>1000 → 1000
+
+        assertThat(cap.getValue().getPageNumber()).isEqualTo(0);
+        assertThat(cap.getValue().getPageSize()).isEqualTo(1000);
+        assertThat(cap.getValue().getSort()).isEqualTo(Sort.by("host")); // 결정적 정렬
+    }
+
+    @Test
+    void listPageBeyondRangeIsEmptyArrayWithHeaders() {
+        when(repo.findAll(any(Pageable.class))).thenReturn(
+                new PageImpl<>(List.of(), PageRequest.of(5, 1000, Sort.by("host")), 1500));
+
+        var resp = controller.list(5, 1000);
+
+        assertThat(resp.getBody()).isEmpty();
+        assertThat(resp.getHeaders().getFirst("X-Total-Count")).isEqualTo("1500");
+        assertThat(resp.getHeaders().getFirst("X-Current-Page")).isEqualTo("5");
+    }
+
+    // --- M3: PUT /domains/{host} 부분수정(present-only) ---
+
+    @Test
+    void updateAppliesOnlyPresentFieldsKeepingOthers() {
+        when(specStore.activeMeta(any())).thenReturn(Optional.empty());
+        DomainConfig existing = existing();
+        when(repo.findById("example.com")).thenReturn(Optional.of(existing));
+        when(repo.save(any(DomainConfig.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // enabled=false 만 전달, 나머지 null=유지
+        var view = controller.update("example.com",
+                new DomainUpsert(null, false, null, null, null, null));
+
+        assertThat(view.enabled()).isFalse();                  // 명시 false 적용(미전달과 구분)
+        assertThat(view.hostnames()).containsExactly("edge1"); // 미전달 → 유지
+        assertThat(view.intervalOverride()).isEqualTo("PT1H"); // 미전달 → 유지
+        assertThat(view.basePathStrip()).isEqualTo("/v2");     // 미전달 → 유지
+    }
+
+    @Test
+    void updateEmptyHostnamesClearsButNullKeeps() {
+        when(specStore.activeMeta(any())).thenReturn(Optional.empty());
+        when(repo.findById("example.com")).thenReturn(Optional.of(existing()));
+        when(repo.save(any(DomainConfig.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        var view = controller.update("example.com",
+                new DomainUpsert(null, null, List.of(), null, null, null)); // []=비우기(non-null)
+        assertThat(view.hostnames()).isEmpty();
+    }
+
+    @Test
+    void updateFullPayloadIsNoRegression() {
+        when(specStore.activeMeta(any())).thenReturn(Optional.empty());
+        when(repo.findById("example.com")).thenReturn(Optional.of(existing()));
+        when(repo.save(any(DomainConfig.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        var view = controller.update("example.com",
+                new DomainUpsert(null, false, List.of("new"), "PT2H", SpecMergeStrategy.SEPARATE, "/api"));
+
+        assertThat(view.enabled()).isFalse();
+        assertThat(view.hostnames()).containsExactly("new");
+        assertThat(view.intervalOverride()).isEqualTo("PT2H");
+        assertThat(view.specMergeStrategy()).isEqualTo(SpecMergeStrategy.SEPARATE);
+        assertThat(view.basePathStrip()).isEqualTo("/api");
+    }
+
+    @Test
+    void createWithNullEnabledDefaultsToTrueAndEmptyHostnames() {
+        when(specStore.activeMeta(any())).thenReturn(Optional.empty());
+        when(repo.existsById("example.com")).thenReturn(false);
+        when(repo.save(any(DomainConfig.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // create 무회귀: enabled 미전달(null)→기본 true, hostnames 미전달→[]
+        var view = controller.create(new DomainUpsert("example.com", null, null, null, null, null)).getBody();
+
+        assertThat(view.enabled()).isTrue();
+        assertThat(view.hostnames()).isEmpty();
+    }
+
+    private static DomainConfig existing() {
+        DomainConfig d = new DomainConfig();
+        d.setHost("example.com");
+        d.setEnabled(true);
+        d.setHostnames(new ArrayList<>(List.of("edge1")));
+        d.setIntervalOverride("PT1H");
+        d.setBasePathStrip("/v2");
+        return d;
+    }
+
+    private static DomainConfig dc(String host) {
+        DomainConfig d = new DomainConfig();
+        d.setHost(host);
+        d.setEnabled(true);
+        return d;
     }
 
     private static DomainUpsert upsert(String host) {

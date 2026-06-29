@@ -1,7 +1,7 @@
 # REST API 대규모 변경 배치 — 삭제·수정·신규 종합 설계 (사용자 요청)
 
-> 브랜치 미정(매니저 단계별 배정). 근거: doc/07(REST)·doc/26(멀티스펙·CombinedDiscovery)·doc/10·11(분류설정)·doc/34(rationale 재사용)·doc/30(DomainRegistrar). 근거 결정 **DECISIONS D50**.
-> **★설계만. 구현 금지.** dev 항목은 TASKS subitem(D26). 운영 Loki 미호출(정적 검토).
+> 브랜치 단계별 배정(매니저). 근거: doc/07(REST)·doc/26(멀티스펙·CombinedDiscovery)·doc/10·11(분류설정)·doc/34(rationale 재사용)·doc/30(DomainRegistrar). 근거 결정 **DECISIONS D50**.
+> **진행 상태**: PR1(도메인 엔드포인트 D1+M1+M3) **구현 완료**(브랜치 feat/api-batch-p1-domain, build green 464·커밋 보류). 나머지 P1(filename·M2·M4·M5·M6·A2)·P3(A1)=후속 PR, **P2(M7)=이번 보류**(§P2). 운영 Loki 미호출(정적/mock).
 > 사용자 확정: **GET /domains/{host}=유지+보강**(삭제 아님), **/result rationale=조회시 재계산**(report_json·ETag·중앙계약 불변, /discovery 메커니즘 재사용).
 
 ## 0. 단계 분할(phase) — 위험·의존도 기준
@@ -19,7 +19,7 @@
 
 | 항목 | 영향 | 안전성 |
 |---|---|---|
-| **M1** GET /domains | 응답 **배열 → 페이지 객체**(`{content,totalPages,...}`) | **★Breaking** — 기존 배열 소비자 깨짐. 중앙 소비 시 동시 갱신 필요(§M1). |
+| **M1** GET /domains | body **배열 유지** + 페이지 정보 **헤더**(X-Total-Count/Pages·X-Current-Page) | **non-breaking**(사용자 확정) — body shape 불변, 헤더만 가산(§M1). |
 | **M5** GET /result | body 에 `rationale` 필드 **가산** | additive-safe — 기존 report_json 필드 불변, 신규 필드만(중앙 파서 무영향). ETag=report version 유지. |
 | **M3** PUT /domains | 미전달 항목 = **기존 유지**(전엔 clear) | 의미 변경 — 전 항목 전달 시 무회귀. "omit=clear" 의존 소비자만 영향(희소). |
 | **D1** /hostnames/** | 엔드포인트 **제거** | Breaking — 해당 소비자 있으면 영향(현 자체용, 중앙 미사용 추정). |
@@ -36,17 +36,15 @@
 - **orphan 정리**: `DomainConfigRepository.findByHostname`(이 컨트롤러 전용 → orphan, 삭제). `ScanStatusView`/`SummaryView`(ScanController 도 사용 → **보존**), `DiscoveryJobService.runOnDemand`(CliScanRunner·A1 사용 → **보존**). 선존 dead code 미터치.
 - 매뉴얼: `/hostnames` 절·링크 정리(technical_writer).
 
-## M1. GET /api/v1/domains 페이지네이션
+## M1. GET /api/v1/domains 페이지네이션 (★구현 = 배열 body + 헤더, 사용자 확정)
 
-- **현 N+1**: `list()` 가 `repo.findAll()` 후 도메인마다 `specStore.activeMeta(host)` → 14k 도메인서 14k 쿼리. → **page 당 1000건** + **batch spec meta 로드**(active spec 을 host IN (...) 1쿼리로 모아 map, per-domain 조회 제거).
-- 파라미터: `?page=`(0-based, Spring Data 관례)·`size`(기본 1000, 상한 1000). **page 인덱스 0 기준 명시**.
-- 응답 shape(배열→페이지 객체):
-```jsonc
-{ "content": [ { /* DomainView */ } ],
-  "currentPage": 0, "totalPages": 12, "totalElements": 11549, "size": 1000 }
-```
-- DTO: `PagedView<DomainView>`(또는 Spring `Page` 직렬화 — 단 Spring Page 직렬화는 불안정 경고 있어 **명시 DTO 권장**). `DomainConfigRepository.findAll(Pageable)`(JpaRepository 기본).
-- **★중앙영향**: 배열→객체는 Breaking. 중앙이 /domains 를 소비하면 동시 갱신. (자체 운영용이면 영향 없음 — 매니저 확인.)
+- **★사용자 확정 — body=JSON 배열 유지**(`List<DomainView>`, ≤1000건). 페이지 객체로 감싸지 않는다(기존 배열 소비자 무파괴). 페이지 정보는 **응답 헤더**로 노출.
+- **헤더**: `X-Total-Count`(전체 도메인 수)·`X-Total-Pages`(전체 페이지 수)·`X-Current-Page`(현재 페이지, 0-based).
+- **현 N+1**: `list()` 가 `repo.findAll()` 후 도메인마다 `specStore.activeMeta(host)` → 14k 도메인서 14k 쿼리. → **page 당 1000건**으로 page-bounded(≤1000회/page). batch spec meta 로드(host IN 1쿼리)는 SpecStore 배치 API 신설 필요 → **후속**(page 상한으로 폭주 이미 차단, ponytail 주석).
+- 파라미터: `?page=`(0-based, 기본 0·음수→0)·`size`(기본 1000, [1,1000] clamp). `repo.findAll(PageRequest.of(page, size, Sort.by("host")))` — host asc 결정적 정렬.
+- 응답: `ResponseEntity<List<DomainView>>` — body 는 기존 `DomainView` 배열 그대로(원소 shape 불변). page 초과 시 빈 배열 + 헤더.
+- **★중앙영향**: body 배열 유지라 **non-breaking**(헤더는 가산). 페이지네이션 인지하는 소비자만 `?page` 순회·헤더 참조.
+- (최초 설계안의 페이지 객체 `{content,totalPages,...}` 는 사용자가 배열+헤더로 변경 — breaking 회피.)
 
 ## M2. GET /domains/{host} 보강(유지)
 
@@ -106,6 +104,8 @@
 ---
 
 # P2 — M7 멀티문서 관리 + API 상태추적 (고위험·★최대)
+
+> **★이번 보류(사용자 확정)** — M7(멀티문서 관리 + ADDED/DELETED/UPDATED 상태추적)은 추후 진행. access-log 파라미터 추출(canonical query/param 강화)과 함께 다루는 것이 자연스러움(UPDATED param-level diff 가 canonical 강화에 의존, §M7.2 한계). P1 머지 후 별도 PR.
 
 ## M7.1 멀티문서 업로드 관리
 
@@ -173,19 +173,19 @@ architect 가 의미만 정리(아래), TW 가 §2.5 편집:
 
 ## dev 구현 체크리스트 (TASKS subitem, D26 / P 버킷)
 
-**P1 (저위험·additive)**
-- [ ] D1 `HostQueryController` 제거 + `findByHostname` orphan 정리 + 매뉴얼 `/hostnames` 절(TW).
-- [ ] M1 GET /domains 페이지네이션(`PagedView<DomainView>`·page 0-based·size 1000) + N+1 해소(batch spec meta 로드). ★중앙 shape 영향 명시.
-- [ ] `spec_record.filename`(ADD-only) + `SpecRecord` 접근자 + PUT /spec 옵션 `filename` 파라미터(M2/M6/M7 공유).
-- [ ] M2 GET /domains/{host} 보강(`lastScanAt`·`latestSpec{filename,uploadedAt,...}`·`effectiveClassification`).
-- [ ] M3 PUT /domains 부분수정(`DomainUpsert` nullable·present-only apply, 전항목=무회귀).
+**P1 (저위험·additive)** — ★PR1(도메인 엔드포인트 D1+M1+M3) 구현 완료(브랜치 feat/api-batch-p1-domain, build green 464·커밋 보류). 나머지(filename·M2·M4·M5·M6·A2)는 후속 PR.
+- [x] D1 `HostQueryController` 제거(+`GET /hostnames/{}/domains`·`POST .../query`) + `findByHostname` orphan 정리(전용·타 사용처 0 확인 후 삭제). 매뉴얼 `/hostnames` 절=TW 후속.
+- [x] M1 GET /domains 페이지네이션 — ★body=JSON 배열 유지 + 헤더(X-Total-Count/Pages·X-Current-Page), page 0-based·size [1,1000] clamp·host asc. N+1 은 page-bounded(≤1000/page) 완화 + batch meta 로드 후속(ponytail 주석). non-breaking.
+- [ ] `spec_record.filename`(ADD-only) + `SpecRecord` 접근자 + PUT /spec 옵션 `filename` 파라미터(M2/M6/M7 공유). — 후속 PR
+- [ ] M2 GET /domains/{host} 보강(`lastScanAt`·`latestSpec{filename,uploadedAt,...}`·`effectiveClassification`). — 후속 PR
+- [x] M3 PUT /domains 부분수정(`DomainUpsert` enabled Boolean nullable·present-only apply, []=비우기·null=유지, 전항목=무회귀·create 무회귀).
 - [ ] M4 GET /scan-status 보강(`latestSpec{filename,uploadedAt,specEndpointCount}`).
 - [ ] M5 GET /result rationale 가산(serve-time, report_json/ETag 불변, classifyExplained 재사용) + 중앙 additive-safe 검증.
 - [ ] M6 GET /spec 목록(`SpecListView`·active 기본·`?history` 옵션·신규 repo 쿼리).
 - [ ] A2 PATCH /classification/weights(도메인·전역, 현 effective 스냅샷+부분 override+profile CUSTOM, applyOverrides 재사용).
 - [ ] 테스트(각 항목 + 무회귀: M3 전항목 동일·M5 report_json 불변·페이지네이션 경계).
 
-**P2 (M7, 고위험)**
+**P2 (M7, 고위험) — ★이번 보류**(추후 access-log 파라미터 추출과 함께, §P2)
 - [ ] M7.1 멀티문서 업로드(filename→specName 도출·버전관리·기존 merge 정합).
 - [ ] M7.2 API 상태추적(compute-on-read diff: specName N vs N-1, method+path_template 키, ADDED/DELETED/UPDATED[deprecated·version 한정]) + 노출(GET /spec 또는 /api-status). ★UPDATED 한계 명시.
 - [ ] 테스트(ADDED/DELETED/UPDATED·최초업로드 전부 ADDED·param-diff 범위밖 확인).

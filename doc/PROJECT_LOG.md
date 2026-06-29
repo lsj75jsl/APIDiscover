@@ -5,6 +5,21 @@
 
 ---
 
+## 2026-06-29 세션 50 — REST API 배치 PR1(도메인 엔드포인트 D1+M1+M3, doc/35)
+
+### 한 일
+- **권위 스펙=doc/35**(D1·M1·M3). ★사용자 확정 반영: M1=배열 body+헤더(페이지객체 아님), M7=이번 보류.
+- **D1 — HostQueryController 제거**: `GET /api/v1/hostnames/{}/domains`·`POST .../query` 컨트롤러 통째 삭제. orphan `DomainConfigRepository.findByHostname` 도 제거(grep 으로 HostQueryController 전용·타 사용처 0 확인 후). ScanStatusView/SummaryView·runOnDemand 는 타 사용처 있어 보존.
+- **M1 — GET /domains 페이지네이션**: ★body=JSON 배열(`ResponseEntity<List<DomainView>>`) 유지(원소 shape 불변·non-breaking) + 페이지 정보는 헤더(`X-Total-Count`·`X-Total-Pages`·`X-Current-Page` 0-based). `?page`(0-based·음수→0)·`?size`([1,1000] clamp), `findAll(PageRequest.of(page,size,Sort.by("host")))` 결정적 정렬. page 초과=빈 배열+헤더. N+1(toView→activeMeta)은 page 당 ≤1000 로 page-bounded 완화(기존 14k 전건)·batch meta 로드는 후속(ponytail 주석).
+- **M3 — PUT /domains/{host} 부분수정**: `DomainUpsert.enabled` `boolean`→`Boolean`(미전달 null/명시 false 구분). `apply()` 를 present-only(전 필드 `if(req.x()!=null) set`)로 일관화 — 미전달=기존 유지, hostnames=[](non-null)=비우기/null=유지. ★create 무회귀: fresh `DomainConfig` 기본값(enabled=true·hostnames=[]·MERGE)에 present-only 적용 → 미전달 시 기본값 유지(별도 분기 불요, 단일 apply 공유).
+
+### 결과
+- `./gradlew build` BUILD SUCCESSFUL. 전체 **464**(+7) 실패0 errors0 skip2(-Dloki.live). `DomainControllerTest` 14(M1 배열+헤더·size/page clamp·초과=빈배열 / M3 present-only 유지·[]비우기·전항목 무회귀·create null→true). 제거 심볼 잔존 참조 0. 운영 Loki 미호출(DB/웹 계층만).
+- 문서: doc/35(M1 배열+헤더 갱신·§1 표·M7 보류·dev 체크리스트 D1/M1/M3 [x])·TASKS·이 로그. 매뉴얼 api-rest-manual.html(/hostnames 제거·페이지네이션·PUT 부분수정)=TW 후속.
+
+### 다음 단계
+- 커밋 금지(매니저, 브랜치 feat/api-batch-p1-domain). 매니저 리뷰/머지. 후속 PR: P1 잔여(filename·M2·M4·M5·M6·A2)·P3(A1). M7=보류(access-log 파라미터 추출과 함께).
+
 ## 2026-06-29 세션 49 — REST API 사용 매뉴얼 신규 작성 (사용자 요청, 문서만, TW)
 
 ### 한 일

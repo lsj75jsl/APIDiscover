@@ -13,6 +13,9 @@ import com.pentasecurity.apidiscover.util.DomainNames;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -22,6 +25,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -37,9 +41,29 @@ public class DomainController {
         this.specStore = specStore;
     }
 
+    /** 페이지 크기 상한 (doc/35 M1) — N+1·페이로드 폭주 차단. 14k 도메인을 page 당 ≤1000 으로 분할. */
+    static final int MAX_PAGE_SIZE = 1000;
+
+    /**
+     * 도메인 목록 (doc/35 M1, ★사용자 확정: body=JSON 배열 유지 + 페이지 정보는 헤더). page=0-based(기본 0), size 상한 1000.
+     * 헤더: {@code X-Total-Count}(전체 수)·{@code X-Total-Pages}(전체 페이지)·{@code X-Current-Page}(0-based 현재 페이지).
+     * host asc 정렬(결정적). page 초과 시 빈 배열+헤더.
+     */
     @GetMapping
-    public List<DomainView> list() {
-        return repo.findAll().stream().map(this::toView).toList();
+    public ResponseEntity<List<DomainView>> list(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "1000") int size) {
+        int safePage = Math.max(0, page);
+        int safeSize = Math.min(Math.max(1, size), MAX_PAGE_SIZE); // [1,1000] clamp
+        Page<DomainConfig> p = repo.findAll(PageRequest.of(safePage, safeSize, Sort.by("host")));
+        // ponytail: toView 가 도메인별 specStore.activeMeta() 호출 → page 당 최대 1000회(기존 14k 전건에서 page-bounded 로 완화).
+        // batch spec meta 로드는 SpecStore 배치 API 신설이 필요해 후속(doc/35 M1) — page 상한으로 폭주는 이미 차단.
+        List<DomainView> body = p.getContent().stream().map(this::toView).toList();
+        return ResponseEntity.ok()
+                .header("X-Total-Count", String.valueOf(p.getTotalElements()))
+                .header("X-Total-Pages", String.valueOf(p.getTotalPages()))
+                .header("X-Current-Page", String.valueOf(p.getNumber()))
+                .body(body);
     }
 
     @PostMapping
@@ -97,16 +121,27 @@ public class DomainController {
         return h;
     }
 
+    /**
+     * present-only 적용 (doc/35 M3, PATCH 의미) — 전달된 필드(non-null)만 반영, 미전달(null)은 기존값 유지.
+     * PUT 부분수정과 create 가 공유: create 는 fresh 엔티티 기본값(enabled=true·hostnames=[]·MERGE)에 적용하므로
+     * 미전달 필드가 기본값으로 남는다(무회귀). hostnames=[](빈 배열 명시)은 non-null 이라 "비우기"로 반영(null=유지와 구분).
+     */
     private void apply(DomainConfig d, DomainUpsert req) {
-        d.setEnabled(req.enabled());
-        d.setHostnames(req.hostnames() != null ? new ArrayList<>(req.hostnames()) : new ArrayList<>());
-        d.setIntervalOverride(req.intervalOverride());
-        // null → MERGE 유지(현행 무회귀, doc/26 §5). 미지정 PUT 이 모드를 지우지 않음.
+        if (req.enabled() != null) {
+            d.setEnabled(req.enabled());
+        }
+        if (req.hostnames() != null) {
+            d.setHostnames(new ArrayList<>(req.hostnames())); // []=비우기, 값=교체
+        }
+        if (req.intervalOverride() != null) {
+            d.setIntervalOverride(req.intervalOverride());
+        }
         if (req.specMergeStrategy() != null) {
             d.setSpecMergeStrategy(req.specMergeStrategy());
         }
-        // base-path-strip prefix (doc/27 §3). null=off — intervalOverride 와 동형(직접 대입).
-        d.setBasePathStrip(req.basePathStrip());
+        if (req.basePathStrip() != null) {
+            d.setBasePathStrip(req.basePathStrip());
+        }
     }
 
     private DomainView toView(DomainConfig d) {

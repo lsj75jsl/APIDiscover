@@ -451,13 +451,6 @@ public class DiscoveryJobService {
         }
     }
 
-    /** 온디맨드/기본 윈도우: [now - interval - lag, now - lag). */
-    public LogWindow defaultWindow() {
-        Instant to = Instant.now().minus(props.schedule().ingestLag());
-        Instant from = to.minus(props.schedule().defaultInterval());
-        return new LogWindow(from, to);
-    }
-
     /** watermark 기반 증분 윈도우 (doc/05 §3). 신규 구간 없으면 empty. per-scan 상한=maxWindow(A, off-peak 시 상향 주입). */
     Optional<LogWindow> nextWindow(String host, Duration maxWindow) {
         Instant lastEnd = watermarkRepo.findById(host).map(w -> w.getLastEnd()).orElse(null);
