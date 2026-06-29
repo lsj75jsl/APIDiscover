@@ -57,16 +57,26 @@ public class EffectiveClassificationResolver {
     }
 
     /**
-     * 전역+도메인 로드 → §3 병합 → §5 default/정규화 → scorer/hints 빌드 (캐시 미스 시 1회).
+     * 전역 단독 effective 설정(도메인 override 없음, doc/35 A2). A2 전역 PATCH 의 "현 effective weights 스냅샷" 용.
+     * 캐시 미사용(드문 호출) — 항상 최신 전역 설정 기준.
+     */
+    public EffectiveClassification resolveGlobal() {
+        return buildFrom(globalRepo.findById(GLOBAL_ID).orElse(null), null, "global");
+    }
+
+    private EffectiveClassification build(String host) {
+        return buildFrom(globalRepo.findById(GLOBAL_ID).orElse(null), domainRepo.findById(host).orElse(null), host);
+    }
+
+    /**
+     * 전역+도메인 병합 → §3 병합 → §5 default/정규화 → scorer/hints 빌드 (캐시 미스 시 1회). domain=null → 전역 단독(A2).
      *
      * <p>여기서 다루는 입력은 <b>이미 저장된 설정</b>이다(PUT 이 요청 시점에 검증). 그럼에도 out-of-band DB 쓰기·마이그레이션
      * 등으로 저장값이 손상될 수 있으므로, 검증기/매처 빌드의 {@link IllegalArgumentException} 은 <b>요청 검증이 아니라
      * 데이터 손상</b>이다 → {@link IllegalStateException} 으로 래핑(컨트롤러 IAE→400 핸들러가 못 잡고 500, doc/11 §2).
      * 손상 JSON 파싱 실패는 parse 헬퍼가 이미 ISE 로 던진다.
      */
-    private EffectiveClassification build(String host) {
-        ClassificationConfig global = globalRepo.findById(GLOBAL_ID).orElse(null);
-        DomainClassificationConfig domain = domainRepo.findById(host).orElse(null);
+    private EffectiveClassification buildFrom(ClassificationConfig global, DomainClassificationConfig domain, String label) {
         try {
             // always-validate (doc/10 §4): profile 무관하게 항상 파싱·검증. 값 적용은 CUSTOM 일 때만(검증과 적용 분리, §3).
             Map<String, Double> globalWeights = parseWeights(global != null ? global.getCustomWeightsJson() : null);
@@ -100,7 +110,7 @@ public class EffectiveClassificationResolver {
             ApiHintMatcher hints = new ApiHintMatcher(matcher); // 상한/내용 위반 시 fail-fast
             return new EffectiveClassification(profile, weights, matcher, scorer, hints);
         } catch (IllegalArgumentException e) {
-            throw new IllegalStateException("corrupt stored classification config for host=" + host, e);
+            throw new IllegalStateException("corrupt stored classification config for host=" + label, e);
         }
     }
 

@@ -21,11 +21,13 @@ import com.pentasecurity.apidiscover.match.ApiHintMatcher;
 import com.pentasecurity.apidiscover.model.ClassificationProfile;
 import com.pentasecurity.apidiscover.model.MatcherConfig;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -110,6 +112,52 @@ public class ClassificationController {
         overrideRepo.save(d);
         resolver.invalidate(host);
         return toDomainView(host);
+    }
+
+    // --- A2: 부분 weight 편집 (profile 자동 CUSTOM, doc/35 A2) ---
+
+    /**
+     * 전역 부분 weight 편집 — 현 effective 14 ∪ 요청 override → profile CUSTOM 저장. 편집 안 한 키는 현 effective 유지(MIDDLE 리셋 방지).
+     * threshold·matcher 는 범위 밖(기존 PUT /classification) → 미터치. 기존 PUT 불변(가산).
+     */
+    @PatchMapping("/classification/weights")
+    public GlobalClassificationView patchGlobalWeights(@RequestBody Map<String, Double> weights) {
+        ApiScorer.validateWeightOverrides(weights); // unknown 키·비유한 → 400
+        Map<String, Double> merged = mergeWeights(resolver.resolveGlobal().weights(), weights);
+        ClassificationConfig c = globalRepo.findById(GLOBAL_ID).orElseGet(ClassificationConfig::new);
+        c.setId(GLOBAL_ID);
+        c.setProfile(ClassificationProfile.CUSTOM);   // 자동 CUSTOM
+        c.setCustomWeightsJson(toJsonOrNull(merged));  // threshold/matcher 는 미터치(기존 유지)
+        c.setUpdatedAt(Instant.now());
+        globalRepo.save(c);
+        resolver.invalidateAll();
+        return toGlobalView(c);
+    }
+
+    /** 도메인 부분 weight 편집 — 현 effective 14 ∪ 요청 override → 도메인 profile CUSTOM 저장(편집 안 한 키 유지). */
+    @PatchMapping("/domains/{host}/classification/weights")
+    public DomainClassificationView patchDomainWeights(@PathVariable String host,
+                                                       @RequestBody Map<String, Double> weights) {
+        requireDomain(host);
+        ApiScorer.validateWeightOverrides(weights);
+        Map<String, Double> merged = mergeWeights(resolver.resolve(host).weights(), weights);
+        DomainClassificationConfig d = overrideRepo.findById(host).orElseGet(DomainClassificationConfig::new);
+        d.setHost(host);
+        d.setProfile(ClassificationProfile.CUSTOM);
+        d.setCustomWeightsJson(toJsonOrNull(merged)); // threshold/matcher 미터치(기존 유지)
+        d.setUpdatedAt(Instant.now());
+        overrideRepo.save(d);
+        resolver.invalidate(host);
+        return toDomainView(host);
+    }
+
+    /** 현 effective 14 스냅샷 ∪ 요청 부분(요청 키 override) → 편집 안 한 키는 현 effective 유지(doc/35 A2). */
+    private static Map<String, Double> mergeWeights(ApiScorer.Weights current, Map<String, Double> requested) {
+        Map<String, Double> merged = new LinkedHashMap<>(ApiScorer.weightsAsMap(current));
+        if (requested != null) {
+            merged.putAll(requested);
+        }
+        return merged;
     }
 
     // --- 검증 (doc/11 §2) ---
