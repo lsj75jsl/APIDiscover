@@ -30,4 +30,15 @@ public interface SpecRecordRepository extends JpaRepository<SpecRecord, Long> {
             + "from SpecRecord s where s.host = :host and s.active = true "
             + "order by s.specName asc nulls first, s.specVersion asc")
     List<SpecMetaProjection> findActiveSpecMetas(@Param("host") String host);
+
+    /**
+     * ★API 상태추적 diff용 canonical projection (doc/36 M7.2) — canonicalJson 포함, rawDoc oid 미선택(비-tx 안전, D51).
+     * 한 (host, specName) 의 active+inactive 전 버전을 specVersion desc 로([0]=현 active·이후 직전들). specName 은
+     * {@code coalesce(...,'default')} 로 매칭(레거시 null specName="default" 행 포함). diff 가 [현 active] vs [최대버전 inactive] 비교.
+     */
+    @Query("select new com.pentasecurity.apidiscover.domain.SpecCanonicalProjection("
+            + "s.specName, s.specVersion, s.canonicalJson, s.uploadedAt, s.filename, s.active) "
+            + "from SpecRecord s where s.host = :host and coalesce(s.specName, 'default') = :specName "
+            + "order by s.specVersion desc")
+    List<SpecCanonicalProjection> findCanonicalVersions(@Param("host") String host, @Param("specName") String specName);
 }

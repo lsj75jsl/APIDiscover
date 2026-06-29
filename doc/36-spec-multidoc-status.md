@@ -1,7 +1,7 @@
 # M7 — spec 멀티문서 관리 + API 상태추적 (ADDED/DELETED/UPDATED) 상세 설계
 
 > doc/35 P2(고위험) 상세화. 근거: doc/26(멀티스펙·specMergeStrategy·SpecStore)·doc/03(canonical)·doc/28 §10·DECISIONS D51(rawDoc oid 교훈)·doc/35 M6(filename·projection). 근거 결정 **DECISIONS D52**.
-> **★설계만. 구현 금지.** dev 항목은 TASKS subitem(D26). 운영 Loki 미호출. 사용자 확정(특히 UPDATED 스코프) 후 dev 착수.
+> **M7a 구현 완료**(브랜치 feat/m7a-spec-changes, build green 496·PostgresIntegrationTest 28·커밋 보류). **M7b(param-level UPDATED)=후속**(별도 PR·access-log param 묶음). 운영 Loki 미호출. 스키마 변경 0·재배포 불요.
 
 ## 0. 목적 / 현 구조 / 보류 맥락
 
@@ -102,12 +102,12 @@
 
 ## 9. dev 구현 체크리스트 (TASKS subitem, D26 / P3 — doc/35 2단계)
 
-**M7a (우선·0 스키마)**
-- [ ] `upload(...,filename)` 의 specName 도출(filename→정규화 specName, 미전달=default) — 멀티문서 거동, 하위호환.
-- [ ] `SpecCanonicalProjection`(specName·specVersion·canonicalJson·uploadedAt·filename·active, **rawDoc 미선택**) + `findCanonicalByHostAndSpecNameOrderBySpecVersionDesc`(nulls first).
-- [ ] `SpecDiffService`(compute-on-read: 현 active vs 직전 inactive canonicalJson 역직렬화·method+path_template 맵·ADDED/DELETED/UPDATED[deprecated/version]) — **projection only(oid 회피)**.
-- [ ] `GET /api/v1/domains/{host}/spec/changes`(기본 active 전 specName·`?specName/from/to/status`·`updatedScope` 노출) + DTO.
-- [ ] 실 PG 테스트(§6: ADDED/DELETED/deprecated-UPDATED·최초=전ADDED·멀티문서·oid 가드·null 정렬 가드).
+**M7a (우선·0 스키마) — ★구현 완료(브랜치 feat/m7a-spec-changes, build green 496·커밋 보류·머지 시 Done)**
+- [x] `upload(host,content,filename)` specName 도출(filename→trim·소문자 specName, 미전달/빈=default) — 멀티문서 거동, 하위호환(filename 미전달=현행).
+- [x] `domain/SpecCanonicalProjection`(specName·specVersion·canonicalJson·uploadedAt·filename·active, **rawDoc 미선택**) + `SpecRecordRepository.findCanonicalVersions`(JPQL 생성자식·`coalesce(specName,'default')` 매칭(레거시 null)·specVersion desc).
+- [x] `spec/SpecDiffService`(compute-on-read: 현 active vs 직전 inactive canonicalJson 역직렬화·method+path_template 맵·ADDED/DELETED/UPDATED[deprecated/version], TreeMap 정렬 결정적) — **projection only(loadVersions 단일 지점, oid 회피)**.
+- [x] `GET /api/v1/domains/{host}/spec/changes`(SpecController, 기본 active 전 specName·`?specName/from/to/status`·`updatedScope` 노출·host 정규화 null→400) + `spec/SpecChanges` DTO(api.dto↔spec 순환 회피로 spec 패키지).
+- [x] 실 PG 테스트(§6: ADDED/DELETED/deprecated-UPDATED·최초=전ADDED·멀티문서 specName 분리·param-only 미보고+updatedScope·★oid 가드 RED-확인). null 정렬은 기존 `findActiveSpecMetas`(nulls first) 가드 재사용.
 - [ ] 매뉴얼(TW): /spec/changes + ★UPDATED (a) 한계(param 미포함) 명시.
 
 **M7b (후속·고위험·별도 PR)**

@@ -19,6 +19,7 @@ import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -63,9 +64,20 @@ public class SpecStore {
         return upload(host, "default", content, null);
     }
 
-    /** 파일명 동반 업로드(PUT /spec ?filename=, doc/35 M2/M6) — specName="default"(M7 에서 filename→specName 도출). */
+    /**
+     * 파일명 동반 업로드(PUT /spec ?filename=) — ★filename 을 specName 으로 도출(doc/36 M7.1): 서로 다른 filename=별개 문서,
+     * 동일 filename 재업로드=그 문서의 새 버전(MERGE 가 같은 specName 비활성). 미전달/빈=specName "default"(하위호환·무회귀).
+     */
     public SpecRecord upload(String host, byte[] content, String filename) {
-        return upload(host, "default", content, filename);
+        return upload(host, specNameFromFilename(filename), content, filename);
+    }
+
+    /** filename → specName 정규화(trim·소문자, 빈/null="default", doc/36 M7.1). */
+    private static String specNameFromFilename(String filename) {
+        if (filename == null || filename.isBlank()) {
+            return "default";
+        }
+        return filename.trim().toLowerCase(Locale.ROOT);
     }
 
     /** 하위호환 — 파일명 미지정 멀티문서 업로드(specName 지정). */

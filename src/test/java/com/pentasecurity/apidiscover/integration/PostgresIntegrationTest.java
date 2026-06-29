@@ -2,7 +2,9 @@
 package com.pentasecurity.apidiscover.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -24,7 +26,9 @@ import com.pentasecurity.apidiscover.domain.SpecRecord;
 import com.pentasecurity.apidiscover.domain.SpecRecordRepository;
 import com.pentasecurity.apidiscover.ingest.LogWindow;
 import com.pentasecurity.apidiscover.ingest.LokiClient;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pentasecurity.apidiscover.match.EndpointMatcher;
+import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
 import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
 import com.pentasecurity.apidiscover.model.EndpointKind;
 import com.pentasecurity.apidiscover.model.ParamCandidates;
@@ -92,6 +96,7 @@ class PostgresIntegrationTest {
     @Autowired EffectiveClassificationResolver resolver;
     @Autowired com.pentasecurity.apidiscover.batch.DomainUpserter domainUpserter;
     @Autowired DiscoveryJobService jobService;
+    @Autowired ObjectMapper objectMapper;
 
     // 공유 컨텍스트·컨테이너(rollback 없음) → 메서드 간 상태 격리. round-trip 이 글로벌 설정(id=1)에
     // 의사 JSON 을 써넣어도 다음 테스트 오염 방지(globalRepo 비움 → resolver default). ClassificationControllerTest 선례.
@@ -441,6 +446,102 @@ class PostgresIntegrationTest {
         r.setUploadedAt(Instant.EPOCH);
         r.setActive(true);
         return r;
+    }
+
+    // --- M7a: API 상태추적 GET /spec/changes (compute-on-read diff, 실 PG·oid projection) doc/36 ---
+
+    @Test
+    void specChangesDetectsAddedDeletedUpdatedAcrossVersionsOnRealPg() throws Exception {
+        // v1(A,B,C) → v2(B삭제·D추가·A deprecated false→true). ★rawDoc oid 영속하나 diff 는 canonicalJson projection 으로만 읽음(비-tx 안전, D51).
+        String host = "changes.example.com";
+        registerDomain(host);
+        saveSpecVersion(host, "default", 1L, false, List.of(
+                ep("GET", "/a", false), ep("GET", "/b", false), ep("GET", "/c", false)));
+        saveSpecVersion(host, "default", 2L, true, List.of(
+                ep("GET", "/a", true), ep("GET", "/c", false), ep("POST", "/d", false)));
+
+        mvc.perform(get("/api/v1/domains/{host}/spec/changes", host))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.updatedScope").value("deprecated_version_only"))
+                .andExpect(jsonPath("$.documents[0].specName").value("default"))
+                .andExpect(jsonPath("$.documents[0].comparedVersion").value(2))
+                .andExpect(jsonPath("$.documents[0].previousVersion").value(1))
+                // C(UNCHANGED) 미보고 → 3건(ADDED /d, DELETED /b, UPDATED /a)
+                .andExpect(jsonPath("$.documents[0].changes.length()").value(3))
+                .andExpect(jsonPath("$.documents[0].changes[?(@.pathTemplate=='/d')].status").value(hasItem("ADDED")))
+                .andExpect(jsonPath("$.documents[0].changes[?(@.pathTemplate=='/b')].status").value(hasItem("DELETED")))
+                .andExpect(jsonPath("$.documents[0].changes[?(@.pathTemplate=='/a')].status").value(hasItem("UPDATED")))
+                .andExpect(jsonPath("$.documents[0].changes[?(@.pathTemplate=='/a')].changed[0]").value(hasItem("deprecated")));
+    }
+
+    @Test
+    void specChangesFirstUploadIsAllAddedWithNullPreviousOnRealPg() throws Exception {
+        String host = "firstupload.example.com";
+        registerDomain(host);
+        saveSpecVersion(host, "default", 1L, true, List.of(ep("GET", "/x", false), ep("POST", "/y", false)));
+
+        mvc.perform(get("/api/v1/domains/{host}/spec/changes", host))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.documents[0].previousVersion").value(nullValue())) // 직전 없음
+                .andExpect(jsonPath("$.documents[0].changes.length()").value(2))
+                .andExpect(jsonPath("$.documents[0].changes[*].status", everyItem(org.hamcrest.Matchers.is("ADDED"))));
+    }
+
+    @Test
+    void specChangesPerSpecNameForMultipleDocumentsOnRealPg() throws Exception {
+        String host = "multidoc.example.com";
+        registerDomain(host);
+        // users: v1(u1,u2) inactive → v2(u1,u3) active = ADDED u3·DELETED u2
+        saveSpecVersion(host, "users", 1L, false, List.of(ep("GET", "/u1", false), ep("GET", "/u2", false)));
+        saveSpecVersion(host, "users", 2L, true, List.of(ep("GET", "/u1", false), ep("GET", "/u3", false)));
+        // orders: v1 active only = 전부 ADDED
+        saveSpecVersion(host, "orders", 1L, true, List.of(ep("GET", "/o1", false)));
+
+        mvc.perform(get("/api/v1/domains/{host}/spec/changes", host))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.documents.length()").value(2)) // specName 별 분리
+                // 특정 specName 한정
+                .andReturn();
+        mvc.perform(get("/api/v1/domains/{host}/spec/changes", host).param("specName", "users"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.documents.length()").value(1))
+                .andExpect(jsonPath("$.documents[0].specName").value("users"))
+                .andExpect(jsonPath("$.documents[0].changes[?(@.pathTemplate=='/u3')].status").value(hasItem("ADDED")))
+                .andExpect(jsonPath("$.documents[0].changes[?(@.pathTemplate=='/u2')].status").value(hasItem("DELETED")));
+    }
+
+    @Test
+    void specChangesParamOnlyChangeNotReportedAndScopeExposedOnRealPg() throws Exception {
+        // ★M7a 한계 회귀가드: canonical 동일(param 은 canonical 미보유)이면 UPDATED 미보고, updatedScope 로 한계 노출(M7b 전).
+        String host = "paramonly.example.com";
+        registerDomain(host);
+        saveSpecVersion(host, "default", 1L, false, List.of(ep("GET", "/p", false)));
+        saveSpecVersion(host, "default", 2L, true, List.of(ep("GET", "/p", false))); // canonical 동일(param 만 달랐다고 가정)
+
+        mvc.perform(get("/api/v1/domains/{host}/spec/changes", host))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.documents[0].changes.length()").value(0))      // 미보고
+                .andExpect(jsonPath("$.updatedScope").value("deprecated_version_only")); // 한계 자기노출
+    }
+
+    private void saveSpecVersion(String host, String specName, long version, boolean active,
+                                 List<CanonicalEndpoint> endpoints) throws Exception {
+        SpecRecord r = new SpecRecord();
+        r.setHost(host);
+        r.setSpecName(specName);
+        r.setFilename(specName + ".yaml");
+        r.setFormat(SpecFormat.OPENAPI);
+        r.setSpecVersion(version);
+        r.setCanonicalJson(objectMapper.writeValueAsString(endpoints)); // diff 입력(text)
+        r.setRawDoc(("raw-doc-v" + version).getBytes(StandardCharsets.UTF_8)); // ★oid LOB — diff projection 이 미선택해야 안전
+        r.setEndpointCount(endpoints.size());
+        r.setUploadedAt(Instant.EPOCH.plusSeconds(version));
+        r.setActive(active);
+        specRepo.save(r);
+    }
+
+    private static CanonicalEndpoint ep(String method, String pathTemplate, boolean deprecated) {
+        return new CanonicalEndpoint(method, pathTemplate, null, deprecated, null, "ref:" + pathTemplate);
     }
 
     // --- L53: 조건부 GET 304 (reportJson @Lob TEXT read 동시 검증) ---
