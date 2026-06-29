@@ -41,7 +41,13 @@
 > (현재 비어 있음 — OPTIONS preflight·cross-scan recency severity 완료, Done 참조)
 
 #### 리포트/출력 (01/12/14 문서)
-> (현재 비어 있음 — low_confidence+warnings·Active/Zombie params·total_dropped 완료, Done 참조)
+> (low_confidence+warnings·Active/Zombie params·total_dropped 완료, Done 참조)
+- [ ] **API 판단 근거(점수 산출 내역) 노출 — /discovery 가시화** **(설계 완료 → doc/34 / DECISIONS D49, 사용자 개선요구·매니저 사용자확인 후 dev 착수)** — 권고 = **A(조회시 재계산), 스키마 변경 0**. corsPreflight 는 discovered_endpoint OPTIONS 행에서 도출(컬럼 추가 불요).
+  - [ ] `ApiScorer.scoreExplain()`(신호별 key/weight/fired/contribution + total) + `score()`=`scoreExplain().total` 위임(동치 회귀 테스트)
+  - [ ] `Classifier` explain 모드(query 전용, 분류 core 공유·**스캔 경로 바이트 동일**) — Shadow=score / Active·Zombie=spec_match / Unused=spec_only / WebPage=kind 근거 수집
+  - [ ] `CombinedDiscovery` 가산(`effectiveClassification`{profile·threshold·weightsSource·weights}·`rationale: List<EndpointRationale>`, **Finding 불변→report_json/ETag 무영향**) + `forHost` 동봉(추가 조회 0) + 신규 model(EndpointRationale·ApiBasis sealed 4종)
+  - [ ] 매뉴얼 §4.3 변경 스펙(effective 확인·엔드포인트 점수 내역 예시·분류별 근거 차이) → technical_writer(기존 per-domain override 요청과 함께)
+  - [ ] 테스트(scoreExplain↔score 동치·rationale↔findings identity/순서·분류별 basis·effective MIDDLE/CUSTOM·/result ETag 불변·corsPreflight 집합 도출)
 
 #### 스펙 파서 / Spec Store (03 문서)
 > (현재 비어 있음 — 검출/업로드 데이터 모델 통합 + 멀티 스펙 병합 완료, Done 참조)
