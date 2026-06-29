@@ -1,7 +1,7 @@
 # API 판단 근거(점수 산출 내역) 노출 — /discovery 응답 가시화 (사용자 개선요구)
 
-> 브랜치 미정(매니저 배정). 근거: doc/08(ApiScorer 점수모델)·doc/10·11(effective 분류설정)·doc/26(CombinedDiscovery·Finding)·doc/04(분류). 근거 결정 **DECISIONS D49**.
-> **★설계만. 구현 금지.** dev 항목은 TASKS subitem(D26, P 버킷). 운영 Loki 미호출(정적 검토).
+> 브랜치 `feat/api-rationale-exposure`. 근거: doc/08(ApiScorer 점수모델)·doc/10·11(effective 분류설정)·doc/26(CombinedDiscovery·Finding)·doc/04(분류). 근거 결정 **DECISIONS D49**.
+> **구현 완료(§7 dev 체크리스트 [x], build green 457·커밋 보류).** 매뉴얼 §4.3(§5)은 dev 범위 밖(TW 후속). 운영 Loki 미호출(정적/mock).
 
 ## 0. 목적 / 문제 / 현황
 
@@ -124,12 +124,12 @@
 
 ## 7. dev 구현 체크리스트 (TASKS subitem, D26 / P3)
 
-- [ ] `ApiScorer.scoreExplain(d, cors, hints)`→`ScoreBreakdown`(신호별 key/weight/fired/contribution + total) + `score()` 를 `scoreExplain().total` 위임(동일 값 회귀 테스트).
-- [ ] `Classifier` explain 모드(query 전용) — 분류 core 공유, Shadow=scoreExplain·Active/Zombie=spec_match·Unused=spec_only·WebPage=kind 근거 수집. **스캔 경로 바이트 동일**(explain=false).
-- [ ] `model/EndpointRationale`·`ApiBasis`(sealed 4종)·effective view + `CombinedDiscovery` 가산(`effectiveClassification`·`rationale`, Finding 불변).
-- [ ] `CombinedDiscoveryService.forHost` — explain classify 호출·effective 동봉(추가 조회 0).
-- [ ] 매뉴얼 §4.3 변경 스펙(§5) → technical_writer 전달(per-domain override 요청과 함께).
-- [ ] 테스트 — scoreExplain↔score 동치, rationale↔findings identity/순서 정합, Shadow score basis(신호·총점·gate)·Active spec_match·Unused spec_only·WebPage kind, effectiveClassification(MIDDLE/CUSTOM), /result report_json·ETag 불변(스캔 경로 무영향), corsPreflight 집합 도출.
+- [x] `ApiScorer.scoreExplain(d, cors, hints)`→`ScoreBreakdown`(신호별 key/weight/fired/contribution + total) + `score()` 를 `scoreExplain().total` 위임(동일 값 회귀 테스트). 신호 발화 조건은 scoreExplain 1곳에만(단일 진실원, 드리프트 차단). `ApiScorer.weightsAsMap` 추가(effective weights 14키 맵).
+- [x] `Classifier` explain 변형 — 9-arg core 에 nullable `rationaleOut` 추가(각 finding 과 병렬로 근거 수집), 기존 8-arg 는 null 위임. `classifyExplained(...)` 진입점(findings+rationale). Shadow=scoreExplain(ScoreBasis)·Active/Zombie=spec_match·Unused=spec_only 근거. WebPage=kind 는 Classifier 가 WebPage finding 미산출이라 생성처 없음(sealed 완전성 위해 KindBasis 만 보유). **스캔 경로(rationaleOut=null) findings 바이트 동일**(테스트로 고정).
+- [x] `model/EndpointRationale`·`ApiBasis`(sealed 4종: Score/SpecMatch/SpecOnly/Kind, `@JsonTypeInfo` "type" 판별자)·`SignalContribution`·`ScoreBreakdown`·`EffectiveClassificationView` + `CombinedDiscovery` 가산(`effectiveClassification`·`rationale`, 6-arg 하위호환 생성자로 Finding/기존 경로 불변).
+- [x] `CombinedDiscoveryService.forHost` — `classifyExplained` 호출·`effectiveView`(profile/threshold/weightsSource/weights) 동봉(추가 조회 0).
+- [ ] 매뉴얼 §4.3 변경 스펙(§5) → technical_writer 전달(per-domain override 요청과 함께). **dev 범위 밖**(TASKS 후속, TW 담당).
+- [x] 테스트 — scoreExplain↔score 동치(+contribution 합 재구성), rationale↔findings identity/순서 정합, Shadow score basis(신호·총점·gate·mode)·Active spec_match·deprecated Zombie spec_match(deprecated)·Unused spec_only, basis JSON "type" 판별자, effectiveClassification(MIDDLE/CUSTOM·weightsSource), 스캔경로 findings 동일(report_json·ETag 무영향). (corsPreflight 집합 도출은 기존 ClassifierTest 가 이미 커버.)
 
 ## 8. 범위 밖 / 후속
 

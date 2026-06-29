@@ -11,6 +11,7 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.pentasecurity.apidiscover.classify.ApiScorer;
 import com.pentasecurity.apidiscover.classify.Classifier;
 import com.pentasecurity.apidiscover.classify.EffectiveClassificationResolver;
+import com.pentasecurity.apidiscover.domain.ClassificationConfig;
 import com.pentasecurity.apidiscover.domain.ClassificationConfigRepository;
 import com.pentasecurity.apidiscover.domain.DiscoveredEndpointRecord;
 import com.pentasecurity.apidiscover.domain.DiscoveredEndpointRepository;
@@ -21,7 +22,9 @@ import com.pentasecurity.apidiscover.domain.SpecRecord;
 import com.pentasecurity.apidiscover.match.EndpointMatcherCache;
 import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
 import com.pentasecurity.apidiscover.model.Classification;
+import com.pentasecurity.apidiscover.model.ClassificationProfile;
 import com.pentasecurity.apidiscover.model.CombinedDiscovery;
+import com.pentasecurity.apidiscover.model.EndpointRationale;
 import com.pentasecurity.apidiscover.model.Finding;
 import com.pentasecurity.apidiscover.model.SpecMergeStrategy;
 import com.pentasecurity.apidiscover.spec.SpecFormat;
@@ -39,8 +42,9 @@ class CombinedDiscoveryServiceTest {
     private final SpecStore specStore = mock(SpecStore.class);
     private final DomainConfigRepository domainRepo = mock(DomainConfigRepository.class);
     private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
+    private final ClassificationConfigRepository globalClassRepo = mock(ClassificationConfigRepository.class);
     private final EffectiveClassificationResolver resolver = new EffectiveClassificationResolver(
-            mock(ClassificationConfigRepository.class), mock(DomainClassificationConfigRepository.class), objectMapper);
+            globalClassRepo, mock(DomainClassificationConfigRepository.class), objectMapper);
 
     private final CombinedDiscoveryService service = new CombinedDiscoveryService(
             discoveredRepo, specStore, new EndpointMatcherCache(), new Classifier(new ApiScorer()),
@@ -114,6 +118,45 @@ class CombinedDiscoveryServiceTest {
         assertThat(v.specSource().documents())
                 .extracting(com.pentasecurity.apidiscover.model.SpecSource.SpecDocument::specName)
                 .containsExactly("orders", "users"); // specName 정렬(결정적)
+    }
+
+    @Test
+    void exposesEffectiveClassificationMiddleAndRationaleParallelToFindings() {
+        // 기본(설정 부재) → MIDDLE preset. rationale 는 findings 와 1:1 병렬(doc/34 §2).
+        when(discoveredRepo.findByHost(HOST)).thenReturn(List.of(
+                rec("GET", "/users/{id}"), rec("GET", "/v2/items/{id}")));
+        when(specStore.activeRecords(HOST)).thenReturn(List.of(specRec("users", 1L)));
+        when(specStore.loadActiveCanonical(HOST)).thenReturn(List.of(
+                new CanonicalEndpoint("GET", "/users/{id}", null, false, null, "ref")));
+
+        CombinedDiscovery v = service.forHost(HOST);
+
+        var ec = v.effectiveClassification();
+        assertThat(ec.profile()).isEqualTo(ClassificationProfile.MIDDLE);
+        assertThat(ec.threshold()).isEqualTo(0.70);
+        assertThat(ec.weightsSource()).isEqualTo("preset");
+        assertThat(ec.weights()).hasSize(14).containsKeys("hostApiSubdomain", "corsPreflight", "staticAssetPenalty");
+        // rationale 병렬: 동일 크기·동일 분류 순서
+        assertThat(v.rationale()).hasSameSizeAs(v.findings());
+        assertThat(v.rationale()).extracting(EndpointRationale::classification)
+                .isEqualTo(v.findings().stream().map(Finding::classification).toList());
+    }
+
+    @Test
+    void customProfileExposesCustomWeightsSourceAndOverriddenWeight() {
+        var cfg = new ClassificationConfig();
+        cfg.setId(1L);
+        cfg.setProfile(ClassificationProfile.CUSTOM);
+        cfg.setCustomWeightsJson("{\"query\":0.99}");
+        when(globalClassRepo.findById(1L)).thenReturn(Optional.of(cfg));
+        when(discoveredRepo.findByHost(HOST)).thenReturn(List.of(rec("GET", "/v2/items/{id}")));
+        when(specStore.activeRecords(HOST)).thenReturn(List.of());
+
+        var ec = service.forHost(HOST).effectiveClassification();
+
+        assertThat(ec.profile()).isEqualTo(ClassificationProfile.CUSTOM);
+        assertThat(ec.weightsSource()).isEqualTo("custom");
+        assertThat(ec.weights()).containsEntry("query", 0.99); // override 반영
     }
 
     // --- helpers ---

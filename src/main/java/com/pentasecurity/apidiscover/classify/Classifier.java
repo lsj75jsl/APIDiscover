@@ -3,11 +3,14 @@ package com.pentasecurity.apidiscover.classify;
 
 import com.pentasecurity.apidiscover.match.ApiHintMatcher;
 import com.pentasecurity.apidiscover.match.EndpointMatcher;
+import com.pentasecurity.apidiscover.model.ApiBasis;
 import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
+import com.pentasecurity.apidiscover.model.Classification;
 import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
 import com.pentasecurity.apidiscover.model.DroppedNonApi;
 import com.pentasecurity.apidiscover.model.EndpointIdentity;
 import com.pentasecurity.apidiscover.model.EndpointKind;
+import com.pentasecurity.apidiscover.model.EndpointRationale;
 import com.pentasecurity.apidiscover.model.Finding;
 import com.pentasecurity.apidiscover.model.ParamCandidates;
 import com.pentasecurity.apidiscover.model.PreflightSignal;
@@ -125,8 +128,9 @@ public class Classifier {
     }
 
     /**
-     * 8-arg(최종): +host(스캔 도메인) — priorFirstSeen 키({@code EndpointIdentity.key(method,host,template)}, upsert/영속과 동일)와 정합.
+     * 8-arg: +host(스캔 도메인) — priorFirstSeen 키({@code EndpointIdentity.key(method,host,template)}, upsert/영속과 동일)와 정합.
      * {@code d.signature()} 가 최종 template·파싱 host 와 발산해도 recency 정확 매칭(doc/24·26 §2, identity 통일). host=null → 빈 prior 전제 하위호환.
+     * <p>스캔 경로(report_json) 진입점 — rationale 미수집(null) → 9-arg core 와 <b>findings/metrics 바이트 동일</b>(doc/34 §3).
      */
     public ClassificationResult classifyWithMetrics(List<DiscoveredEndpoint> discovered,
                                                     List<CanonicalEndpoint> spec,
@@ -136,6 +140,41 @@ public class Classifier {
                                                     Map<String, Instant> priorFirstSeen,
                                                     String stripPrefix,
                                                     String host) {
+        return classifyWithMetrics(discovered, spec, matcher, scorer, hints, priorFirstSeen, stripPrefix, host, null);
+    }
+
+    /** findings + rationale(판단 근거) 동시 산출 결과 (doc/34). rationale 는 findings 와 동일 순서·identity 병렬. */
+    public record ExplainedClassification(List<Finding> findings, List<EndpointRationale> rationale) {}
+
+    /**
+     * 판단 근거 노출(doc/34 §3) — 분류 core 를 공유하되 rationale 도 수집. /discovery 전용(forHost). priorFirstSeen 불요(근거는 recency 무관).
+     * 스캔 경로(classifyWithMetrics)와 <b>동일 게이트·corsKeys</b>(분기 발산 금지) — explain 여부만 다름.
+     */
+    public ExplainedClassification classifyExplained(List<DiscoveredEndpoint> discovered,
+                                                     List<CanonicalEndpoint> spec,
+                                                     EndpointMatcher matcher,
+                                                     ApiScorer scorer,
+                                                     ApiHintMatcher hints,
+                                                     String stripPrefix) {
+        List<EndpointRationale> rationale = new ArrayList<>();
+        ClassificationResult r = classifyWithMetrics(
+                discovered, spec, matcher, scorer, hints, Map.of(), stripPrefix, null, rationale);
+        return new ExplainedClassification(r.findings(), rationale);
+    }
+
+    /**
+     * 9-arg core: +rationaleOut(nullable) — 비-null 이면 각 finding 과 병렬로 판단 근거 수집(doc/34 §2).
+     * null(스캔 경로)이면 rationale 작업 전무 → findings/dropped/preflight 가 8-arg 와 완전 동일(무회귀·ETag 불변).
+     */
+    public ClassificationResult classifyWithMetrics(List<DiscoveredEndpoint> discovered,
+                                                    List<CanonicalEndpoint> spec,
+                                                    EndpointMatcher matcher,
+                                                    ApiScorer scorer,
+                                                    ApiHintMatcher hints,
+                                                    Map<String, Instant> priorFirstSeen,
+                                                    String stripPrefix,
+                                                    String host,
+                                                    List<EndpointRationale> rationaleOut) {
         List<Finding> findings = new ArrayList<>();
         int excluded = 0;
         int webForm = 0;
@@ -204,8 +243,13 @@ public class Classifier {
             // 게이트 결과별 분기: ADMIT→Shadow 보고, DROP_*→사유별 카운트(미보고). (doc/12 §1)
             ApiScorer.Gate gate = scorer.evaluate(d, cors, hints);
             switch (gate) {
-                case ADMIT -> findings.add(new Finding.Shadow(d.host(), d.method(), d.pathTemplate(),
-                        shadowConfidence(d), "트래픽 존재, 문서 내 매칭 템플릿 없음", d.params()));
+                case ADMIT -> {
+                    findings.add(new Finding.Shadow(d.host(), d.method(), d.pathTemplate(),
+                            shadowConfidence(d), "트래픽 존재, 문서 내 매칭 템플릿 없음", d.params()));
+                    if (rationaleOut != null) {
+                        rationaleOut.add(shadowRationale(scorer, d, cors, hints)); // 근거=점수 게이트(ADMIT)
+                    }
+                }
                 case DROP_EXCLUDED -> excluded++;   // not_api: operator 제외
                 case DROP_WEB_FORM -> webForm++;    // not_api: web form 제출(write-to-WEB_PAGE)
                 case DROP_LOW_SCORE -> lowScore++;  // not_api: 점수 미달
@@ -234,6 +278,9 @@ public class Classifier {
                     findings.add(new Finding.Zombie(s.host(), s.method(), s.pathTemplate(), 1.0,
                             ZombieSeverity.of(ev, prior), false, s.sourceRef(), "문서에 deprecated 표기, 그러나 트래픽 발생",
                             specParams(ev, s)));
+                    if (rationaleOut != null) {
+                        rationaleOut.add(specMatchRationale(s, Classification.ZOMBIE, true, false)); // 명시 deprecated
+                    }
                 }
                 // deprecated && !observed → Deprecated-clean: 조치 불필요, Finding 미발행
             } else if (observed && estimatedZombies.contains(s)) {
@@ -242,9 +289,15 @@ public class Classifier {
                 findings.add(new Finding.Zombie(s.host(), s.method(), s.pathTemplate(), 0.6,
                         ZombieSeverity.of(ev, prior), true, s.sourceRef(),
                         "신버전 active, 구버전 트래픽 지속 — deprecated 미표기", specParams(ev, s)));
+                if (rationaleOut != null) {
+                    rationaleOut.add(specMatchRationale(s, Classification.ZOMBIE, false, true)); // 버전 추정
+                }
             } else if (observed) {
                 findings.add(new Finding.Active(s.host(), s.method(), s.pathTemplate(), s.sourceRef(),
                         specParams(ev, s)));
+                if (rationaleOut != null) {
+                    rationaleOut.add(specMatchRationale(s, Classification.ACTIVE, false, false)); // 스펙 매칭
+                }
             } else {
                 // !deprecated && !observed → Unused. DORMANT 에서만 M1 preflightAmbiguous(저신뢰).
                 // ACTIVE(M3)면 acrm 으로 확실 판정 → genuine→Active(여기 미도달)/pure preflight→plain Unused → ambiguous 자동 승급(doc/23 §9.4)
@@ -253,6 +306,9 @@ public class Classifier {
                         && optionsTrafficObserved(corsKeys, s);
                 findings.add(new Finding.Unused(
                         s.host(), s.method(), s.pathTemplate(), s.sourceRef(), preflightAmbiguous));
+                if (rationaleOut != null) {
+                    rationaleOut.add(specOnlyRationale(s)); // 스펙에 있고 무트래픽
+                }
             }
         }
         PreflightSignal preflightSignal = preflightActive
@@ -260,6 +316,28 @@ public class Classifier {
                 : PreflightSignal.NONE;
         return new ClassificationResult(
                 findings, new DroppedNonApi(excluded, webForm, lowScore), preflightSignal);
+    }
+
+    /** Shadow 근거(doc/34 §2): 점수 게이트(ADMIT). scoreExplain 으로 신호별 내역·총점·임계 수집(mode=pathless|explicit_hint). */
+    private static EndpointRationale shadowRationale(ApiScorer scorer, DiscoveredEndpoint d,
+                                                     boolean cors, ApiHintMatcher hints) {
+        var bd = scorer.scoreExplain(d, cors, hints);
+        String mode = hints.isExplicitHintMode() ? "explicit_hint" : "pathless";
+        return new EndpointRationale(d.method(), d.host(), d.pathTemplate(), Classification.SHADOW,
+                new ApiBasis.ScoreBasis(bd.total(), scorer.threshold(), "ADMIT", mode, bd.signals()));
+    }
+
+    /** Active/Zombie 근거(doc/34 §2): 스펙 매칭(점수 무관). deprecated=명시 deprecated, estimated=버전 추정 Zombie. */
+    private static EndpointRationale specMatchRationale(CanonicalEndpoint s, Classification c,
+                                                        boolean deprecated, boolean estimated) {
+        return new EndpointRationale(s.method(), s.host(), s.pathTemplate(), c,
+                new ApiBasis.SpecMatchBasis(s.sourceRef(), deprecated, estimated));
+    }
+
+    /** Unused 근거(doc/34 §2): 스펙에 있고 무트래픽(관측 부재). */
+    private static EndpointRationale specOnlyRationale(CanonicalEndpoint s) {
+        return new EndpointRationale(s.method(), s.host(), s.pathTemplate(), Classification.UNUSED,
+                new ApiBasis.SpecOnlyBasis(s.sourceRef()));
     }
 
     /** Shadow 신뢰도 (doc/04 §4.1). 기본 1.0 에서 감산, [0,1] clamp. */

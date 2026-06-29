@@ -10,10 +10,12 @@ import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
 import com.pentasecurity.apidiscover.model.EndpointKind;
 import com.pentasecurity.apidiscover.model.MatcherConfig;
 import com.pentasecurity.apidiscover.model.ParamCandidates;
+import com.pentasecurity.apidiscover.model.SignalContribution;
 import com.pentasecurity.apidiscover.model.TemplateSource;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 class ApiScorerTest {
@@ -335,5 +337,41 @@ class ApiScorerTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> ApiScorer.applyOverrides(base, Map.of(), 2.0))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    // --- scoreExplain 판단 근거 노출 (doc/34 §3) ---
+
+    @Test
+    void scoreExplainTotalEqualsScoreAndSumsContributions() {
+        // score() 는 scoreExplain().total() 위임 — 동치 + contribution 합 재구성 정합
+        var d = de("api.example.com", "POST", "/api/v1/users/{id}", EndpointKind.API_CANDIDATE, 100, true, true);
+        var bd = middle.scoreExplain(d, true, ApiHintMatcher.NONE);
+        assertThat(bd.total()).isEqualTo(middle.score(d, true));
+        double raw = bd.signals().stream().mapToDouble(SignalContribution::contribution).sum();
+        assertThat(Math.max(0.0, Math.min(1.0, Math.round(raw * 1000.0) / 1000.0))).isEqualTo(bd.total());
+    }
+
+    @Test
+    void scoreExplainReportsPerSignalWeightFiredContribution() {
+        // api.* host(발화 0.40) + cors(발화 0.30), query/static 미발화(contribution 0.0) — effective weight 그대로 노출
+        var d = de("api.example.com", "GET", "/things", EndpointKind.UNKNOWN, 1, false, false);
+        var sig = middle.scoreExplain(d, true, ApiHintMatcher.NONE).signals().stream()
+                .collect(Collectors.toMap(SignalContribution::key, s -> s));
+        assertThat(sig.get("hostApiSubdomain")).isEqualTo(new SignalContribution("hostApiSubdomain", 0.40, true, 0.40));
+        assertThat(sig.get("corsPreflight")).isEqualTo(new SignalContribution("corsPreflight", 0.30, true, 0.30));
+        assertThat(sig.get("query")).isEqualTo(new SignalContribution("query", 0.12, false, 0.0));
+        assertThat(sig.get("staticAssetPenalty")).isEqualTo(new SignalContribution("staticAssetPenalty", -0.60, false, 0.0));
+    }
+
+    @Test
+    void scoreExplainModeSelectsPathShapeVsPathHint() {
+        // pathless 모드는 path-shape 신호 평가(pathHint 없음), explicit-hint 모드는 pathHint 만(path-shape 없음, doc/09 §2.3)
+        var d = de("www.example.com", "GET", "/api/v1/things", EndpointKind.UNKNOWN, 2, false, false);
+        var pathless = middle.scoreExplain(d, false, ApiHintMatcher.NONE).signals().stream()
+                .map(SignalContribution::key).toList();
+        assertThat(pathless).contains("apiSegment", "versionSegment").doesNotContain("pathHint");
+        var hinted = middle.scoreExplain(d, false, hints(List.of("/api"), List.of(), false)).signals().stream()
+                .map(SignalContribution::key).toList();
+        assertThat(hinted).contains("pathHint").doesNotContain("apiSegment", "versionSegment");
     }
 }

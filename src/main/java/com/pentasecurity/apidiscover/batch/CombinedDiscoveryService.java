@@ -4,6 +4,7 @@ package com.pentasecurity.apidiscover.batch;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pentasecurity.apidiscover.classify.ApiScorer;
 import com.pentasecurity.apidiscover.classify.Classifier;
 import com.pentasecurity.apidiscover.classify.EffectiveClassification;
 import com.pentasecurity.apidiscover.classify.EffectiveClassificationResolver;
@@ -13,8 +14,10 @@ import com.pentasecurity.apidiscover.domain.DomainConfigRepository;
 import com.pentasecurity.apidiscover.match.EndpointMatcher;
 import com.pentasecurity.apidiscover.match.EndpointMatcherCache;
 import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
+import com.pentasecurity.apidiscover.model.ClassificationProfile;
 import com.pentasecurity.apidiscover.model.CombinedDiscovery;
 import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
+import com.pentasecurity.apidiscover.model.EffectiveClassificationView;
 import com.pentasecurity.apidiscover.model.EndpointKind;
 import com.pentasecurity.apidiscover.model.Finding;
 import com.pentasecurity.apidiscover.model.ParamCandidates;
@@ -81,7 +84,10 @@ public class CombinedDiscoveryService {
         EffectiveClassification eff = classificationResolver.resolve(host);
         // base-path-strip (doc/27 §3) — null=off=현행. 결합 뷰도 동일 at-match 재시도.
         String stripPrefix = domainRepo.findById(host).map(c -> c.getBasePathStrip()).orElse(null);
-        List<Finding> findings = classifier.classify(discovered, spec, matcher, eff.scorer(), eff.hints(), stripPrefix);
+        // 판단 근거 동봉(doc/34) — 스캔 경로와 동일 게이트/corsKeys, findings 와 rationale 병렬. 추가 조회 0(eff·discovered 이미 보유).
+        Classifier.ExplainedClassification explained =
+                classifier.classifyExplained(discovered, spec, matcher, eff.scorer(), eff.hints(), stripPrefix);
+        List<Finding> findings = explained.findings();
 
         SpecMergeStrategy mode = modeOf(host);
         SpecSource specSource = hasSpec
@@ -89,7 +95,15 @@ public class CombinedDiscoveryService {
                 : SpecSource.EMPTY;
         List<CombinedDiscovery.VersionGroup> groups = (mode == SpecMergeStrategy.VERSION_GROUPED)
                 ? groupByVersion(findings, spec) : List.of();
-        return new CombinedDiscovery(host, specVersion, mode, findings, groups, specSource);
+        return new CombinedDiscovery(host, specVersion, mode, findings, groups, specSource,
+                effectiveView(eff), explained.rationale());
+    }
+
+    /** effective 분류 설정 뷰(doc/34 §2): profile·threshold·weightsSource(CUSTOM=custom)·14신호 weights 맵. */
+    private static EffectiveClassificationView effectiveView(EffectiveClassification eff) {
+        String src = (eff.profile() == ClassificationProfile.CUSTOM) ? "custom" : "preset";
+        return new EffectiveClassificationView(
+                eff.profile(), eff.scorer().threshold(), src, ApiScorer.weightsAsMap(eff.weights()));
     }
 
     /** discovered_endpoint 행 → DiscoveredEndpoint 재구성. 분석 상세(distinctClients/p50/p95/acrm)는 카탈로그 미보유→0(doc/26 §2). */
