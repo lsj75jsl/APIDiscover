@@ -5,6 +5,20 @@
 
 ---
 
+## 2026-06-29 세션 57 — 실배포 버그: PUT /spec 동일 filename 재업로드 500 (rawDoc oid · @Transactional self-invocation)
+
+### 한 일
+- **근본원인(self-invocation)**: `SpecStore.upload` 의 **4-arg core 에만** `@Transactional`, 진입 오버로드(2-arg·3-arg filename·3-arg specName)는 비-@Transactional. `SpecController.upload` 가 3-arg(filename)를 호출 → 그 안에서 4-arg core 를 **self-invocation**(같은 빈) → Spring 프록시 미적용 → `@Transactional` 무력 → auto-commit. 동일 specName 재업로드 시 MERGE 비활성화 루프(`findByHostAndActiveIsTrue`→`prev.setActive(false)` = rawDoc oid 엔티티 로드)가 auto-commit → `Large Objects may not be used in auto-commit mode`/`Unable to access lob stream` 500. 첫 업로드(비활성 대상 0)는 통과, ★재업로드부터 발현. PostgresIntegrationTest 의 v1→v2(M7a)는 테스트 메서드 tx 가 감싸 가렸음.
+- **수정**: 진입 오버로드 3개(2-arg·3-arg filename·3-arg specName)에 `@Transactional` 추가 → 컨트롤러 호출이 프록시 경유로 tx 시작 → 내부 self-call 4-arg core 가 그 tx 안(REQUIRED 전파)에서 실행 → oid 엔티티 로드 안전.
+- **★실 PG 회귀가드(MockMvc=실 HTTP 경로, 테스트 tx 미적용)**: `PostgresIntegrationTest.reuploadSameFilenameViaHttpDoesNotHit500` — MockMvc PUT /spec 동일 filename 2회 업로드 → 2번째 200(500 아님) + /spec/changes diff 정상(/v2/orders/{id} ADDED). ★단순 repo.save/서비스 직접호출은 tx 가 가리므로 반드시 MockMvc 경로. 진위: 진입 @Transactional 제거 시 정확히 `Large Objects may not be used in auto-commit mode`/`Unable to access lob stream` RED 확인 후 복원→GREEN.
+
+### 결과
+- `./gradlew build`(podman) BUILD SUCCESSFUL. 전체 **497**(+1) 실패0 errors0 skip2(-Dloki.live). PostgresIntegrationTest **29/29 PASS(skip 0)**. 운영 Loki 미호출(spec=파싱·DB only). 스키마 변경 0.
+- 문서: doc/28 §10·DECISIONS D51(self-invocation 추가·교훈)·이 로그. ★교훈: 같은 빈 self-invocation 은 callee @Transactional(전 프록시 어드바이스) 무력 → 외부 진입 메서드에 tx 를 둬야.
+
+### 다음 단계
+- 커밋 금지(매니저, 브랜치 fix/spec-reupload-tx-self-invocation). 머지 후 재배포 시 동일 filename 재업로드 검증 권장. rawDoc bytea 마이그레이션은 선택 후속(별도).
+
 ## 2026-06-29 세션 56 — M7a: spec 멀티문서 관리 + API 상태추적(ADDED/DELETED/UPDATED, doc/36)
 
 ### 한 일

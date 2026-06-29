@@ -59,7 +59,13 @@ public class SpecStore {
         this.parsersByFormat = map;
     }
 
-    /** 하위호환 — 문서명·파일명 미지정 업로드는 "default" 문서(현행 단일 스펙 경로). */
+    /**
+     * 하위호환 — 문서명·파일명 미지정 업로드는 "default" 문서(현행 단일 스펙 경로).
+     * ★진입 오버로드에 @Transactional 필수: 컨트롤러가 이 메서드를 호출하면 프록시 경유로 tx 가 시작돼야, 내부 self-invocation 으로
+     * 부르는 4-arg core(같은 빈)의 비활성화 루프(findByHostAndActiveIsTrue→prev.setActive=rawDoc oid 엔티티 로드)가 tx 안에서 안전.
+     * (4-arg 의 @Transactional 은 self-call 이라 프록시 미적용=무력 → 진입점에 둬야 함, doc/28 §10·D51.)
+     */
+    @Transactional
     public SpecRecord upload(String host, byte[] content) {
         return upload(host, "default", content, null);
     }
@@ -68,6 +74,7 @@ public class SpecStore {
      * 파일명 동반 업로드(PUT /spec ?filename=) — ★filename 을 specName 으로 도출(doc/36 M7.1): 서로 다른 filename=별개 문서,
      * 동일 filename 재업로드=그 문서의 새 버전(MERGE 가 같은 specName 비활성). 미전달/빈=specName "default"(하위호환·무회귀).
      */
+    @Transactional // ★진입점: self-invocation 으로 4-arg core 호출 시 tx 전파(재업로드 비활성화 루프 oid 엔티티 로드 안전, D51)
     public SpecRecord upload(String host, byte[] content, String filename) {
         return upload(host, specNameFromFilename(filename), content, filename);
     }
@@ -81,6 +88,7 @@ public class SpecStore {
     }
 
     /** 하위호환 — 파일명 미지정 멀티문서 업로드(specName 지정). */
+    @Transactional // ★진입점: self-invocation 으로 4-arg core 호출 시 tx 전파(재업로드 비활성화 루프 oid 엔티티 로드 안전, D51)
     public SpecRecord upload(String host, String specName, byte[] content) {
         return upload(host, specName, content, null);
     }
