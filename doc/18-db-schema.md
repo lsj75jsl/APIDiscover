@@ -90,6 +90,10 @@ INSERT 에는 이 기본값이 적용되지 않는다.
 | `interval_override` | `intervalOverride` | `String` | VARCHAR(255) | | nullable | ISO-8601 Duration 문자열(예 `PT1H`) 또는 null=전역 기본 |
 | `spec_merge_strategy` | `specMergeStrategy` | `@Enumerated(STRING) SpecMergeStrategy` | VARCHAR(255) | | nullable | 값: `MERGE`/`SEPARATE`/`VERSION_GROUPED`. 필드 기본값 `MERGE`. 기존 행 null → 읽을 때 `MERGE` 로 해석(`SpecStore`, doc/26 §5) |
 | `base_path_strip` | `basePathStrip` | `String` | VARCHAR(255) | | nullable | 프록시가 관측 경로에서 제거한 base prefix(예 `/v2`·`/api`)의 operator 명시값. null=off(기본). spec 매칭 라우팅 정합용. `specMergeStrategy` 와 동형 per-domain 설정(doc/27 §, D38) |
+| `discovered_at` | `discoveredAt` | `Instant` | TIMESTAMP(6) | | nullable | 자동 디스커버리 최초 발견 시각(doc/30 §5). **수동 등록 도메인은 null**(자연 구분). `ddl-auto` 가산 |
+| `last_seen_at` | `lastSeenAt` | `Instant` | TIMESTAMP(6) | | nullable | 자동 디스커버리 최근 관측(집계 윈도우 끝). staleness 가시화용 — **삭제 트리거 아님**(doc/30 §5). `ddl-auto` 가산 |
+| `last_scan_attempt_at` | `lastScanAttemptAt` | `Instant` | TIMESTAMP(6) | | nullable | 스캔 라운드로빈 커서(least-recently-scanned asc nulls-first, doc/33 §1 B). attempt 마다 전진(skip 포함). `ddl-auto` 가산 |
+| `next_scan_due_at` | `nextScanDueAt` | `Instant` | TIMESTAMP(6) **(@Index)** | | nullable | 다음 스캔 due 시각(doc/33 §4, D48) — 스캔 시 `now + effectiveInterval` 갱신, **null=즉시 due**. `@Table(indexes=@Index(columnList="next_scan_due_at"))` 로 인덱스 생성. `ddl-auto` 가산 |
 | `created_at` | `createdAt` | `Instant` | TIMESTAMP(6) | | nullable | |
 | `updated_at` | `updatedAt` | `Instant` | TIMESTAMP(6) | | nullable | |
 
@@ -147,13 +151,15 @@ INSERT 에는 이 기본값이 적용되지 않는다.
 | `spec_version` | `specVersion` | `long` | BIGINT | | NOT NULL | |
 | `window_from` | `windowFrom` | `Instant` | TIMESTAMP(6) | | nullable | |
 | `window_to` | `windowTo` | `Instant` | TIMESTAMP(6) | | nullable | |
-| `report_json` | `reportJson` | `@Column(columnDefinition="text") String` | text | | nullable | 전체 `DiscoveryReport` JSON(doc/01 §4, doc/12). PG `text`(D40) |
-| `discovered` | `discovered` | `int` | INTEGER | | NOT NULL | summary |
-| `active` | `active` | `int` | INTEGER | | NOT NULL | summary |
-| `shadow` | `shadow` | `int` | INTEGER | | NOT NULL | summary |
-| `zombie` | `zombie` | `int` | INTEGER | | NOT NULL | summary |
-| `unused` | `unused` | `int` | INTEGER | | NOT NULL | summary |
+| `report_json` | `reportJson` | `@Column(columnDefinition="text") String` | text | | nullable | **전체 `DiscoveryReport` JSON**(doc/01 §4, doc/12) — 엔드포인트별 상세(분류·confidence·severity·params·dropped·signal). `GET /api/v1/domains/{host}/result` 가 ETag 조건부 GET 으로 중앙에 내려주는 본체. PG `text`(D40) |
+| `discovered` | `discovered` | `int` | INTEGER | | NOT NULL | summary — 이번 스캔 윈도우에서 **트래픽이 관측된 엔드포인트 수**(분류 전 인벤토리). **OPTIONS 제외**(CORS 신호 전용, 과대집계 방지. `DiscoveryJobService` 인벤토리 카운트) |
+| `active` | `active` | `int` | INTEGER | | NOT NULL | summary — **스펙 문서화 ∩ 트래픽(S∩D)** = 정상 사용 중인 문서화 API 수 |
+| `shadow` | `shadow` | `int` | INTEGER | | NOT NULL | summary — 트래픽엔 있는데 스펙엔 없음(**D−S**) = 그림자 API |
+| `zombie` | `zombie` | `int` | INTEGER | | NOT NULL | summary — 스펙상 deprecated 인데 트래픽 지속/버전 추정 좀비 |
+| `unused` | `unused` | `int` | INTEGER | | NOT NULL | summary — 스펙엔 있는데 트래픽 없음(**S−D**) = 미사용 API |
 | `total_dropped` | `totalDropped` | `int` `@Column(columnDefinition = "integer default 0")` | INTEGER **DEFAULT 0** | | NOT NULL | dropped 3종 합계(non_api+byLimit+nonExistent) 비정규화. scan-status at-a-glance(doc/25 §C) |
+
+> **카운트 의미 주의**: `discovered ≠ active + shadow + zombie + unused`. ① `discovered`=관측 총량(트래픽 있던 엔드포인트), `unused`=스펙에만 있어 트래픽 없는 쪽이라 `discovered` 에 미포함. ② `web_page`(비 API)는 4개 분류 요약에서 제외되나 `discovered` 관측량엔 포함(`ReportBuilder` WebPage skip). ③ `active`=문서∩관측 교집합. 즉 `discovered`=이번에 본 양, 분류 4종=스펙 대조 판정이라 축이 다르다.
 
 > `total_dropped` 는 본 문서에서 **유일하게 SQL `DEFAULT` 절을 갖는 컬럼**이다(`columnDefinition` 명시). §1.3 의 "필드 기본값 ≠ SQL DEFAULT" 일반 규칙의 예외 —
 > `ddl-auto: update` 가 기존 테이블에 `ALTER TABLE ... ADD COLUMN total_dropped integer default 0` 으로 추가해 **기존 행을 NULL 없이 0 으로 백필**한다(`int` primitive 안전, doc/25 §C).
@@ -222,7 +228,7 @@ H2/PG 이식성이 떨어져 채택하지 않았다(엔티티 주석·doc/10 §1
 | `non_browser_ua` | `nonBrowserUa` | `boolean` | BOOLEAN | | NOT NULL | ApiScorer 신호 스냅샷 |
 | `params_json` | `paramsJson` | `@Column(columnDefinition="text") String` | text | | nullable | `ParamCandidates`(doc/13) 스냅샷. PG `text`(D40) |
 
-**제약/인덱스** (본 문서에서 **유일하게 명시적 `@UniqueConstraint`·`@Index` 를 선언하는 테이블** — 나머지는 PK 또는 `@ElementCollection` 기본 매핑만).
+**제약/인덱스** (본 문서에서 **유일하게 `@UniqueConstraint` + 복합 `@Index` 를 선언하는 테이블**. 단일 컬럼 `@Index` 는 `domain_config`(`next_scan_due_at`)에도 있음 — §2.1. 그 외 테이블은 PK 또는 `@ElementCollection` 기본 매핑만).
 
 - PK: `id`(합성, IDENTITY). 자연키 대신 합성 키 — `spec_record` 와 동일 스타일.
 - **UNIQUE(`host`, `method`, `path_template`)** — 누적 upsert 키. `@UniqueConstraint(columnNames={"host","method","path_template"})`.
@@ -287,7 +293,7 @@ spec_record │   │   │   domain_classification_config(host, PK·1:1)
 
 | 테이블 | 엔티티 | 설계 출처 |
 |--------|--------|----------|
-| `domain_config` | `DomainConfig` | doc/07 §3.1, doc/05 §2.3(hostnames), `spec_merge_strategy`=doc/26 §5·D35, `base_path_strip`=doc/27·D38 |
+| `domain_config` | `DomainConfig` | doc/07 §3.1, doc/05 §2.3(hostnames), `spec_merge_strategy`=doc/26 §5·D35, `base_path_strip`=doc/27·D38, `discovered_at`/`last_seen_at`=doc/30 §5, `last_scan_attempt_at`/`next_scan_due_at`=doc/33·D48 |
 | `domain_hostnames` | `DomainConfig.hostnames` (`@ElementCollection`) | doc/05 §2.3 |
 | `spec_record` | `SpecRecord` | doc/03 §7.3, `warnings_json`=doc/25 §A.2·D34, `spec_name`=doc/26 §3·D35 |
 | `scan_result` | `ScanResult` | doc/07 §3.2·§3.3, `reportJson`=doc/01 §4·doc/12, `total_dropped`=doc/25 §C·D34 |

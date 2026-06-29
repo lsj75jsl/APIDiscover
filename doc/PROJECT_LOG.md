@@ -5,6 +5,17 @@
 
 ---
 
+## 2026-06-29 세션 46 — DB 테이블 명세 HTML + ER Diagram 신규 작성 (사용자 요청, 문서만, TW)
+
+### 한 일
+- `doc/manual/db-schema-spec.html` 신규 — 8테이블(7엔티티 + `domain_hostnames`) 전체 컬럼 명세(의미 포함) + inline SVG ER Diagram(자기완결, 외부 의존 0·CDN/JS 라이브러리 없음). 기존 매뉴얼 CSS 토큰 재사용(화이트 테마). ER 은 `domain_config` 허브 방사형(1:1 위성·1:N 자식·전역 상속 점선), 범례·텍스트 fallback `<pre>` 동봉.
+- ★사용자 지적 핵심 = `scan_result` 카운트 의미. 코드 교차검증으로 확정: `discovered`=관측 인벤토리(OPTIONS 제외, `DiscoveryJobService:246-248`)·`active`=S∩D·`shadow`=D−S·`unused`=S−D·`report_json`=전체 `DiscoveryReport` 본체(중앙 조건부 GET). `web_page` 분류 요약 제외(`ReportBuilder:48`) → `discovered ≠ active+shadow+zombie+unused` 주의 명시.
+- `doc/18` 동기 — (1) scan_result summary 컬럼 의미 보강 + 주의 노트, (2) `domain_config` 누락 4컬럼 추가(`discovered_at`·`last_seen_at`·`last_scan_attempt_at`·`next_scan_due_at`@Index — 실 엔티티 확인), (3) §2.8 "유일하게 @Index" 문구 정정(domain_config 도 단일 컬럼 인덱스 보유), (4) §4 교차참조 출처 보강.
+
+### 결과
+- HTMLParser OK·HTML 태그 균형 EMPTY·SVG `<g>` 11/11·`<svg>` 1/1·8테이블 명세 전부·ER 관계 7행 검증. 운영 Loki 미호출. main 직접 커밋.
+- 다음 단계: 매니저 검증 대기.
+
 ## 2026-06-29 세션 45 — 신규 도메인 즉시 처리 CLI(`-domain -register` 신규 + `-scan` 미등록 자동등록, D47 확장)
 
 ### 한 일

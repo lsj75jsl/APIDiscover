@@ -121,6 +121,10 @@
 
 ## Done
 
+### DB 테이블 명세 HTML + ER Diagram 신규 작성 + doc/18 동기 (2026-06-29, 사용자 요청, 문서만) — TW
+- [x] `doc/manual/db-schema-spec.html` 신규 — 8테이블(7엔티티+domain_hostnames) 전체 컬럼 명세(의미 포함, 특히 scan_result discovered/active/shadow/zombie/unused·report_json) + inline SVG ER Diagram(자기완결, 외부 의존 0). 코드 교차검증(ScanResult·DomainConfig·ReportBuilder·DiscoveryJobService OPTIONS 제외).
+- [x] `doc/18` 동기 — scan_result summary 컬럼 의미 보강(S∩D/D−S/S−D·OPTIONS 제외·discovered≠합 주의) + domain_config 누락 4컬럼 추가(discovered_at·last_seen_at·last_scan_attempt_at·next_scan_due_at@Index, doc/18 next_scan_due_at sync 후속 해소) + §2.8 인덱스 문구 정정.
+
 ### CLI CSV 내보내기(B) + Docker/podman 테스트 배포(C) (2026-06-25, doc/31·32 / DECISIONS D43, PR #23) — tests=357(347+10) 실패0 skip2(live 게이트), podman build 성공
 - [x] B CLI — `main()` `--adc.cli.export-domain=` 분기(web NONE·profiles cli), `@EnableScheduling`→`SchedulingConfig(@Profile("!cli"))` 분리(서버 동일 활성·무회귀). `DomainCsvWriter` 15컬럼(source 파생=sealed Finding switch 망라·RFC4180·discovered join·score 범위밖), `CliExportRunner` exit 0/2/3/4. Loki 무접촉.
 - [x] C Docker — Dockerfile 멀티스테이지(temurin:21-jdk→jre, `*-SNAPSHOT.jar` glob)+`.dockerignore`, `application-container.yml`(PG·ddl-auto update·Loki LAN, application.yml H2 불변), `adc.yaml`(podman play kube, app+postgres pod, netns localhost:5432, PGDATA `/opt/adc` 서브디렉터리=initdb 충돌 회피, exports `/opt/adc-exports` 분리), `doc/32` 런북.

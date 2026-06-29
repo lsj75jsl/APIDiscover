@@ -1,0 +1,460 @@
+<!-- DB 테이블 전체 명세(컬럼 의미 포함) + ER Diagram — 자기완결 HTML(외부 의존 0, inline SVG/CSS). 엔티티 역설계, doc/18 동기 -->
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>APIDiscover — DB 테이블 명세 & ER Diagram</title>
+<style>
+  :root{
+    --bg:#ffffff; --fg:#1f2430; --muted:#5b6473; --line:#e3e7ee;
+    --accent:#2563eb; --accent-soft:#eff4ff; --code-bg:#f6f8fa; --code-fg:#1f2430;
+    --green:#15803d; --green-soft:#e9f7ee; --amber:#b45309; --amber-soft:#fdf3e2;
+    --red:#b91c1c; --red-soft:#fdeceb; --purple:#6d28d9; --purple-soft:#f3eefe;
+    --logic:#94a3b8;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    background:var(--bg); color:var(--fg); margin:0;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Apple SD Gothic Neo","Noto Sans KR",Roboto,"Malgun Gothic",sans-serif;
+    line-height:1.7; font-size:16px;
+  }
+  .wrap{max-width:1080px; margin:0 auto; padding:0 24px 96px;}
+  header.hero{
+    background:linear-gradient(135deg,#1e3a8a 0%,#2563eb 60%,#3b82f6 100%);
+    color:#fff; padding:48px 24px; margin-bottom:8px;
+  }
+  header.hero .inner{max-width:1080px; margin:0 auto;}
+  header.hero h1{margin:0 0 8px; font-size:30px; letter-spacing:-0.5px;}
+  header.hero p{margin:4px 0; opacity:.92; font-size:15px;}
+  header.hero .tags{margin-top:14px;}
+  header.hero .tag{display:inline-block; background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.28);
+    padding:3px 10px; border-radius:20px; font-size:12.5px; margin:3px 6px 3px 0;}
+  h2{font-size:24px; margin:52px 0 14px; padding-bottom:8px; border-bottom:2px solid var(--accent); letter-spacing:-0.3px;}
+  h3{font-size:19px; margin:34px 0 10px; color:#10204a;}
+  h4{font-size:16px; margin:22px 0 8px; color:#243049;}
+  p{margin:10px 0;}
+  a{color:var(--accent); text-decoration:none;}
+  a:hover{text-decoration:underline;}
+  code{font-family:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace; font-size:13.5px;
+    background:var(--code-bg); padding:1.5px 5px; border-radius:4px; color:#b3185d;}
+  pre{background:var(--code-bg); border:1px solid var(--line); border-radius:10px; padding:16px 18px;
+    overflow-x:auto; font-size:12.5px; line-height:1.5;}
+  pre code{background:none; padding:0; color:var(--code-fg); white-space:pre;}
+  table{border-collapse:collapse; width:100%; margin:16px 0; font-size:13.5px; display:block; overflow-x:auto;}
+  th,td{border:1px solid var(--line); padding:7px 10px; text-align:left; vertical-align:top;}
+  th{background:var(--accent-soft); color:#10204a; font-weight:600; white-space:nowrap;}
+  tr:nth-child(even) td{background:#fbfcfe;}
+  td.col{white-space:nowrap; font-weight:600;}
+  td.t{white-space:nowrap; color:var(--muted); font-size:12.5px;}
+  .pk{display:inline-block; background:var(--amber-soft); color:var(--amber); border:1px solid #f3dcb3;
+    border-radius:4px; padding:0 6px; font-size:11.5px; font-weight:700; margin-left:4px;}
+  .nn{color:var(--red); font-weight:700; font-size:12px;}
+  .nl{color:var(--muted); font-size:12px;}
+  .toc{background:#fafbfd; border:1px solid var(--line); border-radius:12px; padding:18px 24px; margin:24px 0;}
+  .toc h2{border:none; margin:0 0 10px; font-size:18px;}
+  .toc ol{margin:0; padding-left:20px;}
+  .toc li{margin:4px 0;}
+  .callout{border-radius:10px; padding:14px 18px; margin:18px 0; border:1px solid;}
+  .callout .ct{font-weight:700; margin-bottom:4px; display:block;}
+  .note{background:var(--accent-soft); border-color:#cfe0ff;}
+  .ok{background:var(--green-soft); border-color:#c4e8d1;}
+  .warn{background:var(--amber-soft); border-color:#f3dcb3;}
+  .danger{background:var(--red-soft); border-color:#f4cdc9;}
+  .er{border:1px solid var(--line); border-radius:12px; padding:14px; margin:18px 0; background:#fcfdff; overflow-x:auto;}
+  .er svg{max-width:100%; height:auto; display:block; margin:0 auto;}
+  .legend{font-size:13px; color:var(--muted); margin:6px 0;}
+  .legend span.k{display:inline-block; margin-right:16px;}
+  .swatch{display:inline-block; width:26px; height:0; vertical-align:middle; margin-right:6px;}
+  .tbl-card{border:1px solid var(--line); border-radius:12px; padding:2px 18px 8px; margin:22px 0; background:#fff;}
+  .tbl-card h3{margin-top:18px;}
+  .meta{font-size:13px; color:var(--muted); margin:2px 0 0;}
+  .star{color:var(--red); font-weight:700;}
+</style>
+</head>
+<body>
+<header class="hero">
+  <div class="inner">
+    <h1>DB 테이블 명세 &amp; ER Diagram</h1>
+    <p>API Discovery Worker 의 내부 데이터베이스 — 7 엔티티 + 컬렉션 테이블 1개 = <strong>8 테이블</strong> 전체 컬럼 명세와 관계도.</p>
+    <p>코드(JPA <code>@Entity</code> 애너테이션)가 단일 진실원이며, 본 문서는 이를 역설계해 사람이 읽는 형태로 기술한다.</p>
+    <div class="tags">
+      <span class="tag">Java 21 · Spring Boot 3.3</span>
+      <span class="tag">Hibernate ddl-auto=update</span>
+      <span class="tag">H2(dev) / PostgreSQL(prod)</span>
+      <span class="tag">근거: doc/18 · doc/06 · D11/D17/D40</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<nav class="toc">
+  <h2>목차</h2>
+  <ol>
+    <li><a href="#s1">개요 — 스키마 생성 방식과 host 허브 구조</a></li>
+    <li><a href="#s2">ER Diagram — host 를 허브로 한 방사형 관계</a></li>
+    <li><a href="#s3">타입 매핑 컨벤션 (JPA → SQL)</a></li>
+    <li><a href="#s4">테이블별 컬럼 명세 (8 테이블)</a></li>
+    <li><a href="#s5">테이블 관계 요약 (7건)</a></li>
+  </ol>
+</nav>
+
+<!-- ============================================================ -->
+<h2 id="s1">1. 개요 — 스키마 생성 방식과 host 허브 구조</h2>
+
+<p>스키마는 <strong>Hibernate 가 자동 생성</strong>한다(<code>spring.jpa.hibernate.ddl-auto: update</code>). 별도 마이그레이션 도구(Flyway/Liquibase)는 쓰지 않으므로, 본 문서가 곧 사람이 읽는 스키마다. <code>update</code> 는 컬럼 <strong>추가</strong>만 하고 삭제·타입 변경은 하지 않는다.</p>
+
+<p>전체 구조의 핵심은 <strong><code>host</code>(도메인) 가 모든 도메인 데이터의 중심 키</strong>라는 점이다. 도메인 하나가 설정(<code>domain_config</code>)·스펙(<code>spec_record</code>)·검출 카탈로그(<code>discovered_endpoint</code>)·최신 결과(<code>scan_result</code>)·워터마크(<code>watermark</code>)·분류 override(<code>domain_classification_config</code>)로 펼쳐진다. 전역 분류 기본값(<code>classification_config</code>)만 도메인과 무관한 단일 행이다.</p>
+
+<div class="callout warn">
+  <span class="ct">★ 실제 외래키(FK) 제약은 단 하나뿐</span>
+  엔티티에 JPA 연관(<code>@ManyToOne</code>/<code>@OneToOne</code>)이 하나도 선언돼 있지 않다. 따라서 테이블 간 관계는 대부분 <strong><code>host</code> 문자열을 공유하는 논리 FK(애플리케이션 레벨)</strong>이며 DB FK 제약으로 강제되지 않는다. 물리 FK 가 실제로 생성되는 곳은 <code>@ElementCollection</code> 자식 테이블인 <strong><code>domain_hostnames → domain_config</code></strong> 한 곳뿐이다.
+</div>
+
+<table>
+  <thead><tr><th>#</th><th>테이블</th><th>PK</th><th>역할</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td><code>domain_config</code></td><td>host</td><td>분석 대상 도메인 설정·스캔 정책 (허브)</td></tr>
+    <tr><td>2</td><td><code>domain_hostnames</code></td><td>(host, hostname)</td><td>도메인↔엣지 hostname 컬렉션 (유일한 실 FK)</td></tr>
+    <tr><td>3</td><td><code>scan_result</code></td><td>host</td><td>도메인별 <strong>최신 스캔 결과·요약</strong> (1:1)</td></tr>
+    <tr><td>4</td><td><code>watermark</code></td><td>host</td><td>도메인별 증분 분석 워터마크 (1:1)</td></tr>
+    <tr><td>5</td><td><code>spec_record</code></td><td>id</td><td>도메인×버전 API 스펙 (1:N)</td></tr>
+    <tr><td>6</td><td><code>discovered_endpoint</code></td><td>id</td><td>누적 검출 엔드포인트 카탈로그 (1:N)</td></tr>
+    <tr><td>7</td><td><code>domain_classification_config</code></td><td>host</td><td>도메인별 분류 설정 override (1:1, 희소)</td></tr>
+    <tr><td>8</td><td><code>classification_config</code></td><td>id=1</td><td>전역 분류 기본값 (단일 행)</td></tr>
+  </tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="s2">2. ER Diagram — host 를 허브로 한 방사형 관계</h2>
+
+<p><code>domain_config</code> 를 중심으로 1:1 위성(왼쪽)과 1:N 자식(오른쪽)이 <code>host</code> 로 연결된다. 실선 굵은 파랑은 <strong>실 FK</strong>, 가는 회색은 <strong>논리 FK(host 공유)</strong>, 보라 점선은 <strong>전역→도메인 상속(앱 레벨 병합)</strong>이다.</p>
+
+<div class="er">
+<svg viewBox="0 0 1000 600" role="img" aria-label="DB ER 다이어그램 — domain_config 허브 방사형 관계"
+     font-family="-apple-system,'Segoe UI','Noto Sans KR','Malgun Gothic',sans-serif">
+  <!-- ===== 연결선 (박스보다 먼저 그려 박스가 덮도록) ===== -->
+  <!-- 전역 상속 (보라 점선) -->
+  <line x1="500" y1="78" x2="500" y2="250" stroke="#6d28d9" stroke-width="2" stroke-dasharray="6 5"/>
+  <!-- 실 FK : domain_hostnames (굵은 파랑) -->
+  <line x1="500" y1="470" x2="500" y2="336" stroke="#2563eb" stroke-width="3"/>
+  <!-- 논리 FK (가는 회색) -->
+  <line x1="250" y1="146" x2="405" y2="276" stroke="#94a3b8" stroke-width="1.8"/>
+  <line x1="250" y1="258" x2="400" y2="290" stroke="#94a3b8" stroke-width="1.8"/>
+  <line x1="270" y1="366" x2="405" y2="312" stroke="#94a3b8" stroke-width="1.8"/>
+  <line x1="750" y1="176" x2="595" y2="278" stroke="#94a3b8" stroke-width="1.8"/>
+  <line x1="750" y1="302" x2="600" y2="300" stroke="#94a3b8" stroke-width="1.8"/>
+
+  <!-- ===== 카디널리티 라벨 ===== -->
+  <g font-size="12" fill="#5b6473">
+    <rect x="306" y="196" width="40" height="16" fill="#fcfdff"/><text x="310" y="208">1 : 1</text>
+    <rect x="300" y="266" width="40" height="16" fill="#fcfdff"/><text x="304" y="278">1 : 1</text>
+    <rect x="300" y="334" width="74" height="16" fill="#fcfdff"/><text x="304" y="346">1 : 1 희소</text>
+    <rect x="650" y="214" width="40" height="16" fill="#fcfdff"/><text x="654" y="226">1 : N</text>
+    <rect x="650" y="292" width="40" height="16" fill="#fcfdff"/><text x="654" y="304">1 : N</text>
+  </g>
+  <g font-size="12">
+    <rect x="508" y="396" width="92" height="17" fill="#fcfdff"/>
+    <text x="512" y="409" fill="#2563eb" font-weight="700">1 : N 실 FK</text>
+    <rect x="508" y="150" width="120" height="17" fill="#fcfdff"/>
+    <text x="512" y="163" fill="#6d28d9">상속 · 앱 병합</text>
+  </g>
+
+  <!-- ===== 박스 ===== -->
+  <!-- classification_config (전역) -->
+  <g>
+    <rect x="370" y="24" width="260" height="54" rx="9" fill="#f3eefe" stroke="#6d28d9" stroke-width="1.6"/>
+    <text x="500" y="46" text-anchor="middle" font-size="14.5" font-weight="700" fill="#4c1d95">classification_config</text>
+    <text x="500" y="65" text-anchor="middle" font-size="11.5" fill="#6d28d9">전역 분류 기본값 · PK id=1 · 단일 행</text>
+  </g>
+
+  <!-- domain_config (허브) -->
+  <g>
+    <rect x="398" y="250" width="204" height="86" rx="11" fill="#dbe7ff" stroke="#2563eb" stroke-width="2.4"/>
+    <text x="500" y="282" text-anchor="middle" font-size="16" font-weight="700" fill="#10204a">domain_config</text>
+    <text x="500" y="302" text-anchor="middle" font-size="11.5" fill="#1e3a8a">PK host · 허브(중심 키)</text>
+    <text x="500" y="320" text-anchor="middle" font-size="11.5" fill="#1e3a8a">도메인 설정 · 스캔 정책</text>
+  </g>
+
+  <!-- 왼쪽 1:1 위성 -->
+  <g>
+    <rect x="40" y="120" width="210" height="52" rx="9" fill="#eff4ff" stroke="#9bbcff" stroke-width="1.4"/>
+    <text x="145" y="141" text-anchor="middle" font-size="13.5" font-weight="700" fill="#10204a">scan_result</text>
+    <text x="145" y="159" text-anchor="middle" font-size="11" fill="#5b6473">PK host · 최신 결과/요약</text>
+  </g>
+  <g>
+    <rect x="40" y="234" width="210" height="48" rx="9" fill="#eff4ff" stroke="#9bbcff" stroke-width="1.4"/>
+    <text x="145" y="254" text-anchor="middle" font-size="13.5" font-weight="700" fill="#10204a">watermark</text>
+    <text x="145" y="271" text-anchor="middle" font-size="11" fill="#5b6473">PK host · 증분 커서</text>
+  </g>
+  <g>
+    <rect x="20" y="340" width="250" height="52" rx="9" fill="#eff4ff" stroke="#9bbcff" stroke-width="1.4"/>
+    <text x="145" y="361" text-anchor="middle" font-size="13" font-weight="700" fill="#10204a">domain_classification_config</text>
+    <text x="145" y="379" text-anchor="middle" font-size="11" fill="#5b6473">PK host · 분류 override(희소)</text>
+  </g>
+
+  <!-- 오른쪽 1:N 자식 -->
+  <g>
+    <rect x="750" y="150" width="220" height="52" rx="9" fill="#e9f7ee" stroke="#9fd6b3" stroke-width="1.4"/>
+    <text x="860" y="171" text-anchor="middle" font-size="13.5" font-weight="700" fill="#14532d">spec_record</text>
+    <text x="860" y="189" text-anchor="middle" font-size="11" fill="#15803d">PK id · 스펙(멀티버전)</text>
+  </g>
+  <g>
+    <rect x="750" y="276" width="220" height="52" rx="9" fill="#e9f7ee" stroke="#9fd6b3" stroke-width="1.4"/>
+    <text x="860" y="297" text-anchor="middle" font-size="13.5" font-weight="700" fill="#14532d">discovered_endpoint</text>
+    <text x="860" y="315" text-anchor="middle" font-size="11" fill="#15803d">PK id · 검출 카탈로그(누적)</text>
+  </g>
+
+  <!-- 하단 실 FK 자식 -->
+  <g>
+    <rect x="395" y="470" width="210" height="56" rx="9" fill="#dbeafe" stroke="#2563eb" stroke-width="1.8"/>
+    <text x="500" y="492" text-anchor="middle" font-size="13.5" font-weight="700" fill="#10204a">domain_hostnames</text>
+    <text x="500" y="510" text-anchor="middle" font-size="11" fill="#1e3a8a">엣지 hostname 컬렉션 · 실 FK</text>
+  </g>
+
+  <!-- 범례 -->
+  <g font-size="12" fill="#5b6473">
+    <line x1="40" y1="556" x2="70" y2="556" stroke="#2563eb" stroke-width="3"/>
+    <text x="78" y="560">실 FK(DB 제약)</text>
+    <line x1="230" y1="556" x2="260" y2="556" stroke="#94a3b8" stroke-width="1.8"/>
+    <text x="268" y="560">논리 FK(host 공유)</text>
+    <line x1="440" y1="556" x2="470" y2="556" stroke="#6d28d9" stroke-width="2" stroke-dasharray="6 5"/>
+    <text x="478" y="560">전역→도메인 상속(앱 병합)</text>
+  </g>
+</svg>
+</div>
+
+<h4>텍스트 표현 (fallback)</h4>
+<pre><code>                  classification_config  (전역 단일 행, PK id=1)
+                            : 전역→도메인 상속(앱 레벨 병합, FK 아님)
+                            v
+   scan_result ─1:1─┐
+   watermark   ─1:1─┤
+   dom_class_cfg─1:1┤ (희소)
+                    +──►  domain_config (PK host · 허브)  ◄─1:N─ spec_record
+                    │                  │                  ◄─1:N─ discovered_endpoint
+                    └ 논리 FK(host)    │ 1:N · 실 FK
+                                       v
+                              domain_hostnames (엣지 hostname)</code></pre>
+
+<!-- ============================================================ -->
+<h2 id="s3">3. 타입 매핑 컨벤션 (JPA → SQL)</h2>
+
+<p>이식성을 위해 <strong>벤더 전용 JSON 타입(PostgreSQL JSONB)을 쓰지 않는다.</strong> JSON 은 모두 <code>String</code> + <code>@Column(columnDefinition="text")</code> 로 저장하고 애플리케이션이 Jackson 으로 직렬화한다(H2/PG 동일 동작). 아래 §4 의 모든 컬럼 타입은 이 규칙을 따른다.</p>
+
+<table>
+  <thead><tr><th>Java / JPA</th><th>H2</th><th>PostgreSQL</th><th>nullable 기본</th></tr></thead>
+  <tbody>
+    <tr><td><code>String</code> (length 미지정)</td><td>VARCHAR(255)</td><td>varchar(255)</td><td>nullable</td></tr>
+    <tr><td><code>String</code> + <code>columnDefinition="text"</code> (JSON)</td><td>text</td><td>text</td><td>nullable</td></tr>
+    <tr><td><code>@Lob byte[]</code></td><td>BLOB</td><td>oid</td><td>nullable</td></tr>
+    <tr><td><code>Instant</code></td><td>TIMESTAMP(6)</td><td>timestamp(6)</td><td>nullable (UTC)</td></tr>
+    <tr><td><code>long</code> / <code>int</code> / <code>boolean</code> (primitive)</td><td>BIGINT / INTEGER / BOOLEAN</td><td>bigint / integer / boolean</td><td><span class="nn">NOT NULL</span></td></tr>
+    <tr><td><code>Long</code> / <code>Double</code> (wrapper)</td><td>BIGINT / DOUBLE</td><td>bigint / double precision</td><td>nullable</td></tr>
+    <tr><td><code>@Enumerated(STRING)</code> enum</td><td>VARCHAR(255)</td><td>varchar(255)</td><td>nullable</td></tr>
+  </tbody>
+</table>
+
+<div class="callout note">
+  <span class="ct">nullable 은 타입이 결정한다</span>
+  어떤 필드에도 <code>@Column(nullable=false)</code> 가 없다. 따라서 <strong>원시 타입(<code>long</code>/<code>int</code>/<code>boolean</code>)만 NOT NULL</strong>, 래퍼/객체 타입(<code>String</code>/<code>Long</code>/<code>Double</code>/<code>Instant</code>/enum/<code>byte[]</code>)은 nullable 이다. <code>@Id</code> 컬럼은 PK 라 묵시적 NOT NULL. 또한 <code>enabled=true</code>·<code>state="idle"</code> 등 필드 기본값은 <strong>Java 초기화자</strong>일 뿐 SQL <code>DEFAULT</code> 절이 아니다(유일한 예외 = <code>scan_result.total_dropped integer default 0</code>).
+</div>
+
+<!-- ============================================================ -->
+<h2 id="s4">4. 테이블별 컬럼 명세 (8 테이블)</h2>
+
+<p>표기: <span class="pk">PK</span> 기본키 · <span class="nn">NN</span> NOT NULL · <span class="nl">null</span> nullable. JSON 컬럼은 모두 PG <code>text</code>(D40 실측 확정).</p>
+
+<!-- ===== 4.1 domain_config ===== -->
+<div class="tbl-card">
+<h3>4.1 <code>domain_config</code> — 분석 대상 도메인 설정·스캔 정책</h3>
+<p class="meta">엔티티 <code>DomainConfig</code> · PK <code>host</code> · 허브. <code>@Index(next_scan_due_at)</code> 선언.</p>
+<table>
+  <thead><tr><th>컬럼</th><th>SQL 타입</th><th>키/널</th><th>의미</th></tr></thead>
+  <tbody>
+    <tr><td class="col">host</td><td class="t">VARCHAR(255)</td><td><span class="pk">PK</span></td><td>도메인 식별자(정규화 소문자·trim 저장).</td></tr>
+    <tr><td class="col">enabled</td><td class="t">BOOLEAN</td><td><span class="nn">NN</span></td><td>스캔 활성 여부. 필드 기본값 <code>true</code>.</td></tr>
+    <tr><td class="col">interval_override</td><td class="t">VARCHAR(255)</td><td><span class="nl">null</span></td><td>도메인별 스캔 주기 override(ISO-8601 Duration, 예 <code>PT1H</code>). null=전역 기본.</td></tr>
+    <tr><td class="col">spec_merge_strategy</td><td class="t">VARCHAR(255) enum</td><td><span class="nl">null</span></td><td>멀티스펙 병합 전략 <code>MERGE</code>/<code>SEPARATE</code>/<code>VERSION_GROUPED</code>. 필드 기본 MERGE, null→읽을 때 MERGE 해석.</td></tr>
+    <tr><td class="col">base_path_strip</td><td class="t">VARCHAR(255)</td><td><span class="nl">null</span></td><td>프록시가 관측 경로에서 제거한 base prefix(예 <code>/v2</code>). spec 매칭 라우팅 정합용. null=off.</td></tr>
+    <tr><td class="col">discovered_at</td><td class="t">TIMESTAMP(6)</td><td><span class="nl">null</span></td><td>자동 디스커버리 최초 발견 시각. <strong>수동 등록 도메인은 null</strong>(자연 구분).</td></tr>
+    <tr><td class="col">last_seen_at</td><td class="t">TIMESTAMP(6)</td><td><span class="nl">null</span></td><td>디스커버리 최근 관측(집계 윈도우 끝). staleness 가시화용 — <strong>삭제 트리거 아님</strong>.</td></tr>
+    <tr><td class="col">last_scan_attempt_at</td><td class="t">TIMESTAMP(6)</td><td><span class="nl">null</span></td><td>스캔 라운드로빈 커서(least-recently-scanned). 스캔 attempt 마다 전진(skip 포함).</td></tr>
+    <tr><td class="col">next_scan_due_at</td><td class="t">TIMESTAMP(6) · idx</td><td><span class="nl">null</span></td><td>다음 스캔 due 시각 — 스캔 시 <code>now + effectiveInterval</code> 로 갱신. <strong>null=즉시 due</strong>. 인덱스 컬럼.</td></tr>
+    <tr><td class="col">created_at</td><td class="t">TIMESTAMP(6)</td><td><span class="nl">null</span></td><td>행 생성 시각.</td></tr>
+    <tr><td class="col">updated_at</td><td class="t">TIMESTAMP(6)</td><td><span class="nl">null</span></td><td>행 수정 시각.</td></tr>
+  </tbody>
+</table>
+<p class="meta"><code>hostnames</code> 필드는 <code>@ElementCollection</code> 이라 본 테이블에 컬럼이 없고 아래 <code>domain_hostnames</code> 자식 테이블로 분리된다.</p>
+</div>
+
+<!-- ===== 4.2 domain_hostnames ===== -->
+<div class="tbl-card">
+<h3>4.2 <code>domain_hostnames</code> — 도메인↔엣지 hostname 컬렉션</h3>
+<p class="meta"><code>DomainConfig.hostnames</code> 의 <code>@ElementCollection</code> 자식 테이블 · <strong>유일한 실 FK</strong>.</p>
+<table>
+  <thead><tr><th>컬럼</th><th>SQL 타입</th><th>키/널</th><th>의미</th></tr></thead>
+  <tbody>
+    <tr><td class="col">host</td><td class="t">VARCHAR(255)</td><td><span class="nn">FK·NN</span></td><td><code>domain_config.host</code> 로의 <strong>실 FOREIGN KEY</strong>(DB 제약 생성).</td></tr>
+    <tr><td class="col">hostname</td><td class="t">VARCHAR(255)</td><td><span class="nl">null</span></td><td>이 도메인을 서빙하는 엣지 서버(Loki hostname 라벨).</td></tr>
+  </tbody>
+</table>
+<p class="meta">별도 PK 컬럼 없음 — (host, hostname) 조합이 행을 이룬다.</p>
+</div>
+
+<!-- ===== 4.3 scan_result ===== -->
+<div class="tbl-card">
+<h3>4.3 <code>scan_result</code> — 도메인별 최신 스캔 결과·요약 <span class="star">★</span></h3>
+<p class="meta">엔티티 <code>ScanResult</code> · PK <code>host</code> · 도메인당 최신 1행 덮어쓰기. 카운트의 정확한 의미가 핵심이다.</p>
+<table>
+  <thead><tr><th>컬럼</th><th>SQL 타입</th><th>키/널</th><th>의미</th></tr></thead>
+  <tbody>
+    <tr><td class="col">host</td><td class="t">VARCHAR(255)</td><td><span class="pk">PK</span></td><td>도메인. 최신 결과 1건만 보관(스캔마다 덮어씀).</td></tr>
+    <tr><td class="col">state</td><td class="t">VARCHAR(255)</td><td><span class="nl">null</span></td><td><code>idle</code>/<code>running</code>/<code>failed</code>. 필드 기본 <code>idle</code>.</td></tr>
+    <tr><td class="col">last_scan_at</td><td class="t">TIMESTAMP(6)</td><td><span class="nl">null</span></td><td>마지막 스캔 수행 시각.</td></tr>
+    <tr><td class="col">version</td><td class="t">VARCHAR(255)</td><td><span class="nl">null</span></td><td>결과 ETag(스캔 단위 버전). 중앙의 <strong>조건부 GET</strong> 기준값.</td></tr>
+    <tr><td class="col">spec_version</td><td class="t">BIGINT</td><td><span class="nn">NN</span></td><td>이 결과가 대조한 스펙 버전.</td></tr>
+    <tr><td class="col">window_from</td><td class="t">TIMESTAMP(6)</td><td><span class="nl">null</span></td><td>이 결과의 수집 윈도우 시작.</td></tr>
+    <tr><td class="col">window_to</td><td class="t">TIMESTAMP(6)</td><td><span class="nl">null</span></td><td>이 결과의 수집 윈도우 끝.</td></tr>
+    <tr><td class="col">report_json</td><td class="t">text</td><td><span class="nl">null</span></td><td><strong>★ 전체 <code>DiscoveryReport</code> JSON.</strong> 엔드포인트별 상세(분류·confidence·severity·params·dropped·signal)를 담는다. <code>GET /api/v1/domains/{host}/result</code> 가 ETag 조건부 GET 으로 중앙에 내려주는 <strong>본체</strong>.</td></tr>
+    <tr><td class="col">discovered</td><td class="t">INTEGER</td><td><span class="nn">NN</span></td><td><strong>★ 이번 스캔 윈도우에서 트래픽이 관측된 엔드포인트 수</strong>(분류 전 인벤토리). <strong>OPTIONS 제외</strong>(CORS 신호 전용·과대집계 방지).</td></tr>
+    <tr><td class="col">active</td><td class="t">INTEGER</td><td><span class="nn">NN</span></td><td><strong>★ 스펙 문서화 ∩ 트래픽(S∩D)</strong> = 정상 사용 중인 문서화 API 수.</td></tr>
+    <tr><td class="col">shadow</td><td class="t">INTEGER</td><td><span class="nn">NN</span></td><td>트래픽엔 있는데 스펙엔 없음(<strong>D−S</strong>) = 그림자 API.</td></tr>
+    <tr><td class="col">zombie</td><td class="t">INTEGER</td><td><span class="nn">NN</span></td><td>스펙상 deprecated 인데 트래픽이 지속되거나 버전 추정으로 좀비 판정된 API.</td></tr>
+    <tr><td class="col">unused</td><td class="t">INTEGER</td><td><span class="nn">NN</span></td><td>스펙엔 있는데 트래픽 없음(<strong>S−D</strong>) = 미사용 API.</td></tr>
+    <tr><td class="col">total_dropped</td><td class="t">INTEGER DEFAULT 0</td><td><span class="nn">NN</span></td><td>dropped 3종 합계(<code>non_api</code> + <code>byLimit</code> + <code>nonExistent</code>) 요약. <strong>본 스키마에서 유일한 SQL DEFAULT 컬럼</strong>(기존 행 0 백필).</td></tr>
+  </tbody>
+</table>
+<div class="callout warn">
+  <span class="ct">★ <code>discovered</code> ≠ <code>active</code> + <code>shadow</code> + <code>zombie</code> + <code>unused</code></span>
+  세 가지 이유로 합이 맞지 않는 게 정상이다. ① <code>discovered</code> 는 <strong>관측 총량</strong>(트래픽이 있던 엔드포인트)이고 <code>unused</code> 는 <strong>스펙에만 있어 트래픽이 없는</strong> 쪽이라 <code>discovered</code> 에 포함되지 않는다. ② <code>web_page</code>(비 API)는 4개 분류 요약에서 제외되지만 <code>discovered</code> 관측량에는 들어간다. ③ <code>active</code> 는 <strong>문서∩관측</strong> 교집합이다. 즉 <code>discovered</code> 는 "이번에 본 양", 분류 4종은 "스펙과 대조한 판정"이라 축이 다르다.
+</div>
+</div>
+
+<!-- ===== 4.4 watermark ===== -->
+<div class="tbl-card">
+<h3>4.4 <code>watermark</code> — 도메인별 증분 분석 워터마크</h3>
+<p class="meta">엔티티 <code>Watermark</code> · PK <code>host</code> · 증분 수집 커서.</p>
+<table>
+  <thead><tr><th>컬럼</th><th>SQL 타입</th><th>키/널</th><th>의미</th></tr></thead>
+  <tbody>
+    <tr><td class="col">host</td><td class="t">VARCHAR(255)</td><td><span class="pk">PK</span></td><td>도메인 식별자.</td></tr>
+    <tr><td class="col">last_end</td><td class="t">TIMESTAMP(6)</td><td><span class="nl">null</span></td><td>마지막으로 성공한 분석 윈도우의 end(= 다음 윈도우의 start). 증분 진행의 소유권은 스케줄러가 갖는다.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<!-- ===== 4.5 spec_record ===== -->
+<div class="tbl-card">
+<h3>4.5 <code>spec_record</code> — 도메인×버전 API 스펙</h3>
+<p class="meta">엔티티 <code>SpecRecord</code> · PK <code>id</code>(IDENTITY) · 한 도메인의 여러 버전을 행으로 보관.</p>
+<table>
+  <thead><tr><th>컬럼</th><th>SQL 타입</th><th>키/널</th><th>의미</th></tr></thead>
+  <tbody>
+    <tr><td class="col">id</td><td class="t">BIGINT IDENTITY</td><td><span class="pk">PK</span></td><td>DB 자동 채번 합성 키.</td></tr>
+    <tr><td class="col">host</td><td class="t">VARCHAR(255)</td><td><span class="nl">null</span></td><td>논리 FK → <code>domain_config.host</code>.</td></tr>
+    <tr><td class="col">spec_name</td><td class="t">VARCHAR(255)</td><td><span class="nl">null</span></td><td>host 내 문서 식별(멀티 스펙). null → <code>"default"</code> 로 해석.</td></tr>
+    <tr><td class="col">format</td><td class="t">VARCHAR(255) enum</td><td><span class="nl">null</span></td><td><code>OPENAPI</code>/<code>POSTMAN</code>/<code>CSV</code>.</td></tr>
+    <tr><td class="col">spec_version</td><td class="t">BIGINT</td><td><span class="nn">NN</span></td><td>도메인별 증가 버전.</td></tr>
+    <tr><td class="col">raw_doc</td><td class="t">BLOB (PG oid)</td><td><span class="nl">null</span></td><td>원본 스펙 문서(감사·재파싱용). 유일한 <code>@Lob byte[]</code> 컬럼.</td></tr>
+    <tr><td class="col">canonical_json</td><td class="t">text</td><td><span class="nl">null</span></td><td>Canonical 엔드포인트 집합 JSON — <strong>스펙 매칭의 진실원</strong>.</td></tr>
+    <tr><td class="col">warnings_json</td><td class="t">text</td><td><span class="nl">null</span></td><td>파싱 시 recoverable 경고 <code>List&lt;String&gt;</code> 직렬화.</td></tr>
+    <tr><td class="col">endpoint_count</td><td class="t">INTEGER</td><td><span class="nn">NN</span></td><td>이 스펙의 엔드포인트 수.</td></tr>
+    <tr><td class="col">uploaded_at</td><td class="t">TIMESTAMP(6)</td><td><span class="nl">null</span></td><td>업로드 시각.</td></tr>
+    <tr><td class="col">active</td><td class="t">BOOLEAN</td><td><span class="nn">NN</span></td><td>활성 버전 여부. <code>specName</code> 별 최신 active 가 host 의 활성 스펙 집합.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<!-- ===== 4.6 discovered_endpoint ===== -->
+<div class="tbl-card">
+<h3>4.6 <code>discovered_endpoint</code> — 누적 검출 엔드포인트 카탈로그</h3>
+<p class="meta">엔티티 <code>DiscoveredEndpointRecord</code> · PK <code>id</code> · 검출 단일 진실원(SoT). <strong>명시적 UNIQUE·INDEX 를 선언</strong>한다.</p>
+<table>
+  <thead><tr><th>컬럼</th><th>SQL 타입</th><th>키/널</th><th>의미</th></tr></thead>
+  <tbody>
+    <tr><td class="col">id</td><td class="t">BIGINT IDENTITY</td><td><span class="pk">PK</span></td><td>DB 자동 채번.</td></tr>
+    <tr><td class="col">host</td><td class="t">VARCHAR(255) · idx</td><td><span class="nl">null</span></td><td>도메인 조회 키(indexed). 논리 FK → <code>domain_config.host</code>.</td></tr>
+    <tr><td class="col">method</td><td class="t">VARCHAR(255)</td><td><span class="nl">null</span></td><td>HTTP 메서드. unique 키 일부.</td></tr>
+    <tr><td class="col">path_template</td><td class="t">text</td><td><span class="nl">null</span></td><td>정규화 경로 템플릿. unique 키 일부 — 임의 길이라 <code>text</code>(varchar 오버플로 회피).</td></tr>
+    <tr><td class="col">template_source</td><td class="t">VARCHAR(255)</td><td><span class="nl">null</span></td><td><code>SPEC</code>/<code>INFERRED</code> (템플릿 출처).</td></tr>
+    <tr><td class="col">endpoint_kind</td><td class="t">VARCHAR(255)</td><td><span class="nl">null</span></td><td><code>WEB_PAGE</code>/<code>STATIC</code>/<code>API_CANDIDATE</code>/<code>UNKNOWN</code>.</td></tr>
+    <tr><td class="col">kind_confidence</td><td class="t">DOUBLE</td><td><span class="nn">NN</span></td><td><code>endpoint_kind</code> 판정 신뢰도.</td></tr>
+    <tr><td class="col">version</td><td class="t">VARCHAR(255) · idx</td><td><span class="nl">null</span></td><td>버전 태그(path <code>^v\d+$</code> 또는 매칭 spec.version 도출). (host, version) 인덱스.</td></tr>
+    <tr><td class="col">first_seen</td><td class="t">TIMESTAMP(6)</td><td><span class="nl">null</span></td><td>누적 최초 관측 = min(기존, 현재). severity entrenchment 입력.</td></tr>
+    <tr><td class="col">last_seen</td><td class="t">TIMESTAMP(6)</td><td><span class="nl">null</span></td><td>누적 최근 관측 = max. retention prune(180일) 기준.</td></tr>
+    <tr><td class="col">last_scan_at</td><td class="t">TIMESTAMP(6)</td><td><span class="nl">null</span></td><td>최신 스캔 윈도우 끝(데이터 ts, <code>now()</code> 미사용).</td></tr>
+    <tr><td class="col">hits</td><td class="t">BIGINT</td><td><span class="nn">NN</span></td><td>최신 윈도우 요청 수 스냅샷.</td></tr>
+    <tr><td class="col">status_dist_json</td><td class="t">text</td><td><span class="nl">null</span></td><td>최신 윈도우 status 코드 분포 JSON.</td></tr>
+    <tr><td class="col">had_query</td><td class="t">BOOLEAN</td><td><span class="nn">NN</span></td><td>ApiScorer 신호 — 쿼리스트링 존재 여부 스냅샷.</td></tr>
+    <tr><td class="col">non_browser_ua</td><td class="t">BOOLEAN</td><td><span class="nn">NN</span></td><td>ApiScorer 신호 — 비브라우저 User-Agent 여부 스냅샷.</td></tr>
+    <tr><td class="col">params_json</td><td class="t">text</td><td><span class="nl">null</span></td><td><code>ParamCandidates</code>(쿼리·경로 파라미터 후보) 스냅샷.</td></tr>
+  </tbody>
+</table>
+<p class="meta"><strong>제약:</strong> UNIQUE(<code>host</code>, <code>method</code>, <code>path_template</code>) = 누적 upsert 키 · INDEX(<code>host</code>) · INDEX(<code>host</code>, <code>version</code>).</p>
+</div>
+
+<!-- ===== 4.7 domain_classification_config ===== -->
+<div class="tbl-card">
+<h3>4.7 <code>domain_classification_config</code> — 도메인별 분류 설정 override</h3>
+<p class="meta">엔티티 <code>DomainClassificationConfig</code> · PK <code>host</code> · 1:1 희소 행. <strong>행 부재 = 전역 설정 사용.</strong></p>
+<table>
+  <thead><tr><th>컬럼</th><th>SQL 타입</th><th>키/널</th><th>의미</th></tr></thead>
+  <tbody>
+    <tr><td class="col">host</td><td class="t">VARCHAR(255)</td><td><span class="pk">PK</span></td><td><code>domain_config.host</code> 와 1:1, 논리 FK.</td></tr>
+    <tr><td class="col">profile</td><td class="t">VARCHAR(255) enum</td><td><span class="nl">null</span></td><td><code>HIGH</code>/<code>MIDDLE</code>/<code>LOW</code>/<code>CUSTOM</code>. <strong>null=전역 프로파일 상속.</strong></td></tr>
+    <tr><td class="col">threshold_override</td><td class="t">DOUBLE</td><td><span class="nl">null</span></td><td>점수 임계 override. null=전역/preset 임계 상속.</td></tr>
+    <tr><td class="col">custom_weights_json</td><td class="t">text</td><td><span class="nl">null</span></td><td><code>Map&lt;String,Double&gt;</code> 가중치 override(CUSTOM 한정).</td></tr>
+    <tr><td class="col">matcher_json</td><td class="t">text</td><td><span class="nl">null</span></td><td><code>MatcherConfig</code>(path 힌트 등) 도메인 override.</td></tr>
+    <tr><td class="col">updated_at</td><td class="t">TIMESTAMP(6)</td><td><span class="nl">null</span></td><td>수정 시각.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<!-- ===== 4.8 classification_config ===== -->
+<div class="tbl-card">
+<h3>4.8 <code>classification_config</code> — 전역 분류 기본값</h3>
+<p class="meta">엔티티 <code>ClassificationConfig</code> · PK <code>id</code> 고정 <strong>1</strong> · 단일 행(앱이 <code>1L</code> 직접 할당). 도메인과 직접 FK 아님 — 도메인 override 와 앱 레벨 병합.</p>
+<table>
+  <thead><tr><th>컬럼</th><th>SQL 타입</th><th>키/널</th><th>의미</th></tr></thead>
+  <tbody>
+    <tr><td class="col">id</td><td class="t">BIGINT</td><td><span class="pk">PK=1</span></td><td>고정 단일 행(<code>@GeneratedValue</code> 없음).</td></tr>
+    <tr><td class="col">profile</td><td class="t">VARCHAR(255) enum</td><td><span class="nl">null</span></td><td><code>HIGH</code>/<code>MIDDLE</code>/<code>LOW</code>/<code>CUSTOM</code>. 필드 기본 <code>MIDDLE</code>.</td></tr>
+    <tr><td class="col">threshold_override</td><td class="t">DOUBLE</td><td><span class="nl">null</span></td><td>전역 점수 임계 override.</td></tr>
+    <tr><td class="col">custom_weights_json</td><td class="t">text</td><td><span class="nl">null</span></td><td><code>Map&lt;String,Double&gt;</code> 가중치(CUSTOM 한정).</td></tr>
+    <tr><td class="col">matcher_json</td><td class="t">text</td><td><span class="nl">null</span></td><td><code>MatcherConfig</code>(전역).</td></tr>
+    <tr><td class="col">updated_at</td><td class="t">TIMESTAMP(6)</td><td><span class="nl">null</span></td><td>수정 시각.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="s5">5. 테이블 관계 요약 (7건)</h2>
+
+<p><code>host</code> 를 허브로 한 방사형 구조다. 실제 DB FK 는 <code>domain_hostnames</code> 한 곳뿐이고 나머지는 앱 레벨 논리 FK 다.</p>
+
+<table>
+  <thead><tr><th>#</th><th>관계</th><th>카디널리티</th><th>키</th><th>종류</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td><code>domain_config</code> ↔ <code>domain_hostnames</code></td><td>1 : N</td><td><code>host</code></td><td><strong>실 FK</strong>(DB 제약)</td></tr>
+    <tr><td>2</td><td><code>domain_config</code> ↔ <code>scan_result</code></td><td>1 : 1</td><td><code>host</code>(양쪽 PK)</td><td>논리 FK</td></tr>
+    <tr><td>3</td><td><code>domain_config</code> ↔ <code>watermark</code></td><td>1 : 1</td><td><code>host</code>(양쪽 PK)</td><td>논리 FK</td></tr>
+    <tr><td>4</td><td><code>domain_config</code> ↔ <code>domain_classification_config</code></td><td>1 : 1 (희소)</td><td><code>host</code>(양쪽 PK)</td><td>논리 FK</td></tr>
+    <tr><td>5</td><td><code>domain_config</code> ↔ <code>spec_record</code></td><td>1 : N</td><td><code>host</code></td><td>논리 FK</td></tr>
+    <tr><td>6</td><td><code>domain_config</code> ↔ <code>discovered_endpoint</code></td><td>1 : N</td><td><code>host</code>(자식 idx)</td><td>논리 FK</td></tr>
+    <tr><td>7</td><td><code>classification_config</code></td><td>전역 단일 행</td><td>고정 PK=1</td><td>도메인 무관 · 전역 기본값(앱 병합)</td></tr>
+  </tbody>
+</table>
+
+<div class="callout note">
+  <span class="ct">역방향 조회</span>
+  한 엣지 서버(<code>hostname</code>)가 서빙하는 도메인은 <code>domain_hostnames</code> 자식 테이블을 조인해 찾는다(<code>DomainConfigRepository.findByHostname</code>).
+</div>
+
+<p class="meta" style="margin-top:40px;">근거: <code>doc/18-db-schema.md</code>(엔티티 역설계 상세) · <code>doc/06</code>(스택) · <code>doc/10</code>(분류 설정) · DECISIONS D11/D17/D40. 코드(엔티티)가 단일 진실원이며 본 문서는 그 스냅샷이다.</p>
+
+</div>
+</body>
+</html>
