@@ -1,6 +1,8 @@
 // 중앙 서버 연동 REST DTO 묶음 (doc/07 §3)
 package com.pentasecurity.apidiscover.api.dto;
 
+import com.pentasecurity.apidiscover.domain.SpecRecord;
+import com.pentasecurity.apidiscover.model.EffectiveClassificationView;
 import com.pentasecurity.apidiscover.model.SpecMergeStrategy;
 import com.pentasecurity.apidiscover.spec.SpecFormat;
 import java.time.Instant;
@@ -25,7 +27,7 @@ public final class DomainDtos {
             String basePathStrip                  // 프록시 strip base prefix, null=유지(doc/27 §3)
     ) {}
 
-    /** 도메인 조회 응답. */
+    /** 도메인 목록(M1) 조회 응답 — 경량(spec 메타만). 목록 성능 위해 lastScanAt·effectiveClassification 미포함(단건 M2 전용). */
     public record DomainView(
             String host,
             boolean enabled,
@@ -36,22 +38,48 @@ public final class DomainDtos {
             SpecMetaView spec                     // 활성 스펙 메타(없으면 null)
     ) {}
 
-    /** 스펙 메타 (doc/07 §3.1). */
+    /**
+     * 도메인 단건(M2) 상세 응답 (doc/35 M2) — DomainView 경량 필드 + lastScanAt·effectiveClassification 보강.
+     * ★목록(M1)과 분리: 단건 GET /{host} 만 scan_result·resolver 조회(목록 N+1 회귀 방지).
+     */
+    public record DomainDetailView(
+            String host,
+            boolean enabled,
+            List<String> hostnames,
+            String intervalOverride,
+            SpecMergeStrategy specMergeStrategy,
+            String basePathStrip,
+            SpecMetaView spec,                              // 최근 active 스펙(filename·uploadedAt 포함), 없으면 null
+            Instant lastScanAt,                             // scan_result.lastScanAt, 미스캔 null
+            EffectiveClassificationView effectiveClassification // 도메인 현재 분류 설정(doc/34, resolver)
+    ) {}
+
+    /** 스펙 메타 (doc/07 §3.1, doc/35 M2/M6). filename·specName·active 가산(additive). */
     public record SpecMetaView(
             SpecFormat format,
             long specVersion,
             int endpointCount,
-            Instant uploadedAt
-    ) {}
+            Instant uploadedAt,
+            String specName,    // 문서 식별(멀티 스펙), null 가능
+            String filename,    // 원본 파일명(PUT ?filename=), 기존행/미전달 null
+            boolean active      // 활성 버전 여부
+    ) {
+        /** SpecRecord → 메타 뷰 매핑(단일 진실원, upload/M2/M4/M6 공유). */
+        public static SpecMetaView of(SpecRecord r) {
+            return new SpecMetaView(r.getFormat(), r.getSpecVersion(), r.getEndpointCount(), r.getUploadedAt(),
+                    r.getSpecName(), r.getFilename(), r.isActive());
+        }
+    }
 
-    /** 스캔 상태 — 경량 메타 (doc/07 §3.2). totalDropped=dropped 3종 합 at-a-glance (doc/25 §C). */
+    /** 스캔 상태 — 경량 메타 (doc/07 §3.2). totalDropped=dropped 3종 합 at-a-glance (doc/25 §C). latestSpec=최근 active 스펙(doc/35 M4). */
     public record ScanStatusView(
             String host,
             String state,
             Instant lastScanAt,
             String version,
             SummaryView summary,
-            int totalDropped
+            int totalDropped,
+            SpecMetaView latestSpec               // 최근 active 스펙 메타(filename·uploadedAt·endpointCount), 없으면 null
     ) {}
 
     public record SummaryView(

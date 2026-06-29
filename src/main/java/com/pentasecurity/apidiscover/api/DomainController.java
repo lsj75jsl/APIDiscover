@@ -1,12 +1,15 @@
 // 도메인 설정 CRUD API (doc/07 §3.1)
 package com.pentasecurity.apidiscover.api;
 
+import com.pentasecurity.apidiscover.api.dto.DomainDtos.DomainDetailView;
 import com.pentasecurity.apidiscover.api.dto.DomainDtos.DomainUpsert;
 import com.pentasecurity.apidiscover.api.dto.DomainDtos.DomainView;
 import com.pentasecurity.apidiscover.api.dto.DomainDtos.SpecMetaView;
+import com.pentasecurity.apidiscover.classify.EffectiveClassificationResolver;
 import com.pentasecurity.apidiscover.domain.DomainConfig;
 import com.pentasecurity.apidiscover.domain.DomainConfigRepository;
-import com.pentasecurity.apidiscover.domain.SpecRecord;
+import com.pentasecurity.apidiscover.domain.ScanResult;
+import com.pentasecurity.apidiscover.domain.ScanResultRepository;
 import com.pentasecurity.apidiscover.model.SpecMergeStrategy;
 import com.pentasecurity.apidiscover.spec.SpecStore;
 import com.pentasecurity.apidiscover.util.DomainNames;
@@ -35,10 +38,15 @@ public class DomainController {
 
     private final DomainConfigRepository repo;
     private final SpecStore specStore;
+    private final ScanResultRepository scanRepo;
+    private final EffectiveClassificationResolver classificationResolver;
 
-    public DomainController(DomainConfigRepository repo, SpecStore specStore) {
+    public DomainController(DomainConfigRepository repo, SpecStore specStore,
+                            ScanResultRepository scanRepo, EffectiveClassificationResolver classificationResolver) {
         this.repo = repo;
         this.specStore = specStore;
+        this.scanRepo = scanRepo;
+        this.classificationResolver = classificationResolver;
     }
 
     /** 페이지 크기 상한 (doc/35 M1) — N+1·페이로드 폭주 차단. 14k 도메인을 page 당 ≤1000 으로 분할. */
@@ -83,9 +91,16 @@ public class DomainController {
         return ResponseEntity.status(HttpStatus.CREATED).body(toView(d));
     }
 
+    /** 단건 상세(M2, doc/35) — 경량 toView + lastScanAt·effectiveClassification 보강(목록 M1 은 미보강=성능 회귀 방지). */
     @GetMapping("/{host}")
-    public DomainView get(@PathVariable String host) {
-        return toView(find(requireNormalizedHost(host))); // 경로 host 정규화(등록 정규화와 자기일관, 대문자 경로 매칭)
+    public DomainDetailView get(@PathVariable String host) {
+        DomainConfig d = find(requireNormalizedHost(host)); // 경로 host 정규화(등록 정규화와 자기일관, 대문자 경로 매칭)
+        SpecMetaView spec = specStore.activeMeta(d.getHost()).map(SpecMetaView::of).orElse(null);
+        SpecMergeStrategy mode = d.getSpecMergeStrategy() != null ? d.getSpecMergeStrategy() : SpecMergeStrategy.MERGE;
+        Instant lastScanAt = scanRepo.findById(d.getHost()).map(ScanResult::getLastScanAt).orElse(null);
+        var effective = classificationResolver.resolve(d.getHost()).toView(); // 공유 빌더(EffectiveClassification.toView)
+        return new DomainDetailView(d.getHost(), d.isEnabled(), d.getHostnames(), d.getIntervalOverride(),
+                mode, d.getBasePathStrip(), spec, lastScanAt, effective);
     }
 
     @PutMapping("/{host}")
@@ -144,13 +159,10 @@ public class DomainController {
         }
     }
 
+    /** 목록(M1) 경량 뷰 — spec 메타만(lastScanAt·effectiveClassification 미조회=page 당 N+1 회귀 방지). */
     private DomainView toView(DomainConfig d) {
-        SpecMetaView spec = specStore.activeMeta(d.getHost()).map(DomainController::toSpecView).orElse(null);
+        SpecMetaView spec = specStore.activeMeta(d.getHost()).map(SpecMetaView::of).orElse(null);
         SpecMergeStrategy mode = d.getSpecMergeStrategy() != null ? d.getSpecMergeStrategy() : SpecMergeStrategy.MERGE;
         return new DomainView(d.getHost(), d.isEnabled(), d.getHostnames(), d.getIntervalOverride(), mode, d.getBasePathStrip(), spec);
-    }
-
-    private static SpecMetaView toSpecView(SpecRecord r) {
-        return new SpecMetaView(r.getFormat(), r.getSpecVersion(), r.getEndpointCount(), r.getUploadedAt());
     }
 }

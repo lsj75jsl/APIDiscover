@@ -4,7 +4,6 @@ package com.pentasecurity.apidiscover.batch;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.pentasecurity.apidiscover.classify.ApiScorer;
 import com.pentasecurity.apidiscover.classify.Classifier;
 import com.pentasecurity.apidiscover.classify.EffectiveClassification;
 import com.pentasecurity.apidiscover.classify.EffectiveClassificationResolver;
@@ -14,10 +13,8 @@ import com.pentasecurity.apidiscover.domain.DomainConfigRepository;
 import com.pentasecurity.apidiscover.match.EndpointMatcher;
 import com.pentasecurity.apidiscover.match.EndpointMatcherCache;
 import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
-import com.pentasecurity.apidiscover.model.ClassificationProfile;
 import com.pentasecurity.apidiscover.model.CombinedDiscovery;
 import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
-import com.pentasecurity.apidiscover.model.EffectiveClassificationView;
 import com.pentasecurity.apidiscover.model.EndpointKind;
 import com.pentasecurity.apidiscover.model.Finding;
 import com.pentasecurity.apidiscover.model.ParamCandidates;
@@ -96,14 +93,7 @@ public class CombinedDiscoveryService {
         List<CombinedDiscovery.VersionGroup> groups = (mode == SpecMergeStrategy.VERSION_GROUPED)
                 ? groupByVersion(findings, spec) : List.of();
         return new CombinedDiscovery(host, specVersion, mode, findings, groups, specSource,
-                effectiveView(eff), explained.rationale());
-    }
-
-    /** effective 분류 설정 뷰(doc/34 §2): profile·threshold·weightsSource(CUSTOM=custom)·14신호 weights 맵. */
-    private static EffectiveClassificationView effectiveView(EffectiveClassification eff) {
-        String src = (eff.profile() == ClassificationProfile.CUSTOM) ? "custom" : "preset";
-        return new EffectiveClassificationView(
-                eff.profile(), eff.scorer().threshold(), src, ApiScorer.weightsAsMap(eff.weights()));
+                eff.toView(), explained.rationale()); // effective 뷰 = EffectiveClassification.toView() 공유(doc/35 M2)
     }
 
     /** discovered_endpoint 행 → DiscoveredEndpoint 재구성. 분석 상세(distinctClients/p50/p95/acrm)는 카탈로그 미보유→0(doc/26 §2). */

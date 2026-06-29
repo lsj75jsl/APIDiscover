@@ -78,16 +78,16 @@
     - [x] 설정키(`tiering-enabled`·active/default/inactive-interval·active-threshold·off-peak-*·dormant-*) application.yml + **무회귀**(`tiering-enabled=false`→effectiveInterval=ZERO→nextScanDueAt 항상 now→LRS=PR1 동치, off-peak 미설정=항상 peak)
     - [x] 테스트 — `ScanTierTest`(active/inactive/dormant/default/override정상·실패폴백/tiering-off ZERO 밴드 경계)·`OffPeakWindowTest`(in/out·경계·자정wrap·blank/파싱실패=peak·zone)·`ScanSelectorTest`(due 술어 미due 제외·nullsFirst asc·K·off-peak K 스위치)·`DiscoverySchedulerTest`(touchScanSchedule=now+effectiveInterval·tiering-off PR1 동치·off-peak maxWindow 주입). 운영 Loki 단위 mock
 - [x] off-peak 시간대 제한 **(완료 — doc/33 D, PR2 `OffPeakWindow`·K/윈도우 스위치, PR #29 머지)**
-- [ ] **REST API 대규모 변경 배치 (삭제·수정·신규)** **(설계 완료 → doc/35 / DECISIONS D50. PR1=도메인 엔드포인트 D1+M1+M3 구현 완료(브랜치 feat/api-batch-p1-domain, build green 464·커밋 보류·머지 시 Done). 나머지 후속 PR)** — 스키마변경=`spec_record.filename` 1건(후속·재배포). ★중앙영향: M1=배열 body 유지+헤더(사용자 확정·non-breaking)·M5 rationale 가산(additive).
+- [ ] **REST API 대규모 변경 배치 (삭제·수정·신규)** **(설계 → doc/35 / D50. PR1(D1+M1+M3) 머지 #39. PR2(filename+M2+M4+M6) 구현 완료(브랜치 feat/api-batch-p1-specmeta, build green 472·커밋 보류·머지 시 Done). 나머지 M5·A2·P3·P2 후속)** — 스키마변경=`spec_record.filename` 1건(PR2·재배포 필요). ★중앙영향: M1=배열+헤더(non-breaking)·M2/M4/M6=additive·M5 rationale 가산(후속).
   - 1단계(저위험·additive, 독립 PR):
     - [x] **PR1 D1** `HostQueryController` 제거(+`GET /hostnames/{}/domains`·`POST .../query`) + `findByHostname` orphan 정리(전용 확인 후 삭제). 매뉴얼 `/hostnames` 절=TW 후속
     - [x] **PR1 M1** GET /domains 페이지네이션 — ★body=JSON 배열 유지 + 헤더(X-Total-Count/Pages·X-Current-Page), page 0-based(음수→0)·size [1,1000] clamp·host asc. non-breaking. N+1 은 page-bounded 완화+batch meta 후속(ponytail)
-    - [ ] `spec_record.filename`(ADD-only) + PUT /spec 옵션 `filename` 파라미터(M2/M6/M7 공유) — 후속 PR
-    - [ ] M2 GET /domains/{host} 보강(lastScanAt·latestSpec{filename,uploadedAt}·effectiveClassification) — 후속 PR
+    - [x] **PR2 filename** `spec_record.filename`(ADD-only·ddl-auto·기존행 null) + `SpecRecord` 접근자 + PUT /spec `?filename=`(SpecStore.upload 오버로드). ★재배포 필요
+    - [x] **PR2 M2** GET /domains/{host} 보강 — `DomainDetailView`(lastScanAt·spec{filename,uploadedAt}·effectiveClassification). ★목록(M1)은 경량 `DomainView` 유지(성능 회귀 방지). effective 빌더=`EffectiveClassification.toView()` 공유(/discovery 중복 제거)
     - [x] **PR1 M3** PUT /domains 부분수정(`DomainUpsert` enabled Boolean nullable·present-only apply, []=비우기/null=유지, 전항목·create 무회귀)
-    - [ ] M4 GET /scan-status 보강(latestSpec{filename,uploadedAt,specEndpointCount}) — 후속 PR
+    - [x] **PR2 M4** GET /scan-status 보강(`latestSpec`=SpecMetaView{filename·uploadedAt·endpointCount} 재사용, 없으면 null)
     - [ ] M5 GET /result rationale 가산(serve-time 재계산·report_json/ETag 불변·classifyExplained 재사용·중앙 additive-safe) — 후속 PR
-    - [ ] M6 GET /spec 목록(`SpecListView`·active 기본·`?history` 옵션) — 후속 PR
+    - [x] **PR2 M6** GET /spec 목록 — flat `List<SpecMetaView>`(specName·filename·active 가산, activeRecords·정렬, 무스펙=[]). `?history` 후속
     - [ ] A2 PATCH /classification/weights(도메인·전역, 현 effective 스냅샷+부분 override+profile CUSTOM 자동) — 후속 PR
   - 2단계(M7, 고위험·독립 PR) **— ★이번 보류(사용자 확정, 추후 access-log 파라미터 추출과 함께)**: [ ] 멀티문서 업로드(filename→specName·버전관리) + API 상태추적 ADDED/DELETED/UPDATED **(compute-on-read·신규 테이블 없음, 동일성=method+path_template, ★UPDATED=deprecated/version 한정 — canonical query param 미보유)**
   - 3단계(A1, 독립 PR): [ ] POST /domains/{host}/scan-now 즉시스캔(registerIfAbsent+scanOnDemand+forHost findings/rationale, Loki 동기·window 상한·부하보호, 비동기 /scan 과 구분)

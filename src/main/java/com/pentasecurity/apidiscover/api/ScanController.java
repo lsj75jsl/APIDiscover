@@ -2,10 +2,12 @@
 package com.pentasecurity.apidiscover.api;
 
 import com.pentasecurity.apidiscover.api.dto.DomainDtos.ScanStatusView;
+import com.pentasecurity.apidiscover.api.dto.DomainDtos.SpecMetaView;
 import com.pentasecurity.apidiscover.api.dto.DomainDtos.SummaryView;
 import com.pentasecurity.apidiscover.batch.DiscoveryJobService;
 import com.pentasecurity.apidiscover.domain.ScanResult;
 import com.pentasecurity.apidiscover.domain.ScanResultRepository;
+import com.pentasecurity.apidiscover.spec.SpecStore;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -24,18 +26,22 @@ public class ScanController {
 
     private final ScanResultRepository scanRepo;
     private final DiscoveryJobService jobService;
+    private final SpecStore specStore;
 
-    public ScanController(ScanResultRepository scanRepo, DiscoveryJobService jobService) {
+    public ScanController(ScanResultRepository scanRepo, DiscoveryJobService jobService, SpecStore specStore) {
         this.scanRepo = scanRepo;
         this.jobService = jobService;
+        this.specStore = specStore;
     }
 
-    /** 가벼운 상태 메타. 중앙이 version/lastScanAt 만 비교해 결과 재조회 여부 결정. */
+    /** 가벼운 상태 메타. 중앙이 version/lastScanAt 만 비교해 결과 재조회 여부 결정. latestSpec=최근 active 스펙(filename·API수, doc/35 M4). */
     @GetMapping("/scan-status")
     public ScanStatusView status(@PathVariable String host) {
         ScanResult r = find(host);
+        SpecMetaView latestSpec = specStore.activeMeta(host).map(SpecMetaView::of).orElse(null);
         return new ScanStatusView(r.getHost(), r.getState(), r.getLastScanAt(), r.getVersion(),
-                new SummaryView(r.getDiscovered(), r.getActive(), r.getShadow(), r.getZombie(), r.getUnused()), r.getTotalDropped());
+                new SummaryView(r.getDiscovered(), r.getActive(), r.getShadow(), r.getZombie(), r.getUnused()),
+                r.getTotalDropped(), latestSpec);
     }
 
     /** 결과 — 조건부 GET. If-None-Match 가 현재 version 과 같으면 304(doc/07 §3.3). */
