@@ -25,10 +25,6 @@ public interface DomainConfigRepository extends JpaRepository<DomainConfig, Stri
             + "order by d.nextScanDueAt asc nulls first")
     List<DomainConfig> findDueForScan(@Param("now") Instant now, Pageable pageable);
 
-    /** 특정 엣지 서버(hostname 라벨)가 서빙하는 도메인 설정들 — host↔domain 역방향 조회. */
-    @Query("select d from DomainConfig d join d.hostnames h where h = :hostname")
-    List<DomainConfig> findByHostname(@Param("hostname") String hostname);
-
     /**
      * 스캔 스케줄 커서 전진 (doc/33 §4.3, D48) — lastScanAttemptAt(관측)·nextScanDueAt(다음 due) 동시 UPDATE.
      * 엔티티 로드 없는 직접 UPDATE라 동시 사용자 설정 PUT 과 lost-update 무관(D42 P3-1 일관). skip/실패도 갱신(재선택·기아 방지).
