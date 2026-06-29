@@ -57,6 +57,7 @@ class SpecStoreTest {
             new ObjectMapper(),
             matcherCache,
             domainRepo,
+            mock(ApiInventoryService.class), // reconcile no-op(업로드 단위테스트는 인벤토리 미검증)
             List.of(new OpenApiSpecParser(), new PostmanSpecParser(new ObjectMapper()), new CsvSpecParser()));
 
     @Test
@@ -271,7 +272,8 @@ class SpecStoreTest {
             when(dRepo.findById(HOST)).thenReturn(Optional.of(cfg));
         }
         return new SpecStore(r, new SpecFormatDetector(), new ObjectMapper(), mock(EndpointMatcherCache.class),
-                dRepo, List.of(new OpenApiSpecParser(), new PostmanSpecParser(new ObjectMapper()), new CsvSpecParser()));
+                dRepo, mock(ApiInventoryService.class),
+                List.of(new OpenApiSpecParser(), new PostmanSpecParser(new ObjectMapper()), new CsvSpecParser()));
     }
 
     /** 단일 path OpenAPI(servers 없음 → host-agnostic). */

@@ -95,7 +95,7 @@ public class DomainController {
     @GetMapping("/{host}")
     public DomainDetailView get(@PathVariable String host) {
         DomainConfig d = find(requireNormalizedHost(host)); // 경로 host 정규화(등록 정규화와 자기일관, 대문자 경로 매칭)
-        SpecMetaView spec = specStore.latestSpecMeta(d.getHost()).map(SpecMetaView::of).orElse(null); // projection(rawDoc oid 미접근, doc/28)
+        SpecMetaView spec = specStore.latestSpecMeta(d.getHost()).map(SpecMetaView::of).orElse(null); // projection(대용량 text 미로드, doc/28)
         SpecMergeStrategy mode = d.getSpecMergeStrategy() != null ? d.getSpecMergeStrategy() : SpecMergeStrategy.MERGE;
         Instant lastScanAt = scanRepo.findById(d.getHost()).map(ScanResult::getLastScanAt).orElse(null);
         var effective = classificationResolver.resolve(d.getHost()).toView(); // 공유 빌더(EffectiveClassification.toView)
@@ -161,7 +161,7 @@ public class DomainController {
 
     /** 목록(M1) 경량 뷰 — spec 메타만(lastScanAt·effectiveClassification 미조회=page 당 N+1 회귀 방지). */
     private DomainView toView(DomainConfig d) {
-        SpecMetaView spec = specStore.latestSpecMeta(d.getHost()).map(SpecMetaView::of).orElse(null); // projection(rawDoc oid 미접근, doc/28)
+        SpecMetaView spec = specStore.latestSpecMeta(d.getHost()).map(SpecMetaView::of).orElse(null); // projection(대용량 text 미로드, doc/28)
         SpecMergeStrategy mode = d.getSpecMergeStrategy() != null ? d.getSpecMergeStrategy() : SpecMergeStrategy.MERGE;
         return new DomainView(d.getHost(), d.isEnabled(), d.getHostnames(), d.getIntervalOverride(), mode, d.getBasePathStrip(), spec);
     }

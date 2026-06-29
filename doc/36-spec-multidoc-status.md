@@ -1,5 +1,8 @@
 # M7 — spec 멀티문서 관리 + API 상태추적 (ADDED/DELETED/UPDATED) 상세 설계
 
+> ## ★ SUPERSEDED — doc/37 로 대체 (M7 재설계)
+> 본 문서의 **compute-on-read 문서버전 diff 모델**(현 active vs 직전 inactive `canonicalJson` 조회 시점 비교·`SpecDiffService`·`GET /spec/changes`)은 **사용자 의도와 불일치**로 폐기됐다. 사용자 의도 = **영속 API 인벤토리 + 업로드마다 문서별 reconcile**(파라미터 보유·ADDED/UPDATED/DELETED 를 현재 상태 속성으로 관리·DELETED 를 Zombie 입력으로). 재설계는 **doc/37 — 영속 API 인벤토리 + reconcile** 참조. M7a 구현(PR #44/#45)은 doc/37 §5 롤백 경계에 따라 제거·이관된다. 본 문서는 이력 보존용(삭제 안 함).
+
 > doc/35 P2(고위험) 상세화. 근거: doc/26(멀티스펙·specMergeStrategy·SpecStore)·doc/03(canonical)·doc/28 §10·DECISIONS D51(rawDoc oid 교훈)·doc/35 M6(filename·projection). 근거 결정 **DECISIONS D52**.
 > **M7a 구현 완료**(브랜치 feat/m7a-spec-changes, build green 496·PostgresIntegrationTest 28·커밋 보류). **M7b(param-level UPDATED)=후속**(별도 PR·access-log param 묶음). 운영 Loki 미호출. 스키마 변경 0·재배포 불요.
 
@@ -108,7 +111,7 @@
 - [x] `spec/SpecDiffService`(compute-on-read: 현 active vs 직전 inactive canonicalJson 역직렬화·method+path_template 맵·ADDED/DELETED/UPDATED[deprecated/version], TreeMap 정렬 결정적) — **projection only(loadVersions 단일 지점, oid 회피)**.
 - [x] `GET /api/v1/domains/{host}/spec/changes`(SpecController, 기본 active 전 specName·`?specName/from/to/status`·`updatedScope` 노출·host 정규화 null→400) + `spec/SpecChanges` DTO(api.dto↔spec 순환 회피로 spec 패키지).
 - [x] 실 PG 테스트(§6: ADDED/DELETED/deprecated-UPDATED·최초=전ADDED·멀티문서 specName 분리·param-only 미보고+updatedScope·★oid 가드 RED-확인). null 정렬은 기존 `findActiveSpecMetas`(nulls first) 가드 재사용.
-- [ ] 매뉴얼(TW): /spec/changes + ★UPDATED (a) 한계(param 미포함) 명시.
+- [x] 매뉴얼(TW): /spec/changes + ★UPDATED (a) 한계(param 미포함) 명시. — `api-rest-manual.html` §2.4 반영(커밋 fd441db).
 
 **M7b (후속·고위험·별도 PR)**
 - [ ] canonical param 추출(파서·CanonicalEndpoint·canonicalJson 스키마·재파싱) → param-level UPDATED. access-log 파라미터 추출 묶음. **별도 설계**.

@@ -44,6 +44,7 @@ import com.pentasecurity.apidiscover.normalize.RefererSignalExtractor;
 import com.pentasecurity.apidiscover.normalize.SensitiveKeyMatcher;
 import com.pentasecurity.apidiscover.parse.LogLineParser;
 import com.pentasecurity.apidiscover.report.ReportBuilder;
+import com.pentasecurity.apidiscover.spec.ApiInventoryService;
 import com.pentasecurity.apidiscover.spec.SpecFormat;
 import com.pentasecurity.apidiscover.spec.SpecStore;
 import java.time.Duration;
@@ -58,6 +59,15 @@ class DiscoveryJobServiceTest {
     private static final NormalizationProperties NORM = NormalizationProperties.defaults();
 
     private final SpecStore specStore = mock(SpecStore.class);
+    // DELETED→Zombie 결합 입력(doc/37 §6). 기본 빈 키집합 → 분류 무영향(무회귀). DELETED Zombie 테스트만 stub.
+    private final ApiInventoryService apiInventoryService = stubInventory();
+
+    private static ApiInventoryService stubInventory() {
+        ApiInventoryService m = mock(ApiInventoryService.class);
+        when(m.deletedKeys(org.mockito.ArgumentMatchers.any())).thenReturn(java.util.Set.of());
+        return m;
+    }
+
     private final ScanResultRepository scanRepo = mock(ScanResultRepository.class);
     // 기본 빈 mock → findById empty → basePathStrip=null=off(무회귀). base-path-strip 테스트만 stub.
     private final DomainConfigRepository domainRepo = mock(DomainConfigRepository.class);
@@ -102,6 +112,7 @@ class DiscoveryJobServiceTest {
                     new ParamCandidateExtractor(new SensitiveKeyMatcher(SensitiveKeyProperties.defaults()), NORM),
                     new RefererSignalExtractor(new PathNormalizer())),
             specStore,
+            apiInventoryService,
             new EndpointMatcherCache(),
             new Classifier(new ApiScorer()),
             resolver,
@@ -383,7 +394,7 @@ class DiscoveryJobServiceTest {
                         new CardinalityNormalizer(NORM),
                         new ParamCandidateExtractor(new SensitiveKeyMatcher(SensitiveKeyProperties.defaults()), NORM),
                         new RefererSignalExtractor(new PathNormalizer())),
-                specStore, new EndpointMatcherCache(), new Classifier(new ApiScorer()), resolver,
+                specStore, apiInventoryService, new EndpointMatcherCache(), new Classifier(new ApiScorer()), resolver,
                 new ReportBuilder(), scanRepo, mock(DomainConfigRepository.class), mock(WatermarkRepository.class),
                 mock(DiscoveredEndpointRepository.class), mock(LokiClient.class), mock(LokiQueryBuilder.class),
                 mock(LokiBudget.class), objectMapper, props());
@@ -581,7 +592,7 @@ class DiscoveryJobServiceTest {
                 new ParamCandidateExtractor(new SensitiveKeyMatcher(SensitiveKeyProperties.defaults()), capProps),
                 new RefererSignalExtractor(new PathNormalizer()));
         var cappedService = new DiscoveryJobService(new LogLineParser(NORM, ParseProperties.defaults()), cappedInventory, specStore,
-                new EndpointMatcherCache(), new Classifier(new ApiScorer()), resolver, new ReportBuilder(), scanRepo,
+                apiInventoryService, new EndpointMatcherCache(), new Classifier(new ApiScorer()), resolver, new ReportBuilder(), scanRepo,
                 mock(DomainConfigRepository.class), mock(WatermarkRepository.class),
                 mock(DiscoveredEndpointRepository.class), mock(LokiClient.class),
                 mock(LokiQueryBuilder.class), mock(LokiBudget.class), objectMapper, props());

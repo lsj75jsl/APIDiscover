@@ -2,9 +2,15 @@
 package com.pentasecurity.apidiscover.spec;
 
 import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
+import com.pentasecurity.apidiscover.model.ParamIn;
+import com.pentasecurity.apidiscover.model.SpecParam;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.Operation;
 import io.swagger.v3.oas.models.PathItem;
+import io.swagger.v3.oas.models.media.MediaType;
+import io.swagger.v3.oas.models.media.Schema;
+import io.swagger.v3.oas.models.parameters.Parameter;
+import io.swagger.v3.oas.models.parameters.RequestBody;
 import io.swagger.v3.oas.models.servers.Server;
 import io.swagger.v3.parser.OpenAPIV3Parser;
 import io.swagger.v3.parser.core.models.ParseOptions;
@@ -14,6 +20,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import org.springframework.stereotype.Component;
@@ -63,15 +70,77 @@ public class OpenApiSpecParser implements SpecParser {
                 boolean deprecated = Boolean.TRUE.equals(op.getDeprecated());
                 String sourceRef = "openapi#"
                         + (op.getOperationId() != null ? op.getOperationId() : method + " " + pathKey);
+                List<SpecParam> params = params(pathItem, op);
 
                 for (Origin origin : origins) {
                     String template = joinPath(origin.basePath(), pathKey);
                     endpoints.add(new CanonicalEndpoint(
-                            method, template, origin.host(), deprecated, version, sourceRef));
+                            method, template, origin.host(), deprecated, version, sourceRef, params));
                 }
             }
         }
         return new SpecParseResult(endpoints, warnings);
+    }
+
+    // --- 파라미터 추출 (doc/37 §2): path-level + operation-level parameters + requestBody → BODY ---
+
+    private static List<SpecParam> params(PathItem pathItem, Operation op) {
+        List<SpecParam> out = new ArrayList<>();
+        addParameters(out, pathItem.getParameters()); // path-item 공유 파라미터
+        addParameters(out, op.getParameters());
+        RequestBody body = op.getRequestBody();
+        if (body != null) {
+            boolean required = Boolean.TRUE.equals(body.getRequired());
+            out.add(new SpecParam("body", ParamIn.BODY, required, bodyType(body)));
+        }
+        return out;
+    }
+
+    private static void addParameters(List<SpecParam> out, List<Parameter> parameters) {
+        if (parameters == null) {
+            return;
+        }
+        for (Parameter p : parameters) {
+            ParamIn in = parseIn(p.getIn());
+            if (in == null || p.getName() == null) {
+                continue; // $ref 미해석/비표준 in → 건너뜀
+            }
+            out.add(new SpecParam(p.getName(), in,
+                    Boolean.TRUE.equals(p.getRequired()), schemaType(p.getSchema())));
+        }
+    }
+
+    /** OpenAPI in(query/path/header/cookie) → ParamIn. 알 수 없으면 null. */
+    private static ParamIn parseIn(String in) {
+        if (in == null) {
+            return null;
+        }
+        try {
+            return ParamIn.valueOf(in.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    /** 스키마 타입 요약(array 는 item 타입 동봉). null → object. */
+    private static String schemaType(Schema<?> s) {
+        if (s == null) {
+            return "object";
+        }
+        if ("array".equals(s.getType()) && s.getItems() != null) {
+            String item = s.getItems().getType();
+            return "array<" + (item != null ? item : "object") + ">";
+        }
+        return s.getType() != null ? s.getType() : "object";
+    }
+
+    /** requestBody content 의 첫 media type schema 요약(없으면 object). */
+    private static String bodyType(RequestBody body) {
+        if (body.getContent() == null || body.getContent().isEmpty()) {
+            return "object";
+        }
+        MediaType mt = body.getContent().values().iterator().next();
+        return (mt == null) ? "object" : schemaType(mt.getSchema());
     }
 
     private static List<String> safeMessages(SwaggerParseResult result) {

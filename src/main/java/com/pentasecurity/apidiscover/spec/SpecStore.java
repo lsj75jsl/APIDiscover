@@ -39,6 +39,7 @@ public class SpecStore {
     private final ObjectMapper objectMapper;
     private final EndpointMatcherCache matcherCache;
     private final DomainConfigRepository domainRepo;
+    private final ApiInventoryService apiInventoryService;
     private final Map<SpecFormat, SpecParser> parsersByFormat;
 
     public SpecStore(SpecRecordRepository repo,
@@ -46,12 +47,14 @@ public class SpecStore {
                      ObjectMapper objectMapper,
                      EndpointMatcherCache matcherCache,
                      DomainConfigRepository domainRepo,
+                     ApiInventoryService apiInventoryService,
                      List<SpecParser> parsers) {
         this.repo = repo;
         this.detector = detector;
         this.objectMapper = objectMapper;
         this.matcherCache = matcherCache;
         this.domainRepo = domainRepo;
+        this.apiInventoryService = apiInventoryService;
         Map<SpecFormat, SpecParser> map = new EnumMap<>(SpecFormat.class);
         for (SpecParser parser : parsers) {
             map.put(parser.format(), parser);
@@ -61,9 +64,9 @@ public class SpecStore {
 
     /**
      * 하위호환 — 문서명·파일명 미지정 업로드는 "default" 문서(현행 단일 스펙 경로).
-     * ★진입 오버로드에 @Transactional 필수: 컨트롤러가 이 메서드를 호출하면 프록시 경유로 tx 가 시작돼야, 내부 self-invocation 으로
-     * 부르는 4-arg core(같은 빈)의 비활성화 루프(findByHostAndActiveIsTrue→prev.setActive=rawDoc oid 엔티티 로드)가 tx 안에서 안전.
-     * (4-arg 의 @Transactional 은 self-call 이라 프록시 미적용=무력 → 진입점에 둬야 함, doc/28 §10·D51.)
+     * ★진입 오버로드에 @Transactional 필수: 업로드는 신규 SpecRecord 저장 + 구버전 active=false 비활성 + 인벤토리 reconcile 이
+     * all-or-nothing(원자) 이어야 한다. 컨트롤러 호출이 프록시 경유로 tx 를 시작 → self-invocation 으로 부르는 4-arg core(같은 빈)가
+     * 그 tx 에 합류(REQUIRED). (4-arg 의 @Transactional 은 self-call 이라 프록시 미적용=무력 → 진입점에 둬야 함, doc/28 §10·D51.)
      */
     @Transactional
     public SpecRecord upload(String host, byte[] content) {
@@ -128,20 +131,22 @@ public class SpecStore {
             }
         }
 
+        Instant now = Instant.now();
         SpecRecord record = new SpecRecord();
         record.setHost(host);
         record.setSpecName(name);
         record.setFilename(filename); // 원본 파일명(nullable, doc/35 M2/M6)
         record.setFormat(format);
         record.setSpecVersion(nextVersion);
-        record.setRawDoc(content);
         record.setCanonicalJson(writeCanonical(canonical));
         record.setWarningsJson(writeWarnings(parsed.warnings()));
         record.setEndpointCount(canonical.size());
-        record.setUploadedAt(Instant.now());
+        record.setUploadedAt(now);
         record.setActive(true);
 
         SpecRecord saved = repo.save(record);
+        // ★영속 인벤토리 reconcile(doc/37 §3) — 이 specName 단위(삭제 격리). @Transactional 경계 안(별도 빈=프록시 정상).
+        apiInventoryService.reconcile(host, name, canonical, nextVersion, now);
         // 업로드(콘텐츠 변화) → 구버전 matcher 슬롯 해제(doc/15 §2). 새 합성버전은 version-miss 로 자동 재빌드.
         matcherCache.invalidate(host);
         return saved;
@@ -189,7 +194,7 @@ public class SpecStore {
 
     /**
      * 활성 스펙 메타(없으면 empty). 멀티문서면 최신 버전 1건(존재 판정·단건 메타).
-     * ★엔티티 반환(rawDoc oid 포함) — 스캔 경로(@Transactional analyze)에서만 호출. REST 메타 조회는 {@link #latestSpecMeta}/{@link #activeSpecMetas}(projection) 사용.
+     * ★엔티티 반환 — 스캔 경로(@Transactional analyze)에서만 호출. REST 메타 조회는 {@link #latestSpecMeta}/{@link #activeSpecMetas}(projection) 사용.
      */
     public Optional<SpecRecord> activeMeta(String host) {
         return repo.findFirstByHostAndActiveIsTrueOrderBySpecVersionDesc(host);
@@ -201,7 +206,7 @@ public class SpecStore {
     }
 
     /**
-     * ★REST 메타 목록(M6 GET /spec) — rawDoc oid 미접근 projection(doc/28). 트랜잭션 밖(auto-commit) 조회 안전. specName/version 정렬.
+     * ★REST 메타 목록(M6 GET /spec) — 메타 컬럼만 SELECT 하는 projection(대용량 text canonicalJson/warningsJson 미로드=목록 LOB 폭증 방지, doc/28). specName/version 정렬.
      */
     public List<SpecMetaProjection> activeSpecMetas(String host) {
         return repo.findActiveSpecMetas(host);

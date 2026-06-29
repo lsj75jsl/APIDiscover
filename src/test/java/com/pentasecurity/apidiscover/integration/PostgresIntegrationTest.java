@@ -4,7 +4,6 @@ package com.pentasecurity.apidiscover.integration;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasItem;
-import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -27,9 +26,7 @@ import com.pentasecurity.apidiscover.domain.SpecRecord;
 import com.pentasecurity.apidiscover.domain.SpecRecordRepository;
 import com.pentasecurity.apidiscover.ingest.LogWindow;
 import com.pentasecurity.apidiscover.ingest.LokiClient;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pentasecurity.apidiscover.match.EndpointMatcher;
-import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
 import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
 import com.pentasecurity.apidiscover.model.EndpointKind;
 import com.pentasecurity.apidiscover.model.ParamCandidates;
@@ -98,7 +95,6 @@ class PostgresIntegrationTest {
     @Autowired EffectiveClassificationResolver resolver;
     @Autowired com.pentasecurity.apidiscover.batch.DomainUpserter domainUpserter;
     @Autowired DiscoveryJobService jobService;
-    @Autowired ObjectMapper objectMapper;
 
     // 공유 컨텍스트·컨테이너(rollback 없음) → 메서드 간 상태 격리. round-trip 이 글로벌 설정(id=1)에
     // 의사 JSON 을 써넣어도 다음 테스트 오염 방지(globalRepo 비움 → resolver default). ClassificationControllerTest 선례.
@@ -170,12 +166,10 @@ class PostgresIntegrationTest {
         spec.setFormat(SpecFormat.OPENAPI);
         spec.setCanonicalJson(big);
         spec.setWarningsJson(big);
-        spec.setRawDoc(big.getBytes(StandardCharsets.UTF_8)); // raw_doc(byte[]) round-trip 동시 검증(§6.2)
         SpecRecord sps = specRepo.save(spec);
         SpecRecord spl = specRepo.findById(sps.getId()).orElseThrow();
         assertThat(spl.getCanonicalJson()).isEqualTo(big);
         assertThat(spl.getWarningsJson()).isEqualTo(big);
-        assertThat(spl.getRawDoc()).isEqualTo(big.getBytes(StandardCharsets.UTF_8));
 
         DiscoveredEndpointRecord d = new DiscoveredEndpointRecord();
         d.setHost("rt.example.com");
@@ -290,16 +284,6 @@ class PostgresIntegrationTest {
         assertThat(discoveredRepo.findByHost(scanHost).get(0).getHits()).isEqualTo(77L);
     }
 
-    /** raw_doc(@Lob byte[]) 는 String 과 매핑 다름(§6.2) — round-trip 은 위에서, 실 타입은 정보성 기록(text 단언 금지). */
-    @Test
-    void rawDocActualTypeRecorded() {
-        String dataType = jdbc.queryForObject(
-                "select data_type from information_schema.columns where table_name = ? and column_name = ?",
-                String.class, "spec_record", "raw_doc");
-        log.info("spec_record.raw_doc PG data_type = {} (정보성 — byte[] LOB, text 단언 대상 아님)", dataType);
-        assertThat(dataType).isNotBlank();
-    }
-
     // --- L53: REST e2e (실 PG 백엔드) ---
 
     @Test
@@ -329,12 +313,12 @@ class PostgresIntegrationTest {
                 .andExpect(jsonPath("$.findings[*].pathTemplate", hasItem("/api/orders/{id}")));
     }
 
-    // --- 실배포 버그 회귀가드: rawDoc=@Lob oid → 트랜잭션 밖 메타조회(M2/M4/M6) projection 으로 LOB materialize 회피(doc/28) ---
+    // --- M2/M4/M6 메타조회 projection 실 PG 회귀가드 (auto-commit·heavy 컬럼 미로드, doc/28·37 §7) ---
 
     @Test
-    void specMetaEndpointsDoNotMaterializeRawDocOidInAutoCommit() throws Exception {
-        // ★실 PG 전용 회귀(H2 재현 불가): rawDoc 보유 active SpecRecord 영속 후, REST 메타 GET(트랜잭션 밖 auto-commit)이 200.
-        // fix(projection) 미적용 시 엔티티 로드가 oid 를 materialize → "Large Objects may not be used in auto-commit mode" 500.
+    void specMetaEndpointsServeViaProjectionInAutoCommit() throws Exception {
+        // 실 PG: active SpecRecord 영속 후 REST 메타 GET(트랜잭션 밖 auto-commit)이 200. projection(SpecMetaProjection)이
+        // 메타 컬럼만 SELECT(canonicalJson/warningsJson text 미로드). (rawDoc oid 컬럼은 doc/37 §7 에서 삭제 — 함정 구조 소멸.)
         String host = "specmeta.example.com";
         registerDomain(host);
         SpecRecord spec = new SpecRecord();
@@ -345,12 +329,11 @@ class PostgresIntegrationTest {
         spec.setSpecVersion(1L);
         spec.setEndpointCount(3);
         spec.setCanonicalJson("[]");
-        spec.setRawDoc("raw-spec-bytes".getBytes(StandardCharsets.UTF_8)); // ★oid LOB 영속
         spec.setUploadedAt(Instant.EPOCH);
         spec.setActive(true);
         specRepo.save(spec);
 
-        // M6 GET /spec — projection(rawDoc 미선택) → 200·List(filename 포함). 500(JpaSystemException) 아님.
+        // M6 GET /spec — projection → 200·List(filename 포함).
         mvc.perform(get("/api/v1/domains/{host}/spec", host))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].filename").value("users-api.yaml"))
@@ -373,9 +356,9 @@ class PostgresIntegrationTest {
     }
 
     @Test
-    void forHostEndpointsTolerateRawDocOidSpecOnRealPg() throws Exception {
-        // ★실 PG 전용 회귀(doc/28 §10·D51): forHost(/discovery·/result M5)가 spec 보유 도메인의 SpecRecord 엔티티(rawDoc oid)를
-        // loadActiveCanonical/activeRecords 로 로드 → forHost @Transactional(readOnly) 없으면 auto-commit LOB materialize 500.
+    void forHostEndpointsServeSpecPresentDomainOnRealPg() throws Exception {
+        // 실 PG: forHost(/discovery·/result M5)가 spec 보유 도메인에서 200. loadActiveCanonical/activeRecords 엔티티 로드를
+        // @Transactional(readOnly) 로 감싼다(doc/28 §10·D51). (rawDoc oid 컬럼은 doc/37 §7 삭제 — 엔티티 로드가 더는 oid 미materialize.)
         String host = "forhost.example.com";
         registerDomain(host);
         SpecRecord spec = new SpecRecord();
@@ -385,7 +368,6 @@ class PostgresIntegrationTest {
         spec.setSpecVersion(1L);
         spec.setEndpointCount(0);
         spec.setCanonicalJson("[]");                                  // active spec → loadActiveCanonical 진입
-        spec.setRawDoc("raw-spec-bytes".getBytes(StandardCharsets.UTF_8)); // ★oid LOB
         spec.setUploadedAt(Instant.EPOCH);
         spec.setActive(true);
         specRepo.save(spec);
@@ -405,7 +387,7 @@ class PostgresIntegrationTest {
         d.setNonBrowserUa(true);
         discoveredRepo.save(d);
 
-        // /discovery — forHost: activeRecords/loadActiveCanonical 엔티티(rawDoc oid) 로드를 readOnly tx 로 감싸 안전 → 200(500 아님)
+        // /discovery — forHost: activeRecords/loadActiveCanonical 엔티티 로드를 readOnly tx 로 감싸 → 200
         mvc.perform(get("/api/v1/domains/{host}/discovery", host))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.findings").isArray());
@@ -450,109 +432,13 @@ class PostgresIntegrationTest {
         return r;
     }
 
-    // --- M7a: API 상태추적 GET /spec/changes (compute-on-read diff, 실 PG·oid projection) doc/36 ---
-
-    @Test
-    void specChangesDetectsAddedDeletedUpdatedAcrossVersionsOnRealPg() throws Exception {
-        // v1(A,B,C) → v2(B삭제·D추가·A deprecated false→true). ★rawDoc oid 영속하나 diff 는 canonicalJson projection 으로만 읽음(비-tx 안전, D51).
-        String host = "changes.example.com";
-        registerDomain(host);
-        saveSpecVersion(host, "default", 1L, false, List.of(
-                ep("GET", "/a", false), ep("GET", "/b", false), ep("GET", "/c", false)));
-        saveSpecVersion(host, "default", 2L, true, List.of(
-                ep("GET", "/a", true), ep("GET", "/c", false), ep("POST", "/d", false)));
-
-        mvc.perform(get("/api/v1/domains/{host}/spec/changes", host))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.updatedScope").value("deprecated_version_only"))
-                .andExpect(jsonPath("$.documents[0].specName").value("default"))
-                .andExpect(jsonPath("$.documents[0].comparedVersion").value(2))
-                .andExpect(jsonPath("$.documents[0].previousVersion").value(1))
-                // C(UNCHANGED) 미보고 → 3건(ADDED /d, DELETED /b, UPDATED /a)
-                .andExpect(jsonPath("$.documents[0].changes.length()").value(3))
-                .andExpect(jsonPath("$.documents[0].changes[?(@.pathTemplate=='/d')].status").value(hasItem("ADDED")))
-                .andExpect(jsonPath("$.documents[0].changes[?(@.pathTemplate=='/b')].status").value(hasItem("DELETED")))
-                .andExpect(jsonPath("$.documents[0].changes[?(@.pathTemplate=='/a')].status").value(hasItem("UPDATED")))
-                .andExpect(jsonPath("$.documents[0].changes[?(@.pathTemplate=='/a')].changed[0]").value(hasItem("deprecated")));
-    }
-
-    @Test
-    void specChangesFirstUploadIsAllAddedWithNullPreviousOnRealPg() throws Exception {
-        String host = "firstupload.example.com";
-        registerDomain(host);
-        saveSpecVersion(host, "default", 1L, true, List.of(ep("GET", "/x", false), ep("POST", "/y", false)));
-
-        mvc.perform(get("/api/v1/domains/{host}/spec/changes", host))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.documents[0].previousVersion").value(nullValue())) // 직전 없음
-                .andExpect(jsonPath("$.documents[0].changes.length()").value(2))
-                .andExpect(jsonPath("$.documents[0].changes[*].status", everyItem(org.hamcrest.Matchers.is("ADDED"))));
-    }
-
-    @Test
-    void specChangesPerSpecNameForMultipleDocumentsOnRealPg() throws Exception {
-        String host = "multidoc.example.com";
-        registerDomain(host);
-        // users: v1(u1,u2) inactive → v2(u1,u3) active = ADDED u3·DELETED u2
-        saveSpecVersion(host, "users", 1L, false, List.of(ep("GET", "/u1", false), ep("GET", "/u2", false)));
-        saveSpecVersion(host, "users", 2L, true, List.of(ep("GET", "/u1", false), ep("GET", "/u3", false)));
-        // orders: v1 active only = 전부 ADDED
-        saveSpecVersion(host, "orders", 1L, true, List.of(ep("GET", "/o1", false)));
-
-        mvc.perform(get("/api/v1/domains/{host}/spec/changes", host))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.documents.length()").value(2)) // specName 별 분리
-                // 특정 specName 한정
-                .andReturn();
-        mvc.perform(get("/api/v1/domains/{host}/spec/changes", host).param("specName", "users"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.documents.length()").value(1))
-                .andExpect(jsonPath("$.documents[0].specName").value("users"))
-                .andExpect(jsonPath("$.documents[0].changes[?(@.pathTemplate=='/u3')].status").value(hasItem("ADDED")))
-                .andExpect(jsonPath("$.documents[0].changes[?(@.pathTemplate=='/u2')].status").value(hasItem("DELETED")));
-    }
-
-    @Test
-    void specChangesParamOnlyChangeNotReportedAndScopeExposedOnRealPg() throws Exception {
-        // ★M7a 한계 회귀가드: canonical 동일(param 은 canonical 미보유)이면 UPDATED 미보고, updatedScope 로 한계 노출(M7b 전).
-        String host = "paramonly.example.com";
-        registerDomain(host);
-        saveSpecVersion(host, "default", 1L, false, List.of(ep("GET", "/p", false)));
-        saveSpecVersion(host, "default", 2L, true, List.of(ep("GET", "/p", false))); // canonical 동일(param 만 달랐다고 가정)
-
-        mvc.perform(get("/api/v1/domains/{host}/spec/changes", host))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.documents[0].changes.length()").value(0))      // 미보고
-                .andExpect(jsonPath("$.updatedScope").value("deprecated_version_only")); // 한계 자기노출
-    }
-
-    private void saveSpecVersion(String host, String specName, long version, boolean active,
-                                 List<CanonicalEndpoint> endpoints) throws Exception {
-        SpecRecord r = new SpecRecord();
-        r.setHost(host);
-        r.setSpecName(specName);
-        r.setFilename(specName + ".yaml");
-        r.setFormat(SpecFormat.OPENAPI);
-        r.setSpecVersion(version);
-        r.setCanonicalJson(objectMapper.writeValueAsString(endpoints)); // diff 입력(text)
-        r.setRawDoc(("raw-doc-v" + version).getBytes(StandardCharsets.UTF_8)); // ★oid LOB — diff projection 이 미선택해야 안전
-        r.setEndpointCount(endpoints.size());
-        r.setUploadedAt(Instant.EPOCH.plusSeconds(version));
-        r.setActive(active);
-        specRepo.save(r);
-    }
-
-    private static CanonicalEndpoint ep(String method, String pathTemplate, boolean deprecated) {
-        return new CanonicalEndpoint(method, pathTemplate, null, deprecated, null, "ref:" + pathTemplate);
-    }
-
-    // --- 실배포 버그 회귀가드: PUT /spec 동일 filename 재업로드 500 (rawDoc oid · @Transactional self-invocation) ---
+    // --- 재업로드 멱등 + reconcile 정확성 회귀가드: PUT /spec 동일 filename 재업로드 (doc/37 §9⑦, #45 이관) ---
 
     @Test
     void reuploadSameFilenameViaHttpDoesNotHit500() throws Exception {
         // ★실 HTTP 경로(MockMvc PUT) — 테스트 메서드 tx 없음(컨트롤러→SpecStore 진입 오버로드 프록시 경유 검증).
-        // 동일 filename 재업로드 = 구 active 비활성화 루프(findByHostAndActiveIsTrue→prev.setActive=rawDoc oid 엔티티 로드).
-        // 진입 오버로드 @Transactional 없으면 self-invocation 으로 4-arg core tx 무력 → auto-commit 'Large Objects...' 500.
+        // 동일 filename 재업로드 = 구 active 비활성화 + reconcile. 진입 오버로드 @Transactional(#45) 로 tx 안에서 멱등 200.
+        // rawDoc 삭제(doc/37 §7)로 oid 함정 구조 소멸 — 본 가드는 재업로드 멱등 + reconcile 정확성(/apis) 검증으로 이관.
         String host = "reupload.example.com";
         registerDomain(host);
 
@@ -560,17 +446,117 @@ class PostgresIntegrationTest {
         mvc.perform(put("/api/v1/domains/{host}/spec", host).param("filename", "users.yaml")
                         .contentType(MediaType.APPLICATION_OCTET_STREAM).content(openApi("1.0.0", "/users/{id}")))
                 .andExpect(status().isOk());
-        // ★2차 동일 filename 재업로드 = 구버전 비활성화(oid 엔티티 로드) → 진입 @Transactional 로 tx 안 → 200(500 아님)
+        // ★2차 동일 filename 재업로드 = 구버전 비활성화 + reconcile → 200(500 아님)
         mvc.perform(put("/api/v1/domains/{host}/spec", host).param("filename", "users.yaml")
                         .contentType(MediaType.APPLICATION_OCTET_STREAM)
                         .content(openApi("2.0.0", "/users/{id}", "/orders/{id}")))
                 .andExpect(status().isOk());
 
-        // 재업로드가 새 버전(구버전 비활성 보존) → diff 정상(/v2/orders/{id} ADDED)
-        mvc.perform(get("/api/v1/domains/{host}/spec/changes", host).param("specName", "users.yaml"))
+        // 재업로드가 reconcile → 신규 엔드포인트(/v2/orders/{id}) ADDED 로 인벤토리 반영
+        mvc.perform(get("/api/v1/domains/{host}/apis", host).param("specName", "users.yaml"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.documents[0].changes[?(@.pathTemplate=='/v2/orders/{id}')].status")
-                        .value(hasItem("ADDED")));
+                .andExpect(jsonPath("$[?(@.pathTemplate=='/v2/orders/{id}')].lastChange").value(hasItem("ADDED")));
+    }
+
+    // --- 영속 API 인벤토리 reconcile + /apis + DELETED→Zombie 결합 (doc/37 §9). 전부 MockMvc 실 HTTP(auto-commit) 경로 ---
+
+    @Test
+    void uploadsUnionPerSpecNameAndIsolateDeletionOnRealPg() throws Exception {
+        // ①문서A 업로드→A API+params(ACTIVE/ADDED) ②문서B 업로드→union(A 불변·B 추가) ④★격리(B 가 A 미삭제) ⑥결정적 정렬
+        String host = "inv-union.example.com";
+        registerDomain(host);
+        putSpec(host, "a.csv", csv(
+                "GET,/a/{id},false,v1,id:path:true:integer;q:query:false:string",
+                "POST,/a,false,v1,name:body:true:object"));
+        // ① A 의 API ACTIVE/ADDED + params 보존
+        mvc.perform(get("/api/v1/domains/{host}/apis", host).param("specName", "a.csv"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[?(@.pathTemplate=='/a/{id}')].status").value(hasItem("ACTIVE")))
+                .andExpect(jsonPath("$[?(@.pathTemplate=='/a/{id}')].lastChange").value(hasItem("ADDED")))
+                .andExpect(jsonPath("$[?(@.pathTemplate=='/a/{id}')].params[?(@.name=='id')].in").value(hasItem("PATH")));
+        // ② 다른 specName 문서 B 업로드 → union
+        putSpec(host, "b.csv", csv("GET,/b,false,v1,"));
+        mvc.perform(get("/api/v1/domains/{host}/apis", host))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(3))                       // A2 + B1
+                .andExpect(jsonPath("$[0].specName").value("a.csv"))              // ⑥ 결정적 정렬(specName asc)
+                // ④ ★격리: B 업로드가 A 의 API 를 DELETED 로 만들지 않음(WHERE spec_name 한정). 위반 시 RED.
+                .andExpect(jsonPath("$[?(@.specName=='a.csv')].status",
+                        everyItem(org.hamcrest.Matchers.is("ACTIVE"))));
+    }
+
+    @Test
+    void reuploadReconcilesUpdatedDeletedAddedUnchangedOnRealPg() throws Exception {
+        // ③ 문서 재업로드(같은 specName) → param 변경=UPDATED·drop=DELETED·신규=ADDED·동일=UNCHANGED ⑧ param 변경 판정
+        String host = "inv-reconcile.example.com";
+        registerDomain(host);
+        putSpec(host, "s.csv", csv(
+                "GET,/x/{id},false,v1,q:query:false:string",
+                "GET,/drop,false,v1,",
+                "GET,/same,false,v1,k:query:false:string"));
+        // v2: /x param type string→integer=UPDATED, /drop 제거=DELETED, /new 추가=ADDED, /same 동일=UNCHANGED
+        putSpec(host, "s.csv", csv(
+                "GET,/x/{id},false,v1,q:query:false:integer",
+                "GET,/new,false,v1,",
+                "GET,/same,false,v1,k:query:false:string"));
+        mvc.perform(get("/api/v1/domains/{host}/apis", host).param("specName", "s.csv"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.pathTemplate=='/x/{id}')].lastChange").value(hasItem("UPDATED")))
+                .andExpect(jsonPath("$[?(@.pathTemplate=='/x/{id}')].params[?(@.name=='q')].type").value(hasItem("integer")))
+                .andExpect(jsonPath("$[?(@.pathTemplate=='/drop')].status").value(hasItem("DELETED")))
+                .andExpect(jsonPath("$[?(@.pathTemplate=='/new')].lastChange").value(hasItem("ADDED")))
+                .andExpect(jsonPath("$[?(@.pathTemplate=='/same')].lastChange").value(hasItem("UNCHANGED")));
+    }
+
+    @Test
+    void deletedApiWithTrafficClassifiesAsDeletedFromSpecZombieOnRealPg() throws Exception {
+        // ⑨ ★사용자 핵심: DELETED 인벤토리 키 ∩ 관측 트래픽 → Zombie(deleted-from-spec·confidence 0.8), SHADOW 아님.
+        String host = "inv-zombie.example.com";
+        registerDomain(host);
+        putSpec(host, "z.csv", csv("GET,/legacy/{id},false,v1,"));     // v1: /legacy/{id} 문서화
+        putSpec(host, "z.csv", csv("GET,/other,false,v1,"));            // v2: /legacy/{id} 제거 → DELETED
+        mvc.perform(get("/api/v1/domains/{host}/apis", host).param("status", "DELETED"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.pathTemplate=='/legacy/{id}')].status").value(hasItem("DELETED")));
+
+        DiscoveredEndpointRecord d = new DiscoveredEndpointRecord();    // 관측 트래픽 지속(/legacy/{id})
+        d.setHost(host);
+        d.setMethod("GET");
+        d.setPathTemplate("/legacy/{id}");
+        d.setTemplateSource("INFERRED");
+        d.setEndpointKind("API_CANDIDATE");
+        d.setKindConfidence(0.95);
+        d.setFirstSeen(Instant.EPOCH);
+        d.setLastSeen(Instant.EPOCH);
+        d.setLastScanAt(Instant.EPOCH);
+        d.setHits(50);
+        d.setStatusDistJson("{\"2xx\":50}");
+        d.setHadQuery(false);
+        d.setNonBrowserUa(true);
+        discoveredRepo.save(d);
+
+        // /discovery → /legacy/{id} = Zombie(deleted-from-spec, confidence 0.8). specRef="deleted-from-spec" 는 이 경로 고유
+        // (Shadow=specRef 없음·deprecated/version Zombie=스펙 sourceRef). 결합 제거 시 SHADOW/drop → 단언 RED.
+        mvc.perform(get("/api/v1/domains/{host}/discovery", host))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.findings[?(@.pathTemplate=='/legacy/{id}')].specRef").value(hasItem("deleted-from-spec")))
+                .andExpect(jsonPath("$.findings[?(@.pathTemplate=='/legacy/{id}')].confidence").value(hasItem(0.8)));
+    }
+
+    private void putSpec(String host, String filename, byte[] content) throws Exception {
+        mvc.perform(put("/api/v1/domains/{host}/spec", host).param("filename", filename)
+                        .contentType(MediaType.APPLICATION_OCTET_STREAM).content(content))
+                .andExpect(status().isOk());
+    }
+
+    /** CSV 스펙(method,path,deprecated,version,params) — params=name:in:required:type 세미콜론 구분(doc/37 §2). */
+    private static byte[] csv(String... rows) {
+        StringBuilder sb = new StringBuilder("method,path,deprecated,version,params\n");
+        for (String r : rows) {
+            sb.append(r).append('\n');
+        }
+        return sb.toString().getBytes(StandardCharsets.UTF_8);
     }
 
     /** 최소 유효 OpenAPI(servers /v2 prefix → canonical /v2 path). paths=GET 엔드포인트들. */

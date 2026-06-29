@@ -22,6 +22,7 @@ import com.pentasecurity.apidiscover.model.SpecMergeStrategy;
 import com.pentasecurity.apidiscover.model.SpecSource;
 import com.pentasecurity.apidiscover.model.TemplateSource;
 import com.pentasecurity.apidiscover.model.VersionTag;
+import com.pentasecurity.apidiscover.spec.ApiInventoryService;
 import com.pentasecurity.apidiscover.spec.SpecStore;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -43,6 +44,7 @@ public class CombinedDiscoveryService {
 
     private final DiscoveredEndpointRepository discoveredRepo;
     private final SpecStore specStore;
+    private final ApiInventoryService apiInventoryService;
     private final EndpointMatcherCache matcherCache;
     private final Classifier classifier;
     private final EffectiveClassificationResolver classificationResolver;
@@ -51,6 +53,7 @@ public class CombinedDiscoveryService {
 
     public CombinedDiscoveryService(DiscoveredEndpointRepository discoveredRepo,
                                     SpecStore specStore,
+                                    ApiInventoryService apiInventoryService,
                                     EndpointMatcherCache matcherCache,
                                     Classifier classifier,
                                     EffectiveClassificationResolver classificationResolver,
@@ -58,6 +61,7 @@ public class CombinedDiscoveryService {
                                     ObjectMapper objectMapper) {
         this.discoveredRepo = discoveredRepo;
         this.specStore = specStore;
+        this.apiInventoryService = apiInventoryService;
         this.matcherCache = matcherCache;
         this.classifier = classifier;
         this.classificationResolver = classificationResolver;
@@ -70,10 +74,9 @@ public class CombinedDiscoveryService {
      * Shadow/Active/Zombie/Unused 산출. VERSION_GROUPED 모드면 version 라벨별 그룹도 함께 노출(그 외 flat).
      * per-scan /result 와 별개의 누적 뷰(분류 로직·게이트는 동일, 입력만 누적 카탈로그).
      *
-     * <p>★{@code @Transactional(readOnly=true)}(doc/28 §10·D51): {@code loadActiveCanonical}/{@code activeRecords} 가
-     * {@code SpecRecord} 엔티티({@code rawDoc}=PG oid LOB)를 로드하므로, 트랜잭션 없이(OSIV=false→auto-commit) 호출하면
-     * "Large Objects may not be used in auto-commit mode" 500. /discovery·/result(M5) 의 진입점이라 여기 1곳에 tx 를 둬
-     * spec 보유 도메인에서도 안전. 읽기+분류만이라 readOnly 적합(공유 스캔 메서드 loadActiveCanonical 은 미터치=analyze 무영향).
+     * <p>★{@code @Transactional(readOnly=true)}: rawDoc 컬럼 삭제(doc/37 §7)로 과거 oid auto-commit 500 위험은 소멸했으나,
+     * {@code loadActiveCanonical}/{@code activeRecords} 의 SpecRecord 엔티티 로드를 분류 동안 한 트랜잭션에서 일관 읽기 위해 유지(무해·제거 불요).
+     * /discovery·/result(M5) 의 진입점이라 여기 1곳에 둔다. 읽기+분류만이라 readOnly 적합(공유 스캔 메서드 loadActiveCanonical 은 미터치=analyze 무영향).
      */
     @Transactional(readOnly = true)
     public CombinedDiscovery forHost(String host) {
@@ -88,9 +91,11 @@ public class CombinedDiscoveryService {
         EffectiveClassification eff = classificationResolver.resolve(host);
         // base-path-strip (doc/27 §3) — null=off=현행. 결합 뷰도 동일 at-match 재시도.
         String stripPrefix = domainRepo.findById(host).map(c -> c.getBasePathStrip()).orElse(null);
-        // 판단 근거 동봉(doc/34) — 스캔 경로와 동일 게이트/corsKeys, findings 와 rationale 병렬. 추가 조회 0(eff·discovered 이미 보유).
+        // DELETED→Zombie 결합 입력(doc/37 §6) — host 의 DELETED 인벤토리 키. 비면 무영향(무회귀).
+        java.util.Set<String> deletedKeys = apiInventoryService.deletedKeys(host);
+        // 판단 근거 동봉(doc/34) — 스캔 경로와 동일 게이트/corsKeys, findings 와 rationale 병렬. 추가 조회=deletedKeys 1쿼리.
         Classifier.ExplainedClassification explained =
-                classifier.classifyExplained(discovered, spec, matcher, eff.scorer(), eff.hints(), stripPrefix);
+                classifier.classifyExplained(discovered, spec, matcher, eff.scorer(), eff.hints(), stripPrefix, deletedKeys);
         List<Finding> findings = explained.findings();
 
         SpecMergeStrategy mode = modeOf(host);

@@ -2,6 +2,8 @@
 package com.pentasecurity.apidiscover.spec;
 
 import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
+import com.pentasecurity.apidiscover.model.ParamIn;
+import com.pentasecurity.apidiscover.model.SpecParam;
 import com.univocity.parsers.csv.CsvParser;
 import com.univocity.parsers.csv.CsvParserSettings;
 import java.io.ByteArrayInputStream;
@@ -58,8 +60,9 @@ public class CsvSpecParser implements SpecParser {
                 boolean deprecated = parseDeprecated(at(values, col.get("deprecated")), row, warnings);
                 String version = nullIfBlank(at(values, col.get("version")));
                 String template = SpecNormalize.template(path);
+                List<SpecParam> params = parseParams(at(values, col.get("params")), row, warnings);
                 out.add(new CanonicalEndpoint(method.trim().toUpperCase(Locale.ROOT), template, host,
-                        deprecated, version, "csv#row" + row));
+                        deprecated, version, "csv#row" + row, params));
             }
         } finally {
             parser.stopParsing();
@@ -88,6 +91,46 @@ public class CsvSpecParser implements SpecParser {
             throw new IllegalArgumentException("CSV requires 'method' and 'path' headers");
         }
         return col;
+    }
+
+    /**
+     * 선택 {@code params} 컬럼(doc/37 §2): {@code name:in:required:type} 세미콜론 구분
+     * (예 {@code id:path:true:integer;q:query:false:string}). 컬럼 없음/빈 → 빈 리스트(하위호환).
+     */
+    private static List<SpecParam> parseParams(String raw, int row, List<String> warnings) {
+        if (isBlank(raw)) {
+            return List.of();
+        }
+        List<SpecParam> out = new ArrayList<>();
+        for (String token : raw.split(";")) {
+            String t = token.trim();
+            if (t.isEmpty()) {
+                continue;
+            }
+            String[] f = t.split(":", 4);
+            String name = f[0].trim();
+            ParamIn in = parseIn(f.length > 1 ? f[1] : null);
+            if (name.isEmpty() || in == null) {
+                warn(warnings, "CSV row " + row + " param '" + t + "' missing name/in, skipping");
+                continue;
+            }
+            boolean required = f.length > 2 && TRUE_TOKENS.contains(f[2].trim().toLowerCase(Locale.ROOT));
+            String type = (f.length > 3 && !f[3].isBlank()) ? f[3].trim() : "string";
+            out.add(new SpecParam(name, in, required, type));
+        }
+        return out;
+    }
+
+    /** in 토큰(query/path/header/cookie/body) → ParamIn. 알 수 없으면 null. */
+    private static ParamIn parseIn(String in) {
+        if (isBlank(in)) {
+            return null;
+        }
+        try {
+            return ParamIn.valueOf(in.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     private static boolean parseDeprecated(String raw, int row, List<String> warnings) {

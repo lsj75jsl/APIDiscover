@@ -79,13 +79,13 @@ final class SpecCanonicalizer {
         return e.sourceRef() == null ? "" : e.sourceRef();
     }
 
-    /** deprecated 만 교체, 나머지 필드 유지. */
+    /** deprecated 만 교체, 나머지 필드(params 포함) 유지. */
     private static CanonicalEndpoint withDeprecated(CanonicalEndpoint e, boolean deprecated) {
         if (e.deprecated() == deprecated) {
             return e;
         }
         return new CanonicalEndpoint(e.method(), e.pathTemplate(), e.host(), deprecated,
-                e.version(), e.sourceRef());
+                e.version(), e.sourceRef(), e.params());
     }
 
     private static List<CanonicalEndpoint> sorted(Collection<CanonicalEndpoint> in) {

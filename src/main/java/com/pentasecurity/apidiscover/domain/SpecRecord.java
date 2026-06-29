@@ -9,11 +9,10 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
 import java.time.Instant;
 
-// 캡슐화 완료(doc/29 D41): private 필드 + 접근자. 애너테이션은 필드 유지 → JPA field access·@Lob byte[] 매핑 불변.
+// 캡슐화 완료(doc/29 D41): private 필드 + 접근자. 애너테이션은 필드 유지 → JPA field access(@Column text 매핑 불변).
 // 자동생성 id 는 setter 미노출(Hibernate field-access 기록).
 @Entity
 @Table(name = "spec_record")
@@ -36,14 +35,8 @@ public class SpecRecord {
 
     private long specVersion;
 
-    /**
-     * 원본 문서(감사/재파싱용). ★PG oid(Large Object) — 이 코드베이스의 유일한 @Lob(canonicalJson/warningsJson 은 D40 에서 text 로 이전).
-     * ★메타 조회는 반드시 {@link SpecMetaProjection}(rawDoc 미선택)으로(doc/28): 엔티티 로드는 oid 를 materialize 하는데,
-     * 트랜잭션 밖(auto-commit) 이면 "Large Objects may not be used in auto-commit mode" 500. 재파싱/감사는 @Transactional 내에서만 접근.
-     * (대안 기각: bytea = oid→bytea ddl-auto 미변환·수동 마이그레이션 위험 / 메타조회 @Transactional = rawDoc 불필요 materialize·M1 목록 LOB 폭증 → projection 채택.)
-     */
-    @Lob
-    private byte[] rawDoc;
+    // rawDoc(@Lob byte[]=PG oid) 컬럼 삭제(doc/37 §7): 저장 전용·프로덕션 read 0 → oid 함정 클래스 구조적 소멸.
+    // 백필=재업로드(go-forward). 잔존 prod 컬럼은 ops DDL(lo_unlink→DROP COLUMN, doc/37 §7.4)로 정리(코드와 디커플).
 
     /** Canonical 엔드포인트 집합 직렬화(JSON). 매칭의 진실원. */
     @Column(columnDefinition = "text") // PG text 매핑(@Lob String→oid 회피, doc/28 D40/D37)
@@ -103,14 +96,6 @@ public class SpecRecord {
 
     public void setSpecVersion(long specVersion) {
         this.specVersion = specVersion;
-    }
-
-    public byte[] getRawDoc() {
-        return rawDoc;
-    }
-
-    public void setRawDoc(byte[] rawDoc) {
-        this.rawDoc = rawDoc;
     }
 
     public String getCanonicalJson() {
