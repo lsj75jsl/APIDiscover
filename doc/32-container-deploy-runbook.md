@@ -63,17 +63,24 @@ podman run --rm --network host -v /opt/adc-exports:/exports \
   localhost/apidiscover:test -domain -ls
 # → /opt/adc-exports/domains-<epochmillis>.csv (host,enabled,hostnames,discovered_at,last_seen_at)
 
-# (b) 특정 도메인 API 결과 CSV
+# (b) 신규 도메인 즉시 등록(DB 등록만, Loki 미호출, 멱등)
+podman run --rm --network host localhost/apidiscover:test \
+  -domain -register <domain>
+# → 정규화 host 로 enabled=true 등록("이미 등록됨"=no-op·exit 0)
+
+# (c) 특정 도메인 API 결과 CSV
 podman run --rm --network host -v /opt/adc-exports:/exports \
   localhost/apidiscover:test -domain -export <domain>
 # → /opt/adc-exports/<domain>-<epochmillis>.csv
 
-# (c) 특정 도메인 즉시 스캔(운영자 온디맨드, watermark 미전진)
+# (d) 특정 도메인 즉시 스캔(운영자 온디맨드, watermark 미전진)
+#     ★미등록 도메인이면 enabled=true 자동등록 후 스캔(별도 -register 불요). 비활성(enabled=false) 존재 시엔 자동활성 안 함→스캔 불가.
 podman run --rm --network host localhost/apidiscover:test \
   -domain -scan <domain> [-window PT30M] [-edge <hostname>]
 ```
-- 인자는 ENTRYPOINT(`wait-for-db.sh`→`java -jar /app/app.jar`) 뒤에 append → CLI 모드(웹·스케줄러 미기동, 1 명령 후 종료). 목록/내보내기는 Loki 미호출(DB only), scan 만 Loki 호출(부하보호 준수).
-- ★전 명령 단일대시 `-domain` 서브커맨드로 통일(`-ls`/`-export`/`-scan`, D47 갱신) — 기존 `--adc.cli.X=` 사용자 트리거 제거(직접 입력 시 CLI 모드 미진입).
+- 인자는 ENTRYPOINT(`wait-for-db.sh`→`java -jar /app/app.jar`) 뒤에 append → CLI 모드(웹·스케줄러 미기동, 1 명령 후 종료). 목록/등록/내보내기는 Loki 미호출(DB only), scan 만 Loki 호출(부하보호 준수).
+- ★전 명령 단일대시 `-domain` 서브커맨드로 통일(`-ls`/`-register`/`-export`/`-scan`, D47 갱신) — 기존 `--adc.cli.X=` 사용자 트리거 제거(직접 입력 시 CLI 모드 미진입).
+- register exit: 0 성공(이미 존재 포함) / 2 도메인 미지정 / 4 DB 오류.
 - export exit: 0 성공 / 2 도메인 미지정 / 3 도메인 미존재·검출 0건 / 4 쓰기 실패.
 - CSV 15열+헤더: host·method·path_template·status·source·confidence·severity·estimated·spec_ref·preflight_ambiguous·low_confidence·param_query·param_path·first_seen·last_seen. (score 는 미영속 → 범위 밖.)
 - 대안: `podman exec adc-app java -jar /app/app.jar -domain -export <domain>`(서빙 컨테이너 2nd JVM, 자원 점유 — exec 는 ENTRYPOINT 우회라 `java -jar` 명시).

@@ -16,6 +16,25 @@ class MainArgModeTest {
     }
 
     @Test
+    void registerSubcommandInjectsRegisterDomain() {
+        CliArgs r = ApiDiscoverWorkerApplication.parseCli(new String[]{"-domain", "-register", "foo.com"});
+        assertThat(r.usageError()).isFalse();
+        assertThat(r.inject()).containsExactly("--adc.cli.register-domain=foo.com");
+    }
+
+    @Test
+    void registerWithoutDomainIsUsageError() {
+        assertThat(ApiDiscoverWorkerApplication.parseCli(
+                new String[]{"-domain", "-register"}).usageError()).isTrue();
+    }
+
+    @Test
+    void registerWithAnotherSubcommandIsAmbiguousUsageError() {
+        assertThat(ApiDiscoverWorkerApplication.parseCli(
+                new String[]{"-domain", "-register", "foo.com", "-scan", "bar.com"}).usageError()).isTrue();
+    }
+
+    @Test
     void exportSubcommandInjectsExportDomain() {
         CliArgs r = ApiDiscoverWorkerApplication.parseCli(new String[]{"-domain", "-export", "foo.example.com"});
         assertThat(r.inject()).containsExactly("--adc.cli.export-domain=foo.example.com");

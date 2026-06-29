@@ -20,7 +20,7 @@ public class ApiDiscoverWorkerApplication {
         CliArgs cli = parseCli(args);
         if (cli.usageError()) {
             System.err.println(
-                    "usage: -domain (-ls | -export <도메인> | -scan <도메인> [-window <ISO8601>] [-edge <hostname>])");
+                    "usage: -domain (-ls | -register <도메인> | -export <도메인> | -scan <도메인> [-window <ISO8601>] [-edge <hostname>])");
             System.exit(2);
             return;
         }
@@ -57,19 +57,25 @@ public class ApiDiscoverWorkerApplication {
 
     /**
      * 신문법 → 주입 인자(doc/33 §15, D47):
-     * {@code -domain -ls} / {@code -domain -export <도메인>} / {@code -domain -scan <도메인> [-window <ISO8601>] [-edge <hostname>]}.
-     * {@code -domain} 없으면 서버 모드. {@code -domain} 만(서브커맨드 없음)·{@code -export}/{@code -scan} 도메인 누락 = 문법 오류.
+     * {@code -domain -ls} / {@code -domain -register <도메인>} / {@code -domain -export <도메인>} /
+     * {@code -domain -scan <도메인> [-window <ISO8601>] [-edge <hostname>]}.
+     * {@code -domain} 없으면 서버 모드. {@code -domain} 만(서브커맨드 없음)·{@code -register}/{@code -export}/{@code -scan} 도메인 누락 = 문법 오류.
      */
     static CliArgs parseCli(String[] args) {
         if (!has(args, "-domain")) {
             return CliArgs.server(); // -domain 없음 = 서버 모드(무회귀)
         }
-        int subcommands = (has(args, "-ls") ? 1 : 0) + (has(args, "-export") ? 1 : 0) + (has(args, "-scan") ? 1 : 0);
+        int subcommands = (has(args, "-ls") ? 1 : 0) + (has(args, "-register") ? 1 : 0)
+                + (has(args, "-export") ? 1 : 0) + (has(args, "-scan") ? 1 : 0);
         if (subcommands > 1) {
             return CliArgs.error(); // 복수 서브커맨드 모호 → fail-loud(조용히 하나 선택 금지)
         }
         if (has(args, "-ls")) {
             return CliArgs.run("--adc.cli.list-domains=true");
+        }
+        if (has(args, "-register")) {
+            String domain = valueAfter(args, "-register");
+            return (domain == null) ? CliArgs.error() : CliArgs.run("--adc.cli.register-domain=" + domain);
         }
         if (has(args, "-export")) {
             String domain = valueAfter(args, "-export");

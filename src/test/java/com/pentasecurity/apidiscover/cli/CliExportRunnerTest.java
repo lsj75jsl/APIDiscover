@@ -60,7 +60,7 @@ class CliExportRunnerTest {
 
     private CliExportRunner runner(String domain, Path outputDir) {
         return new CliExportRunner(discovery, discoveredRepo,
-                new CliProperties(domain, outputDir.toString(), null, null, null, false), ctx);
+                new CliProperties(domain, outputDir.toString(), null, null, null, false, null), ctx);
     }
 
     private static CombinedDiscovery combined(List<Finding> findings) {

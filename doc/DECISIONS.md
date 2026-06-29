@@ -422,12 +422,14 @@ PR1 실배포 검증: 단일 busy 도메인(www.takigen.co.jp)의 max-window PT6
 ### D47. 운영자 CLI 문법 — 단일대시 `-domain` 서브커맨드 통일 (doc/33 §15) — 채택(목록 머지 후 전면 통일)
 운영자 CLI 를 전부 단일대시 `-domain` 서브커맨드로 통일(사용자 확정). 신문법:
 - `-domain -ls` — 도메인 목록(stdout, host·enabled·#hostnames·discovered_at·last_seen_at, 빈 목록 exit0·DB오류 비0, Loki 무관)
+- `-domain -register <도메인>` — 즉시 등록(DB only·Loki 미호출·멱등, 아래 즉시 처리 확장)
 - `-domain -export <도메인>` — CSV 내보내기(doc/31)
-- `-domain -scan <도메인> [-window <ISO8601>] [-edge <hostname>]` — 온디맨드 스캔(doc/33 §7)
+- `-domain -scan <도메인> [-window <ISO8601>] [-edge <hostname>]` — 온디맨드 스캔(doc/33 §7, 미등록이면 자동등록 후 스캔)
+- **신규 도메인 즉시 처리 확장(2026-06-29)**: `-register` 신규 추가 + `-scan` 미등록 자동등록. 등록 로직은 **공유 헬퍼 `DomainRegistrar.registerIfAbsent`**(register·scan-autoregister 재사용) — 정규화 host 로 없으면 `enabled=true` 등록(멱등). ★기존 seam 미채택 사유: 자동 디스커버리 `DomainUpserter` 는 `discoveredAt=now`(자동 발견 마킹)라 수동 등록(=`discoveredAt=null` 자연 구분)에 부적합, REST `DomainController.create` 는 409·`ResponseStatusException` 라 CLI 부적합 → 최소 신규 @Component(인터페이스/config 없음, 과설계 금지). **`-scan` 시맨틱**: 미등록=`enabled=true` 자동등록 후 스캔(즉시성), **존재·비활성(`enabled=false`)=자동 활성화 안 함→스캔 불가**(운영자 명시 비활성 결정 존중, 자동등록은 '미등록' 한정). scan-domain 도 정규화 일원화(중복키·Loki 쿼리 정합). exit: register 0 성공(이미 존재 포함)/2 누락/4 DB.
 - **구현**: `main().parseCli`(순수·테스트 가능) 가 신문법 감지 → 내부 `--adc.cli.list-domains=true`/`export-domain=`/`scan-domain=`(+`window=`/`edge=`)로 translate 후 web NONE·cli 프로파일 부팅. CliProperties·CliExportRunner·CliScanRunner·CliListRunner 런너/바인딩 불변(외부 단일대시 UX·내부 프로퍼티 구동 분리 = 최소 변경). `-domain` 없음=서버 모드, `-domain` 단독·도메인 누락=usage+exit(2).
 - **★기존 `--adc.cli.export-domain=`/`scan-domain=` 사용자 트리거 제거**(직접 입력 시 CLI 미진입). 초기 채택은 (a) 혼재 허용이었으나, 목록 CLI 머지 후 사용자가 (b) **전면 통일** 결정 — 아직 외부 출하 전·테스트 단계라 출하 파괴 없음(피스밀 금지 단서대로 전 명령 동시 교체). HTML 매뉴얼 동기는 technical_writer 후속.
 - **출력 형식(목록)**: `-domain -ls` 는 **CSV 파일**(`output-dir`/domains-&lt;stamp&gt;.csv, export-domain 동형 다운로드)로 출력 — 사용자 확정(Option B). 최초안의 stdout 표는 폐지(대량 도메인 11k+ 에서 표는 비실용·파일이 export 와 일관). 헤더 host,enabled,hostnames(';'),discovered_at,last_seen_at. 빈 목록=헤더만·exit 0, DB/IO 오류=4. `-v output-dir` 볼륨 필요(컨테이너).
-- **갱신 이력**: 최초 D47=목록 `-domain -ls` stdout 표(혼재 허용·전면통일 미채택). → 사용자 결정으로 전면 통일·기존 트리거 제거(feature/cli-domain-subcommand). → 사용자 Option B 로 목록 출력을 stdout→CSV 파일 변경(feature/domain-ls-csv).
+- **갱신 이력**: 최초 D47=목록 `-domain -ls` stdout 표(혼재 허용·전면통일 미채택). → 사용자 결정으로 전면 통일·기존 트리거 제거(feature/cli-domain-subcommand). → 사용자 Option B 로 목록 출력을 stdout→CSV 파일 변경(feature/domain-ls-csv). → `-register` 신규 + `-scan` 미등록 자동등록(공유 `DomainRegistrar`, feat/cli-register-and-scan-autoregister).
 
 ### D48. 스캔 정책 PR2/PR3 — C 활동 티어링 + D off-peak + F dormant (통합 due 모델, doc/33 §4–6) — 채택·구현+리뷰반영(1 PR, build green 408·실 PG 가드 PASS·커밋 보류)
 PR1(B+A+E) 토대 위 C(티어)·F(dormant)·intervalOverride 를 **단일 due 모델**로 통합, D(off-peak)는 그 위 파라미터 스위치. P3, 단일 인스턴스 전제.

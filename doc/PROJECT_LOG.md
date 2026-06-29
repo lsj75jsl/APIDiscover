@@ -5,6 +5,22 @@
 
 ---
 
+## 2026-06-29 세션 45 — 신규 도메인 즉시 처리 CLI(`-domain -register` 신규 + `-scan` 미등록 자동등록, D47 확장)
+
+### 한 일
+- **요청**: 운영자가 신규 도메인을 스케줄러 안 기다리고 즉시 (1) 등록만, (2) 등록+스캔. `-domain -register <도메인>`(신규)·`-domain -scan <도메인>`(미등록이면 자동등록 후 스캔).
+- **공유 등록 헬퍼 `DomainRegistrar`(신규 @Component)**: `registerIfAbsent(rawHost)` = 정규화(`DomainNames.normalize`, null→IllegalArgumentException) → `findById.orElseGet`(신규=enabled=true·createdAt/updatedAt=now·`discoveredAt=null`·save / 기존=그대로, 멱등). ★기존 seam 재사용 검토: `DomainUpserter` 는 `discoveredAt=now`(자동 디스커버리 마킹)라 수동 등록엔 부적합(수동=discoveredAt null 자연 구분), REST `DomainController.create` 는 409·ResponseStatusException 라 CLI 부적합 → 최소 신규 컴포넌트(인터페이스/config 없음).
+- **parseCli + usage**: `-register` 서브커맨드 추가(`--adc.cli.register-domain=` translate), subcommands 카운트에 포함(복수 지정=usage 오류 fail-loud). `CliProperties.registerDomain` 필드 가산(record canonical 생성자 변경 → 3 테스트 생성자 인자 갱신).
+- **`CliRegisterRunner`(@Profile cli)**: run() blank=no-op(다른 runner 대상), register()→정규화·`existsById` 사전판정으로 "등록 완료(enabled=true)"/"이미 등록됨(no-op)" 메시지 구분·exit(0 성공(이미 존재 포함)/2 도메인 누락/4 DB). 멱등이라 이미 존재=성공.
+- **`CliScanRunner` 수정**: `domain` 을 `DomainNames.normalize` 로 일원화(findById·scanOnDemand 공통 — 자동등록 중복키·Loki 쿼리 정합). 미등록=`registrar.registerIfAbsent` 자동등록(enabled=true)+"자동 등록" 출력 후 스캔, 존재·비활성=자동활성 안 함→EXIT_NOT_SCANNABLE(운영자 결정 존중). `registrar` 생성자 주입.
+
+### 결과
+- `./gradlew build` BUILD SUCCESSFUL. 전체 **445**(+13) 실패0 errors0 skip2(둘 다 -Dloki.live=운영 Loki 미호출). 신규/변경 suite: `DomainRegistrarTest` 3·`CliRegisterRunnerTest` 5·`CliScanRunnerTest` 6·`MainArgModeTest` 10 전부 green. 등록/파싱 단위 전부 mock·정적(운영 Loki 미호출).
+- 문서: doc/31 B1·32 §4(register 예시+scan 자동등록 주석)·33 §7·DECISIONS D47 확장·TASKS subitem.
+
+### 다음 단계
+- 커밋 금지(매니저, 브랜치 feat/cli-register-and-scan-autoregister). 매니저 리뷰/머지 + 실배포 검증(`-domain -register`·미등록 `-scan` 자동등록). HTML 매뉴얼 동기는 technical_writer 후속.
+
 ## 2026-06-29 세션 44 — 경로 matrix 파라미터(;jsessionid) 정규화(실배포 발견, doc/02 §3)
 
 ### 한 일
