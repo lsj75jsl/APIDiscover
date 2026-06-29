@@ -100,7 +100,7 @@
         <li><a href="#s2-1">도메인 인벤토리 — <code>/domains</code></a></li>
         <li><a href="#s2-2">스캔 상태 · 결과 · 즉시 스캔 — <code>/scan-status</code> · <code>/result</code> · <code>/scan</code> · <code>/scan-now</code></a></li>
         <li><a href="#s2-3">결합 디스커버리(판단 근거) — <code>/discovery</code></a></li>
-        <li><a href="#s2-4">스펙 · API 변경 추적 — <code>/spec</code></a></li>
+        <li><a href="#s2-4">스펙 · API 인벤토리 — <code>/spec</code> · <code>/apis</code></a></li>
         <li><a href="#s2-5">분류 설정 · 가중치 편집 — <code>/classification</code></a></li>
         <li><a href="#s2-6">운영 — <code>/actuator</code></a></li>
       </ol>
@@ -130,7 +130,7 @@
     <tr><td><span class="m m-get">GET</span></td><td><code>/domains/{host}/discovery</code></td><td>결합 디스커버리 + 판단 근거</td><td>DB</td></tr>
     <tr><td><span class="m m-put">PUT</span></td><td><code>/domains/{host}/spec</code></td><td>스펙 업로드(<code>?filename</code>)</td><td>DB</td></tr>
     <tr><td><span class="m m-get">GET</span></td><td><code>/domains/{host}/spec</code></td><td>활성 스펙 목록(배열, specName별)</td><td>DB</td></tr>
-    <tr><td><span class="m m-get">GET</span></td><td><code>/domains/{host}/spec/changes</code></td><td>API 변경 추적(ADDED/DELETED/UPDATED)</td><td>DB</td></tr>
+    <tr><td><span class="m m-get">GET</span></td><td><code>/domains/{host}/apis</code></td><td>문서화 API 인벤토리(파라미터·상태)</td><td>DB</td></tr>
     <tr><td><span class="m m-get">GET</span></td><td><code>/classification</code></td><td>전역 분류 설정</td><td>DB</td></tr>
     <tr><td><span class="m m-put">PUT</span></td><td><code>/classification</code></td><td>전역 분류 설정 수정</td><td>DB</td></tr>
     <tr><td><span class="m m-patch">PATCH</span></td><td><code>/classification/weights</code></td><td>전역 가중치 부분편집(→CUSTOM)</td><td>DB</td></tr>
@@ -319,7 +319,7 @@ curl -X DELETE http://&lt;host&gt;:8080/api/v1/domains/api.weble.net   # → 204
     <tbody>
       <tr><td><strong>SHADOW</strong></td><td><code>score</code></td><td><code>apiScore</code>·<code>threshold</code>·<code>gate</code>·<code>mode</code>·<code>signals[]</code></td><td>점수 게이트 통과(ADMIT)</td></tr>
       <tr><td><strong>ACTIVE</strong></td><td><code>spec_match</code></td><td><code>specRef</code>·<code>deprecated:false</code></td><td>스펙 매칭(점수 아님)</td></tr>
-      <tr><td><strong>ZOMBIE</strong></td><td><code>spec_match</code></td><td><code>specRef</code>·<code>deprecated:true</code> 또는 <code>estimated:true</code></td><td>스펙 매칭(deprecated/버전추정)</td></tr>
+      <tr><td><strong>ZOMBIE</strong></td><td><code>spec_match</code></td><td><code>specRef</code>·<code>deprecated:true</code>/<code>estimated:true</code>, 또는 <code>specRef:"deleted-from-spec"</code></td><td>스펙 매칭(deprecated 1.0·버전추정), 또는 인벤토리에서 삭제됐으나 트래픽 지속(deleted-from-spec 0.8 · <a href="#s2-4">§2.4</a>)</td></tr>
       <tr><td><strong>UNUSED</strong></td><td><code>spec_only</code></td><td><code>specRef</code></td><td>스펙에 있고 무트래픽</td></tr>
       <tr><td><strong>WEBPAGE</strong></td><td><code>endpoint_kind</code></td><td><code>endpointKind</code>·<code>kindConfidence</code></td><td>$type/referer 로 비-API(현재 미산출)</td></tr>
     </tbody>
@@ -328,11 +328,13 @@ curl -X DELETE http://&lt;host&gt;:8080/api/v1/domains/api.weble.net   # → 204
 </div>
 
 <!-- ===== 2.4 ===== -->
-<h3 id="s2-4">2.4 스펙 · API 변경 추적 — <code>/api/v1/domains/{host}/spec</code></h3>
+<h3 id="s2-4">2.4 스펙 · API 인벤토리 — <code>/api/v1/domains/{host}/spec</code> · <code>/apis</code></h3>
 
 <div class="ep">
   <div class="sig"><span class="m m-put">PUT</span><code>/api/v1/domains/{host}/spec</code> &nbsp;·&nbsp; <span class="m m-get">GET</span><code>/api/v1/domains/{host}/spec</code></div>
-  <p><strong>PUT</strong> 은 스펙 원문(OpenAPI / Postman / CSV 바이트)을 <code>Content-Type: application/octet-stream</code> 본문으로 업로드한다. <code>?filename</code> 은 곧 <strong>문서 식별자(<code>specName</code>)로 도출</strong>된다 — 정규화(trim·소문자), 미전달/빈 = <code>"default"</code>. <strong>서로 다른 filename = 별개 문서</strong>(병합 대상), <strong>같은 filename 재업로드 = 그 문서의 새 버전</strong>(구버전은 <code>active=false</code> 로 보존되어 변경 추적의 diff 기준이 된다). <strong>GET</strong> 은 활성 스펙 문서 <strong>목록(배열)</strong>을 반환하며, 스펙이 없으면 <code>404</code> 가 아니라 <strong>빈 배열 <code>[]</code>(200)</strong>이다. 각 문서는 <code>specName</code>·<code>filename</code>·<code>uploadedAt</code> 등을 포함한다.</p>
+  <p><strong>PUT</strong> 은 스펙 원문(OpenAPI / Postman / CSV 바이트)을 <code>Content-Type: application/octet-stream</code> 본문으로 업로드한다. <code>?filename</code> 은 곧 <strong>문서 식별자(<code>specName</code>)로 도출</strong>된다 — 정규화(trim·소문자), 미전달/빈 = <code>"default"</code>. 서로 다른 filename = 별개 문서, 같은 filename 재업로드 = 그 문서의 새 버전이다.</p>
+  <p>★업로드 시 파싱된 API 목록·파라미터가 <strong>영속 API 인벤토리(<code>documented_api</code>)</strong>에 <code>specName</code> 단위로 <strong>reconcile</strong> 된다 — 이미 있으면 파라미터·deprecated·version 변경 시 갱신(<code>UPDATED</code>), 신규면 추가(<code>ADDED</code>), 그 문서에서 빠지면 삭제 표시(<code>status=DELETED</code>, 행 보존). <strong>★다른 filename 문서는 건드리지 않는다(union)</strong>. 인벤토리 조회는 아래 <code>GET /apis</code>.</p>
+  <p><strong>GET</strong> 은 활성 스펙 문서 <strong>목록(배열)</strong>을 반환하며, 스펙이 없으면 <code>404</code> 가 아니라 <strong>빈 배열 <code>[]</code>(200)</strong>이다. 각 문서는 <code>specName</code>·<code>filename</code>·<code>uploadedAt</code> 등을 포함한다.</p>
   <pre><code># 등록 후 업로드 — filename 이 specName 으로 도출됨
 curl -X POST http://&lt;host&gt;:8080/api/v1/domains -H 'Content-Type: application/json' -d '{"host":"spec-demo.example.com"}'   # → 201
 curl -X PUT 'http://&lt;host&gt;:8080/api/v1/domains/spec-demo.example.com/spec?filename=demo.yaml' \
@@ -356,32 +358,42 @@ curl http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/spec   # → [] (200)
 </div>
 
 <div class="ep">
-  <div class="sig"><span class="m m-get">GET</span><code>/api/v1/domains/{host}/spec/changes</code></div>
-  <p><code>specName</code> 별 <strong>현 active 버전 vs 직전 버전</strong>의 API 변경(diff)을 추적한다(M6 목록과 분리). 상태는 <strong>ADDED</strong>(신규에만)·<strong>DELETED</strong>(직전에만)·<strong>UPDATED</strong>(양쪽 + 속성 변경)이며 UNCHANGED 는 보고하지 않는다. 동일성 키 = <code>method</code> + <code>pathTemplate</code>.</p>
-  <p>파라미터: 기본 = active 인 전 <code>specName</code>. <code>?specName=X</code> 특정 문서 한정 · <code>?status=ADDED,DELETED</code> 상태 필터 · <code>&amp;from=&amp;to=</code> <code>specVersion</code> 명시 버전 쌍.</p>
-  <pre><code>curl http://&lt;host&gt;:8080/api/v1/domains/spec-demo.example.com/spec/changes</code></pre>
-  <pre><code>{
-  "host":"spec-demo.example.com",
-  "documents":[
-    { "specName":"demo.yaml", "filename":"demo.yaml",
-      "comparedVersion":2, "previousVersion":1,
-      "comparedUploadedAt":"2026-06-29T11:50:09.308612Z",
-      "previousUploadedAt":"2026-06-29T11:50:03.902481Z",
-      "changes":[
-        { "method":"GET", "pathTemplate":"/v2/orders",    "status":"DELETED", "changed":null, "changedDetail":null },
-        { "method":"GET", "pathTemplate":"/v2/products",   "status":"ADDED",   "changed":null, "changedDetail":null },
-        { "method":"GET", "pathTemplate":"/v2/users/{id}", "status":"UPDATED",
-          "changed":["deprecated","version"],
-          "changedDetail":{ "deprecated":{"from":false,"to":true}, "version":{"from":"1.0.0","to":"2.0.0"} } }
-      ] }
-  ],
-  "updatedScope":"deprecated_version_only"
-}</code></pre>
-  <div class="callout warn">
-    <span class="ct">★ UPDATED 검출 범위 한계 — <code>updatedScope: "deprecated_version_only"</code></span>
-    UPDATED 는 canonical 이 보유한 속성(<code>deprecated</code>·<code>version</code>)의 변경만 검출한다. <strong>query/body 파라미터 변경은 미검출</strong>(스펙 param 미파싱)이고, path 변경(<code>/{id}</code> → <code>/{userId}</code>)은 <strong>다른 template</strong> 이라 UPDATED 가 아니라 ADDED + DELETED 로 나타난다. 진짜 param-level UPDATED 는 <a href="#s5">M7b 후속</a>(access-log 파라미터 추출과 함께).
+  <div class="sig"><span class="m m-get">GET</span><code>/api/v1/domains/{host}/apis</code></div>
+  <p>도메인의 <strong>문서화된 API 인벤토리</strong>(파라미터·상태)다. 스펙 업로드마다 <strong>reconcile 로 영속·갱신</strong>되며(조회 시점 계산이 아니다), 문서에서 제거된 API 도 행을 보존(soft-delete)한다.</p>
+  <p>파라미터: <code>?specName</code>(특정 문서, 정규화) · <code>?status=ACTIVE|DELETED</code>(그 외 값 → 400) · <code>?method</code>. host 정규화 null → 400.</p>
+  <pre><code>curl http://&lt;host&gt;:8080/api/v1/domains/inv-demo.example.com/apis</code></pre>
+  <pre><code>[
+  { "specName":"inv-a.yaml", "method":"GET", "pathTemplate":"/v2/users/{id}",
+    "status":"ACTIVE", "lastChange":"UPDATED", "deprecated":false, "version":"2.0.0",
+    "params":[ {"name":"id","in":"PATH","required":true,"type":"integer"},
+               {"name":"expand","in":"QUERY","required":false,"type":"string"} ],
+    "sourceSpecVersion":3, "firstDocumentedAt":"…", "lastDocumentedAt":"…", "changedAt":"…" },
+  { "specName":"inv-a.yaml", "method":"GET", "pathTemplate":"/v2/products",
+    "status":"ACTIVE", "lastChange":"ADDED", "params":[], "…":"…" },
+  { "specName":"inv-a.yaml", "method":"GET", "pathTemplate":"/v2/orders",
+    "status":"DELETED", "lastChange":"ADDED",
+    "params":[ {"name":"status","in":"QUERY","required":false,"type":"string"} ], "…":"…" },
+  { "specName":"inv-b.yaml", "method":"GET", "pathTemplate":"/v2/health",
+    "status":"ACTIVE", "lastChange":"ADDED", "params":[], "…":"…" }
+]</code></pre>
+  <p class="legend">예: <code>inv-a.yaml</code> 재업로드(v2)에서 <code>/users/{id}</code>=UPDATED(<code>expand</code> 파라미터 추가)·<code>/products</code>=ADDED·<code>/orders</code>=DELETED. <code>inv-b.yaml</code> 의 <code>/health</code> 는 <strong>영향 없음</strong>(★문서별 격리·union). 필드: <code>specName</code>·<code>method</code>·<code>pathTemplate</code>·<code>params[{name, in(QUERY/PATH/HEADER/COOKIE/BODY), required, type}]</code>·<code>status</code>·<code>lastChange</code>·<code>deprecated</code>·<code>version</code>·<code>sourceSpecVersion</code>·<code>firstDocumentedAt</code>·<code>lastDocumentedAt</code>·<code>changedAt</code>.</p>
+
+  <h4><code>status</code> vs <code>lastChange</code></h4>
+  <table>
+    <thead><tr><th>필드</th><th>값</th><th>의미</th></tr></thead>
+    <tbody>
+      <tr><td rowspan="2"><code>status</code><br>(현재 상태)</td><td><code>ACTIVE</code></td><td>현 문서에 존재.</td></tr>
+      <tr><td><code>DELETED</code></td><td>한때 문서화됐으나 <strong>최신 문서에서 제거</strong>(소프트마크 · 행 보존).</td></tr>
+      <tr><td rowspan="3"><code>lastChange</code><br>(직전 reconcile 변화)</td><td><code>ADDED</code></td><td>최초 추가.</td></tr>
+      <tr><td><code>UPDATED</code></td><td>파라미터 · <code>deprecated</code> · <code>version</code> 변경.</td></tr>
+      <tr><td><code>UNCHANGED</code></td><td>직전 reconcile 대비 무변경.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout danger">
+    <span class="ct">★ DELETED → Zombie 탐지</span>
+    인벤토리에서 <code>status=DELETED</code> 인 API(문서에서 제거됨)가 <strong>여전히 트래픽이 관측되면</strong> deleted-from-spec <strong>Zombie</strong>(confidence <strong>0.8</strong>)로 분류된다(<a href="#s2-3">§2.3</a> <code>/discovery</code>·<code>/result</code> rationale 의 <code>spec_match</code>·<code>specRef:"deleted-from-spec"</code>). 문서 안에 폐기예정으로 표기된 <code>deprecated</code> Zombie(confidence <strong>1.0</strong>)와는 구분된다 — <strong>deprecated</strong>=문서에 폐기예정 표기, <strong>DELETED</strong>=문서에서 아예 제거. 둘 다 Zombie 계열(차단·마이그레이션 검토 대상)이다. 이 인벤토리 결합 전에는 DELETED API 가 <strong>SHADOW 로 오분류</strong>됐다.
   </div>
-  <p class="legend">최초 업로드(직전 버전 없음) = <code>previousVersion:null</code> · changes 전부 ADDED. 무스펙 host = <code>documents:[]</code>. OpenAPI <code>servers</code> URL 의 path prefix(<code>/v2</code>)는 canonical <code>pathTemplate</code> 에 반영된다(예 <code>/v2/users/{id}</code>).</p>
 </div>
 
 <!-- ===== 2.5 ===== -->
@@ -492,8 +504,7 @@ curl -i -H 'If-None-Match: "1913dd805b705e7a"' \
   <li><code>POST /scan</code> 비동기 큐잉(현재 코드 TODO 주석: 동기 트리거).</li>
   <li><code>/discovery</code> 대량 호출용 응답 캐시(ETag) — 현재 plain GET.</li>
   <li>dropped 엔드포인트 per-item 근거 노출(현재 집계만).</li>
-  <li>스펙 변경 추적의 <strong>param-level UPDATED</strong>(<strong>M7b</strong>) — 현재 <code>deprecated</code>·<code>version</code> 만 검출(<code>updatedScope</code>). query/body 파라미터 변경 검출은 access-log 파라미터 추출 보강이 필요하다. <span class="legend">(멀티문서 + ADDED/DELETED/UPDATED[deprecated·version] + <code>GET /spec/changes</code> = M7a 완료.)</span></li>
-  <li><code>spec_record.rawDoc</code> <code>oid → bytea</code> 마이그레이션(D51 후속).</li>
+  <li>API 인벤토리 <strong>P2 후속</strong> — 인벤토리로 매칭 source 대체 · 기존 스펙 param 백필(재업로드) · 풍부한 param diff · 도메인 merged 뷰 · 오래된 DELETED inactive prune. <span class="legend">(영속 인벤토리 + 파라미터 + <code>GET /apis</code> + DELETED→Zombie = M7 재설계 P1 완료, <code>rawDoc</code> 컬럼 삭제로 oid 함정 해소.)</span></li>
   <li>rate limiting / API 버저닝 정책.</li>
   <li>(선택) 정크 도메인(IP·0패딩 IP) 디스커버리 필터.</li>
 </ul>

@@ -5,6 +5,20 @@
 
 ---
 
+## 2026-06-29 세션 60 — REST API 매뉴얼 M7 재설계(영속 API 인벤토리) 반영 (PR #46 머지+재배포 3b70c3e, 문서만, TW)
+
+### 한 일
+- `doc/manual/api-rest-manual.html` §2.4 를 M7 재설계에 맞춰 갱신. ApiInventoryController·DocumentedApiView·SpecController·Classifier 실코드 교차검증.
+- **폐기 제거** — M7a `GET /spec/changes` 절(문서버전 diff)·요약표/TOC 의 changes 항목·updatedScope/M7b 언급 통째 제거(엔드포인트 폐기).
+- **PUT /spec reconcile 보강** — 업로드 시 파싱 API·파라미터가 영속 인벤토리(documented_api)에 specName 단위 reconcile(있으면 UPDATED·신규 ADDED·빠지면 DELETED 표시), ★다른 filename 문서 미터치(union).
+- **신규 GET /apis 절** — 문서화 API 인벤토리(파라미터·상태), ?specName/status/method, 실데이터 JSON(inv-demo: /users/{id}=UPDATED expand 추가·/products=ADDED·/orders=DELETED·inv-b /health=격리). status(ACTIVE/DELETED) vs lastChange(ADDED/UPDATED/UNCHANGED) 표. 12필드·param in(QUERY/PATH/HEADER/COOKIE/BODY) 명시.
+- **★DELETED→Zombie 콜아웃**(사용자 핵심) — status=DELETED + 트래픽 지속 → deleted-from-spec Zombie(0.8), 문서 내 deprecated(1.0)와 구분, 이전엔 SHADOW 오분류. §2.3 ZOMBIE 행에도 deleted-from-spec 추가.
+- **TODO** — M7b/oid→bytea 제거(P1 완료·rawDoc 컬럼 삭제로 oid 함정 해소) → P2 후속(매칭 source 대체·param 백필·풍부 diff·merged 뷰·inactive prune) 1줄.
+
+### 결과
+- HTMLParser OK·HTML 태그 균형 EMPTY·폐기 전부 제거(spec/changes·updatedScope·M7b·oid→bytea 0)·신규(/apis·reconcile·deleted-from-spec) 정합·앵커 s2-1~s2-6·실데이터(inv-a/inv-b·expand) 검증. 자기완결. main 직접 커밋. TASKS P1-9 매뉴얼 [x].
+- 다음 단계: 매니저 검증 대기.
+
 ## 2026-06-29 세션 59 — M7 재설계: 영속 API 인벤토리 + 업로드 reconcile (P1-1~P1-8, doc/37 / D53, 브랜치 feat/documented-api-inventory)
 
 ### 한 일
