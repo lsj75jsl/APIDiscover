@@ -5,6 +5,19 @@
 
 ---
 
+## 2026-06-29 세션 48 — API 판단 근거 노출 매뉴얼 §4.3 갱신 (PR #38 후속, 문서만, TW)
+
+### 한 일
+- 권위 스펙 doc/34 §5(매뉴얼 변경 스펙)·§2(응답 JSON) 정독 + 머지 코드(dcdd4dc) 실제 필드명 교차검증 후 `api-discovery-manual.html` §4.3 편집.
+- (유지) HIGH/MIDDLE/LOW preset 가중치·threshold 표 그대로.
+- (추가) "실제 점수 내역 읽는 법" h4 블록 3개 — ① `effectiveClassification`(profile·threshold·weightsSource·weights 14키) 확인법 + 필드 표, ② `rationale[].basis`(score 예시 JSON) + 신호↔`signals[].key` 매핑·`fired`/`contribution`/`apiScore`/`threshold`/`gate`/`mode` 읽는 법 표, ③ ★분류별 근거 차이(Shadow=score / Active·Zombie=spec_match / Unused=spec_only / WebPage=endpoint_kind) 표 + Active/Unused 예시 + "Active 에 점수 없음" 경고.
+- 코드 검증으로 확정한 리터럴: `weightsSource` preset|custom, `basis.mode` pathless(=§4.2 strict)|explicit_hint(=§4.2 explicit), `gate` ADMIT(rationale 는 finding 된 것만→항상 ADMIT), `basis.type` score|spec_match|spec_only|endpoint_kind, WEIGHT_KEYS 14키=§4.3 표 일치.
+- TASKS Part B subitem(매뉴얼 §4.3) [x] + 부모 [x] Done 이동, doc/34 §5·§7·헤더 동기.
+
+### 결과
+- HTMLParser OK·HTML 태그 균형 EMPTY·신규 h4 4개·잘못된 리터럴 0. 자기완결(외부 리소스 무추가). 운영 Loki 미호출. main 직접 커밋.
+- 다음 단계: 매니저 검증 대기.
+
 ## 2026-06-29 세션 47 — API 판단 근거(점수 산출 내역) 노출 (doc/34, A=조회시 재계산, 스키마 변경 0)
 
 ### 한 일

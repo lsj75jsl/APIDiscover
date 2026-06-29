@@ -144,7 +144,7 @@
       <ol>
         <li><a href="#s4-1">점수 모델 개념과 수식</a></li>
         <li><a href="#s4-2">14개 신호와 발화 조건</a></li>
-        <li><a href="#s4-3">가중치 · 프로파일(임계값) preset</a></li>
+        <li><a href="#s4-3">가중치 · 프로파일(임계값) preset · 점수 내역 읽는 법</a></li>
         <li><a href="#s4-4">도메인별 분류설정 override</a></li>
         <li><a href="#s4-5">핵심 코드 — score()</a></li>
         <li><a href="#s4-6">게이트(gate) — 임계 통과 판정</a></li>
@@ -506,7 +506,7 @@ api_confidence <span class="op">=</span> clamp<sub>[0,1]</sub> ( <span class="hl
   </ul>
 </div>
 
-<h3 id="s4-3">4.3 가중치 · 프로파일(임계값) preset</h3>
+<h3 id="s4-3">4.3 가중치 · 프로파일(임계값) preset · 점수 내역 읽는 법</h3>
 <p>HIGH/MIDDLE/LOW 세 preset 이 가중치와 임계값을 정한다. <strong>MIDDLE 이 기본</strong>이며 임계 <code>0.70</code>. HIGH 는 보수적(임계 0.85), LOW 는 관대(0.55)하다. CUSTOM 은 MIDDLE 기반에 가중치 override 를 적용한다.</p>
 
 <table>
@@ -533,6 +533,86 @@ api_confidence <span class="op">=</span> clamp<sub>[0,1]</sub> ( <span class="hl
 <div class="callout note">
   <span class="ct">실데이터 보정의 흔적</span>
   초기 설계에 있던 "<code>$type=document</code> → html 감점"은 <strong>제거</strong>됐다(JSON API 응답에도 document 가 붙어 진짜 API 를 0점화하는 실데이터 문제). 대신 access log 기반 최강 양성 신호인 <code>hostApiSubdomain(0.40)</code>·<code>corsPreflight(0.30)</code> 를 추가했다. 실 호스트 보정에서 API 호스트 0.82~1.00 vs 웹 호스트 ≤0.27 로 임계 0.70 기준 깨끗이 분리됐다.
+</div>
+
+<h4>실제 점수 내역 읽는 법 — <code>GET /api/v1/domains/{host}/discovery</code></h4>
+<p>위 preset 표는 <strong>기준값</strong>이다. 특정 도메인에 <em>실제로</em> 어떤 설정이 적용됐고, 각 엔드포인트가 <strong>어떤 신호에 몇 점</strong>을 받아 어떻게 판정됐는지는 도메인 Discovery 조회 응답에서 직접 확인한다. 응답에 <code>effectiveClassification</code>(도메인 현재 설정)과 <code>rationale[]</code>(엔드포인트별 판단 근거)가 함께 내려온다.</p>
+<p class="legend">이 두 필드는 <code>/discovery</code> <strong>전용</strong>이며 <strong>조회 시점의 effective 설정으로 재계산</strong>된다(operator 가 preset 을 바꾸면 근거도 즉시 갱신). 스캔 결과 <code>/result</code>(<code>report_json</code>·ETag)는 불변이라 영향이 없다(근거 설계 doc/34, D49).</p>
+
+<h4>① 도메인 effective 설정 확인 — <code>effectiveClassification</code></h4>
+<p>그 도메인에 <strong>현재 실제로 적용된</strong> preset·임계·가중치다. 어떻게 합쳐지는지(도메인 → 전역 → MIDDLE)는 <a href="#s4-4">§4.4</a> 를 본다.</p>
+<pre><code>"effectiveClassification": {
+  "profile": "MIDDLE",          // HIGH | MIDDLE | LOW | CUSTOM (현재 도메인 preset)
+  "threshold": 0.70,            // effective 임계값
+  "weightsSource": "preset",    // preset | custom (profile=CUSTOM 이면 "custom")
+  "weights": { "hostApiSubdomain": 0.40, "corsPreflight": 0.30, /* … 위 §4.3 의 14키 전부 */ }
+}</code></pre>
+<table>
+  <thead><tr><th>필드</th><th>의미</th><th>값 출처</th></tr></thead>
+  <tbody>
+    <tr><td><code>profile</code></td><td>현재 도메인 preset</td><td>도메인 override → 전역 → MIDDLE (§4.4)</td></tr>
+    <tr><td><code>threshold</code></td><td>적용 임계값(이 값 이상이면 ADMIT)</td><td>위와 동일 우선순위</td></tr>
+    <tr><td><code>weightsSource</code></td><td>가중치 출처</td><td><code>profile=CUSTOM</code> 이면 <code>"custom"</code>, HIGH/MIDDLE/LOW 는 <code>"preset"</code></td></tr>
+    <tr><td><code>weights</code></td><td>신호별 effective 가중치(§4.3 의 14키 맵)</td><td>preset 가중치(CUSTOM 이면 override 반영)</td></tr>
+  </tbody>
+</table>
+
+<h4>② 엔드포인트별 점수 내역 — <code>rationale[]</code></h4>
+<p><code>rationale[i]</code> 는 <code>findings[i]</code> 와 <strong>동일 순서·동일 identity</strong>(<code>method</code>·<code>host</code>·<code>pathTemplate</code>)로 병렬한다. 항목의 <code>basis</code> 형태는 <strong>분류마다 다르다</strong>(③). 아래는 점수로 판정된 <strong>Shadow</strong> 의 예다.</p>
+<pre><code>{ "method":"GET", "host":"api.example.com", "pathTemplate":"/internal/sync",
+  "classification":"SHADOW",
+  "basis": {
+    "type":"score",                         // 점수 게이트가 근거 (Shadow 한정)
+    "mode":"pathless",                       // pathless(=§4.2 strict) | explicit_hint(=§4.2 explicit)
+    "apiScore":0.94, "threshold":0.70, "gate":"ADMIT",
+    "signals":[                              // §4.3 신호별 — effective weight·발화·기여
+      {"key":"hostApiSubdomain", "weight":0.40, "fired":true,  "contribution":0.40},
+      {"key":"corsPreflight",    "weight":0.30, "fired":true,  "contribution":0.30},
+      {"key":"query",            "weight":0.12, "fired":true,  "contribution":0.12},
+      {"key":"writeMethod",      "weight":0.34, "fired":false, "contribution":0.0},
+      {"key":"staticAssetPenalty","weight":-0.60,"fired":false, "contribution":0.0}
+      /* … 평가된 신호 전부 (mode 에 따라 path-shape 5종 또는 pathHint, §4.2 모드 표) */
+    ]
+  }
+}</code></pre>
+<table>
+  <thead><tr><th>필드</th><th>읽는 법</th></tr></thead>
+  <tbody>
+    <tr><td><code>signals[].key</code></td><td>§4.2/§4.3 의 신호명과 1:1 — 이 엔드포인트에서 <strong>평가된</strong> 신호.</td></tr>
+    <tr><td><code>signals[].weight</code></td><td>그 신호의 effective 가중치(= <code>effectiveClassification.weights[key]</code>).</td></tr>
+    <tr><td><code>signals[].fired</code></td><td>발화 여부(§4.2 발화 조건 충족 = <code>true</code>).</td></tr>
+    <tr><td><code>signals[].contribution</code></td><td><code>fired</code> 면 <code>weight</code>(<code>staticAssetPenalty</code> 는 음수), 아니면 <code>0</code>. <strong>전부 더하면 <code>apiScore</code></strong>.</td></tr>
+    <tr><td><code>apiScore</code></td><td><code>contribution</code> 합을 <code>[0,1]</code> clamp·소수 3자리 반올림(§4.1).</td></tr>
+    <tr><td><code>threshold</code></td><td>그 도메인 effective 임계(= <code>effectiveClassification.threshold</code>).</td></tr>
+    <tr><td><code>gate</code></td><td><code>ADMIT</code> = <code>apiScore ≥ threshold</code> 또는 명시 힌트 강제 admit(§4.6). <code>rationale</code> 의 score 근거는 <strong>finding 이 된 것만</strong> 담기므로 항상 <code>ADMIT</code>(reject 된 후보는 drop 되어 목록에 없음).</td></tr>
+    <tr><td><code>mode</code></td><td><code>pathless</code> = §4.2 <strong>strict</strong>(내장 path-shape), <code>explicit_hint</code> = §4.2 <strong>explicit</strong>(<code>pathHint</code> 만). 어떤 신호 집합이 평가됐는지를 가른다.</td></tr>
+  </tbody>
+</table>
+
+<h4>③ ★ 분류별 근거가 다르다 — 점수는 Shadow 에만</h4>
+<p>핵심: <strong>모든 분류가 점수로 판정되는 게 아니다.</strong> 점수 게이트는 <strong>스펙에 없는 엔드포인트(Shadow 후보)</strong>를 API 로 인정할지에만 쓰인다. 스펙에 매칭되는 <strong>Active·Zombie 는 점수와 무관하게 스펙 매칭이 근거</strong>이고, Unused 는 스펙에만 있고 트래픽이 없다. 그래서 <code>basis.type</code> 이 분류마다 다르다.</p>
+<table>
+  <thead><tr><th>분류</th><th><code>basis.type</code></th><th>주요 필드</th><th>근거</th></tr></thead>
+  <tbody>
+    <tr><td><strong>SHADOW</strong></td><td><code>score</code></td><td><code>apiScore</code>·<code>threshold</code>·<code>gate</code>·<code>mode</code>·<code>signals[]</code></td><td>점수 게이트 통과(ADMIT) — §4.3 신호 합이 임계 이상</td></tr>
+    <tr><td><strong>ACTIVE</strong></td><td><code>spec_match</code></td><td><code>specRef</code>·<code>deprecated:false</code></td><td>스펙 매칭(점수 아님) — 문서화 + 트래픽 관측</td></tr>
+    <tr><td><strong>ZOMBIE</strong></td><td><code>spec_match</code></td><td><code>specRef</code>·<code>deprecated:true</code> 또는 <code>estimated:true</code></td><td>스펙 매칭(deprecated 또는 버전 추정) — 점수 아님</td></tr>
+    <tr><td><strong>UNUSED</strong></td><td><code>spec_only</code></td><td><code>specRef</code></td><td>스펙에 있고 트래픽 없음(관측 부재)</td></tr>
+    <tr><td><strong>WEBPAGE</strong></td><td><code>endpoint_kind</code></td><td><code>endpointKind</code>·<code>kindConfidence</code></td><td><code>$type</code>/referer 로 비-API 판정. 현재 Classifier 는 WebPage finding 을 산출하지 않아 실제로는 나오지 않음(향후 노출 대비 타입만 정의)</td></tr>
+  </tbody>
+</table>
+<pre><code>// Active — 스펙 매칭이 근거 (apiScore 없음)
+{ "method":"GET", "host":"api.example.com", "pathTemplate":"/v2/users/{id}",
+  "classification":"ACTIVE",
+  "basis": { "type":"spec_match", "specRef":"openapi#/paths/~1v2~1users~1{id}/get", "deprecated":false, "estimated":false } }
+
+// Unused — 스펙에만 있고 무트래픽
+{ "method":"DELETE", "host":"api.example.com", "pathTemplate":"/v2/legacy",
+  "classification":"UNUSED",
+  "basis": { "type":"spec_only", "specRef":"openapi#/paths/~1v2~1legacy/delete" } }</code></pre>
+<div class="callout warn">
+  <span class="ct">★ Active 에서 점수를 찾지 말 것</span>
+  Active·Zombie 의 근거는 <code>apiScore</code> 가 아니라 <strong>스펙 매칭(<code>spec_match</code>)</strong>이다. "왜 이 엔드포인트는 점수가 안 보이지?" 는 정상이다 — 스펙에 문서화된 엔드포인트는 점수 게이트를 거치지 않고 스펙 매칭으로 곧장 Active/Zombie 가 된다. 점수 내역(<code>signals[]</code>)이 있는 분류는 <strong>Shadow</strong> 뿐이다. 또한 비-API 로 drop 된 엔드포인트는 <code>findings</code>·<code>rationale</code> 어디에도 없다(집계 <code>droppedNonApi</code> 만, doc/34 §8).
 </div>
 
 <h3 id="s4-4">4.4 도메인별 분류설정 override</h3>

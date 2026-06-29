@@ -1,7 +1,7 @@
 # API 판단 근거(점수 산출 내역) 노출 — /discovery 응답 가시화 (사용자 개선요구)
 
 > 브랜치 `feat/api-rationale-exposure`. 근거: doc/08(ApiScorer 점수모델)·doc/10·11(effective 분류설정)·doc/26(CombinedDiscovery·Finding)·doc/04(분류). 근거 결정 **DECISIONS D49**.
-> **구현 완료(§7 dev 체크리스트 [x], build green 457·커밋 보류).** 매뉴얼 §4.3(§5)은 dev 범위 밖(TW 후속). 운영 Loki 미호출(정적/mock).
+> **구현 완료(§7 dev 체크리스트 [x], build green 457, PR #38 dcdd4dc 머지).** 매뉴얼 §4.3(§5)은 TW 반영 완료(`api-discovery-manual.html` §4.3). 운영 Loki 미호출(정적/mock).
 
 ## 0. 목적 / 문제 / 현황
 
@@ -107,6 +107,8 @@
 
 ## 5. 매뉴얼 §4.3 변경 스펙 (technical_writer 협업)
 
+> ✅ **반영 완료(TW, PR #38 후속)** — 아래 (유지)/(추가1~3) 전부 `doc/manual/api-discovery-manual.html` §4.3 에 반영됨.
+
 §4.3(정적 preset 표)에 **"실제 점수 내역 읽는 법"** 추가. (이미 보낸 §4.3 per-domain override 요청과 **함께** 처리 권장 — 같은 절.)
 - (유지) HIGH/MIDDLE/LOW/CUSTOM preset 가중치·threshold 표(신호 reference).
 - (추가1) **도메인 effective 확인**: `GET /api/v1/domains/{host}/discovery` 응답의 `effectiveClassification.profile/threshold/weightsSource` — 현재 도메인 preset/임계.
@@ -128,7 +130,7 @@
 - [x] `Classifier` explain 변형 — 9-arg core 에 nullable `rationaleOut` 추가(각 finding 과 병렬로 근거 수집), 기존 8-arg 는 null 위임. `classifyExplained(...)` 진입점(findings+rationale). Shadow=scoreExplain(ScoreBasis)·Active/Zombie=spec_match·Unused=spec_only 근거. WebPage=kind 는 Classifier 가 WebPage finding 미산출이라 생성처 없음(sealed 완전성 위해 KindBasis 만 보유). **스캔 경로(rationaleOut=null) findings 바이트 동일**(테스트로 고정).
 - [x] `model/EndpointRationale`·`ApiBasis`(sealed 4종: Score/SpecMatch/SpecOnly/Kind, `@JsonTypeInfo` "type" 판별자)·`SignalContribution`·`ScoreBreakdown`·`EffectiveClassificationView` + `CombinedDiscovery` 가산(`effectiveClassification`·`rationale`, 6-arg 하위호환 생성자로 Finding/기존 경로 불변).
 - [x] `CombinedDiscoveryService.forHost` — `classifyExplained` 호출·`effectiveView`(profile/threshold/weightsSource/weights) 동봉(추가 조회 0).
-- [ ] 매뉴얼 §4.3 변경 스펙(§5) → technical_writer 전달(per-domain override 요청과 함께). **dev 범위 밖**(TASKS 후속, TW 담당).
+- [x] 매뉴얼 §4.3 변경 스펙(§5) — `api-discovery-manual.html` §4.3 에 반영 완료(TW): effective 확인(`effectiveClassification`)·엔드포인트 점수 내역(`rationale[].basis`)·신호↔`signals[].key` 매핑·분류별 근거 차이.
 - [x] 테스트 — scoreExplain↔score 동치(+contribution 합 재구성), rationale↔findings identity/순서 정합, Shadow score basis(신호·총점·gate·mode)·Active spec_match·deprecated Zombie spec_match(deprecated)·Unused spec_only, basis JSON "type" 판별자, effectiveClassification(MIDDLE/CUSTOM·weightsSource), 스캔경로 findings 동일(report_json·ETag 무영향). (corsPreflight 집합 도출은 기존 ClassifierTest 가 이미 커버.)
 
 ## 8. 범위 밖 / 후속

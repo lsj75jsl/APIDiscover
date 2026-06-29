@@ -41,13 +41,7 @@
 > (현재 비어 있음 — OPTIONS preflight·cross-scan recency severity 완료, Done 참조)
 
 #### 리포트/출력 (01/12/14 문서)
-> (low_confidence+warnings·Active/Zombie params·total_dropped 완료, Done 참조)
-- [ ] **API 판단 근거(점수 산출 내역) 노출 — /discovery 가시화** **(dev 구현 완료 — build green 457·커밋 보류·머지 시 Done. doc/34 §7 [x], DECISIONS D49, 브랜치 feat/api-rationale-exposure)** — A(조회시 재계산), 스키마 변경 0. corsPreflight 는 discovered_endpoint OPTIONS 행에서 도출(컬럼 추가 불요). 잔여=매뉴얼 §4.3(TW).
-  - [x] `ApiScorer.scoreExplain()`(신호별 key/weight/fired/contribution + total) + `score()`=`scoreExplain().total` 위임(동치 회귀 테스트). 발화 조건 단일 진실원(scoreExplain). `weightsAsMap`(14키) 추가.
-  - [x] `Classifier` explain 변형(9-arg core nullable `rationaleOut`·기존 8-arg null 위임·**스캔 경로 findings 바이트 동일**, `classifyExplained` 진입점) — Shadow=score / Active·Zombie=spec_match / Unused=spec_only 근거. WebPage=kind 는 Classifier 가 WebPage finding 미산출이라 KindBasis 만 보유(sealed 완전성).
-  - [x] `CombinedDiscovery` 가산(`effectiveClassification`{profile·threshold·weightsSource·weights}·`rationale: List<EndpointRationale>`, **6-arg 하위호환 생성자→Finding/report_json/ETag/CLI export 무영향**) + `forHost` `classifyExplained`·`effectiveView` 동봉(추가 조회 0) + 신규 model(EndpointRationale·ApiBasis sealed 4종 `@JsonTypeInfo`·SignalContribution·ScoreBreakdown·EffectiveClassificationView)
-  - [ ] 매뉴얼 §4.3 변경 스펙(effective 확인·엔드포인트 점수 내역 예시·분류별 근거 차이) → technical_writer(기존 per-domain override 요청과 함께) — **dev 범위 밖**
-  - [x] 테스트(scoreExplain↔score 동치+contribution 재구성·rationale↔findings identity/순서·분류별 basis·basis JSON "type" 판별자·effective MIDDLE/CUSTOM·스캔경로 findings 동일=report_json/ETag 무영향. corsPreflight 집합 도출=기존 ClassifierTest 커버)
+> (현재 비어 있음 — low_confidence+warnings·Active/Zombie params·total_dropped·API 판단근거 노출 완료, Done 참조)
 
 #### 스펙 파서 / Spec Store (03 문서)
 > (현재 비어 있음 — 검출/업로드 데이터 모델 통합 + 멀티 스펙 병합 완료, Done 참조)
@@ -126,6 +120,14 @@
 ---
 
 ## Done
+
+### API 판단 근거(점수 산출 내역) 노출 — /discovery 가시화 (2026-06-29, doc/34 / DECISIONS D49, PR #38 dcdd4dc) — build green 457
+- [x] **API 판단 근거 노출** — A(조회 시 재계산), 스키마 변경 0. corsPreflight=discovered_endpoint OPTIONS 행 도출(컬럼 추가 불요).
+  - [x] `ApiScorer.scoreExplain()`(신호별 key/weight/fired/contribution + total) + `score()`=`scoreExplain().total` 위임(단일 진실원). `weightsAsMap`(14키).
+  - [x] `Classifier` explain 변형(9-arg nullable `rationaleOut`·8-arg null 위임·스캔경로 findings 바이트 동일) — Shadow=score / Active·Zombie=spec_match / Unused=spec_only.
+  - [x] `CombinedDiscovery` 가산(`effectiveClassification`·`rationale`, 6-arg 하위호환→Finding/report_json/ETag 무영향) + `forHost` classifyExplained·effectiveView + 신규 model 6종.
+  - [x] 매뉴얼 §4.3 — `api-discovery-manual.html` §4.3 에 effective 확인(`effectiveClassification`)·엔드포인트 점수 내역(`rationale[].basis`)·신호↔`signals[].key` 매핑·분류별 근거 차이(Shadow=score/Active·Zombie=spec_match/Unused=spec_only) 반영(TW, doc/34 §5).
+  - [x] 테스트(scoreExplain↔score 동치·rationale↔findings 정합·분류별 basis·"type" 판별자·effective MIDDLE/CUSTOM·스캔경로 findings 동일).
 
 ### DB 테이블 명세 HTML + ER Diagram 신규 작성 + doc/18 동기 (2026-06-29, 사용자 요청, 문서만) — TW
 - [x] `doc/manual/db-schema-spec.html` 신규 — 8테이블(7엔티티+domain_hostnames) 전체 컬럼 명세(의미 포함, 특히 scan_result discovered/active/shadow/zombie/unused·report_json) + inline SVG ER Diagram(자기완결, 외부 의존 0). 코드 교차검증(ScanResult·DomainConfig·ReportBuilder·DiscoveryJobService OPTIONS 제외).
