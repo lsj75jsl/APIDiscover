@@ -99,6 +99,7 @@
   - [x] 메타 조회(M2/M4/M6) → `SpecMetaProjection`(rawDoc 미선택 JPQL) 전환(스키마 변경 없음). 가드 `specMetaEndpointsDoNotMaterializeRawDocOidInAutoCommit`.
   - [x] forHost(/discovery·/result M5) → `CombinedDiscoveryService.forHost` 에 `@Transactional(readOnly=true)`(진입점 tx, loadActiveCanonical 미터치=analyze 무영향). 가드 `forHostEndpointsTolerateRawDocOidSpecOnRealPg`.
   - [x] M6 projection 쿼리 ORDER BY `specName asc nulls first` 명시(h2-pg-null-ordering-trap·D48 동형, 인메모리 nullsFirst 동작 일치). 실 PG 가드 `specListNullSpecNameOrdersFirstDeterministicallyOnRealPg`(nulls first 제거 시 PG NULLS LAST 발산 RED 확인).
+  - [x] **PUT /spec 동일 filename 재업로드 500(self-invocation, 후속·브랜치 fix/spec-reupload-tx-self-invocation)** — `SpecStore.upload` 4-arg core 만 @Transactional·진입 오버로드 비-tx → 컨트롤러가 진입 오버로드 호출 후 core self-invocation → tx 무력 → 재업로드 비활성화 루프(prev.setActive=rawDoc oid 로드) auto-commit 500. 수정=진입 오버로드 3개 @Transactional. 가드 `reuploadSameFilenameViaHttpDoesNotHit500`(★MockMvc PUT=실 HTTP·테스트 tx 미적용, fix 제거 시 oid RED 확인). build green 497·PG 29.
   - [ ] (선택 후속) rawDoc `@Lob byte[]` oid → bytea 매핑 정밀화(마이그레이션 위험 동반) — 실수요 시.
 - [ ] 부하/운영 메트릭 (쿼리수·바이트·429) Actuator/Micrometer 노출 + 알람 — doc/12 `DroppedNonApi`·doc/13 `DroppedByLimit` 카운트 재사용 가능 **(→ 계측은 doc/33 E PR1, 알람 연동은 별도 후속)**
 - [ ] Spring Batch JobRepository 실연결 (현재 `@Scheduled`만, `batch.job.enabled=false`)

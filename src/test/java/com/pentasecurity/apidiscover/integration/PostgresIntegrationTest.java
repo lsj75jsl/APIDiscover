@@ -6,6 +6,7 @@ import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -51,6 +52,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.http.MediaType;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -542,6 +544,47 @@ class PostgresIntegrationTest {
 
     private static CanonicalEndpoint ep(String method, String pathTemplate, boolean deprecated) {
         return new CanonicalEndpoint(method, pathTemplate, null, deprecated, null, "ref:" + pathTemplate);
+    }
+
+    // --- 실배포 버그 회귀가드: PUT /spec 동일 filename 재업로드 500 (rawDoc oid · @Transactional self-invocation) ---
+
+    @Test
+    void reuploadSameFilenameViaHttpDoesNotHit500() throws Exception {
+        // ★실 HTTP 경로(MockMvc PUT) — 테스트 메서드 tx 없음(컨트롤러→SpecStore 진입 오버로드 프록시 경유 검증).
+        // 동일 filename 재업로드 = 구 active 비활성화 루프(findByHostAndActiveIsTrue→prev.setActive=rawDoc oid 엔티티 로드).
+        // 진입 오버로드 @Transactional 없으면 self-invocation 으로 4-arg core tx 무력 → auto-commit 'Large Objects...' 500.
+        String host = "reupload.example.com";
+        registerDomain(host);
+
+        // 1차(비활성 대상 0) → 통과
+        mvc.perform(put("/api/v1/domains/{host}/spec", host).param("filename", "users.yaml")
+                        .contentType(MediaType.APPLICATION_OCTET_STREAM).content(openApi("1.0.0", "/users/{id}")))
+                .andExpect(status().isOk());
+        // ★2차 동일 filename 재업로드 = 구버전 비활성화(oid 엔티티 로드) → 진입 @Transactional 로 tx 안 → 200(500 아님)
+        mvc.perform(put("/api/v1/domains/{host}/spec", host).param("filename", "users.yaml")
+                        .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                        .content(openApi("2.0.0", "/users/{id}", "/orders/{id}")))
+                .andExpect(status().isOk());
+
+        // 재업로드가 새 버전(구버전 비활성 보존) → diff 정상(/v2/orders/{id} ADDED)
+        mvc.perform(get("/api/v1/domains/{host}/spec/changes", host).param("specName", "users.yaml"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.documents[0].changes[?(@.pathTemplate=='/v2/orders/{id}')].status")
+                        .value(hasItem("ADDED")));
+    }
+
+    /** 최소 유효 OpenAPI(servers /v2 prefix → canonical /v2 path). paths=GET 엔드포인트들. */
+    private static byte[] openApi(String version, String... paths) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("openapi: 3.0.1\n");
+        sb.append("info:\n  title: Example API\n  version: ").append(version).append('\n');
+        sb.append("servers:\n  - url: https://api.example.com/v2\n");
+        sb.append("paths:\n");
+        for (String p : paths) {
+            sb.append("  ").append(p).append(":\n");
+            sb.append("    get:\n      responses:\n        '200':\n          description: ok\n");
+        }
+        return sb.toString().getBytes(StandardCharsets.UTF_8);
     }
 
     // --- L53: 조건부 GET 304 (reportJson @Lob TEXT read 동시 검증) ---
