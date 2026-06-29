@@ -240,7 +240,7 @@ rawDoc **코드 제거 = P1**(스펙 서브시스템 전면 개편과 함께·pr
 
 ## 10. 단계 분할
 
-> **구현 상태(2026-06-29)**: P1-1~P1-8 구현 완료(브랜치 `feat/documented-api-inventory`, build green 493·실패0·skip2·PostgresIntegrationTest 27/27·커밋 보류·머지 시 Done, DECISIONS D53). 1~9 항목 = TASKS P1-1~P1-8. **9 (실 PG 테스트)**=Zombie 결합·reconcile DELETED 실 PG RED-확인. **10 (매뉴얼)**=TW 후속(범위 밖·미완). **8 의 ops DDL 런북(§7.4)**=차기 점검창 ops 절차(dev 코드 범위 밖·미실행).
+> **구현 상태(2026-06-29)**: ★P1 전체 완료·머지(PR #46 / main `3b70c3e` + 매뉴얼 `2d76859`, build green 493·PostgresIntegrationTest 27/27, DECISIONS D53). 재배포·라이브 검증(union·★삭제 격리·UPDATED[param]·ADDED·DELETED·매니저 격리 RED-증명). 1~9 항목 = TASKS P1-1~P1-9. **9 (실 PG 테스트)**=Zombie 결합·reconcile DELETED 실 PG RED-확인. **10 (매뉴얼)**=완료(`2d76859`). **8 의 ops DDL 런북(§7.4)**=차기 점검창 ops 절차(dev 코드 범위 밖·미실행=rawDoc 컬럼 orphan, 무해). **P2(매칭 source 대체·백필·풍부 diff·merged 뷰·prune)**=후속.
 
 **P1 (재설계 본체 — 롤백 + 영속 인벤토리)**. dev 체크리스트 → TASKS subitem(D26·부모 P 버킷=doc/35 2단계).
 1. M7a diff 롤백(§5 표).
