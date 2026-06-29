@@ -5,6 +5,19 @@
 
 ---
 
+## 2026-06-29 세션 55 — REST API 매뉴얼 일괄 갱신 (doc/35 배치 머지+재배포 c435d9f, 문서만, TW)
+
+### 한 일
+- `doc/manual/api-rest-manual.html` 를 doc/35 배치(삭제·수정·신규) + 재배포 라이브 실데이터에 맞춰 일괄 갱신. 컨트롤러 6종 실코드 교차검증 후 반영.
+- **삭제** — `/hostnames/{hostname}/domains`·`POST .../query` 절 통째 제거(HostQueryController 삭제), 요약표·TOC·footer 근거 정리(actuator §2.7→§2.6 재번호).
+- **변경** — GET /domains 페이지네이션(body=배열 + 헤더 X-Total-Count 45592/X-Total-Pages/X-Current-Page, ?page·?size[1,1000]) · GET/{host} DomainDetailView(lastScanAt·effectiveClassification·spec filename) · PUT 부분수정(present-only, enabled 미전달=유지·[]=비우기) · scan-status latestSpec · ★result rationale 가산(+시점차 caveat) · ★GET /spec 단일/404 → 배열/[]/200(Breaking, 실데이터) · PUT /spec ?filename.
+- **신규** — POST /scan-now(동기 즉시스캔, 미등록 자동등록, CombinedDiscovery 반환, ⚠️Loki 동기·502) · PATCH /classification/weights(전역·도메인, 부분편집→profile CUSTOM·미편집 키 유지·unknown 400).
+- **W1** — /classification 절에 thresholdOverride·customWeights·matcher 의미+적용 표 + 우선순위. **제약** M6 GET /spec 배열(Breaking) 추가·목록 페이지네이션 갱신·Loki 행 scan-now 반영(oid 500 은 수정완료라 제외). **TODO** M7 보류·rawDoc oid→bytea(D51) 추가.
+
+### 결과
+- HTMLParser OK·HTML 태그 균형 EMPTY·삭제(/hostnames 0)·신규/변경 정합·앵커 s2-1~s2-6 연속·실데이터(45592·c435d9f·apiSegment 0.7) 검증. 자기완결(외부 의존 0). 운영 Loki 미호출(캡처만). main 직접 커밋. TASKS W1 [x]·배치 매뉴얼 완료 표기.
+- 다음 단계: 매니저 검증 대기.
+
 ## 2026-06-29 세션 54 — 실배포 버그 수정: GET /spec·M2·M4 500 (rawDoc oid auto-commit, fix/spec-meta-oid-autocommit)
 
 ### 한 일

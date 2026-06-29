@@ -60,7 +60,7 @@
   /* 메서드 배지 */
   .m{display:inline-block; font-weight:700; font-size:12px; padding:2px 9px; border-radius:5px; color:#fff;
     margin-right:8px; font-family:"SFMono-Regular",Consolas,monospace; letter-spacing:.3px;}
-  .m-get{background:#15803d;} .m-post{background:#2563eb;} .m-put{background:#b45309;} .m-del{background:#b91c1c;}
+  .m-get{background:#15803d;} .m-post{background:#2563eb;} .m-put{background:#b45309;} .m-del{background:#b91c1c;} .m-patch{background:#6d28d9;}
   td .m{margin-right:4px;}
   .loki{display:inline-block; background:var(--amber-soft); color:var(--amber); border:1px solid #f3dcb3;
     border-radius:5px; padding:0 7px; font-size:12px; font-weight:700; white-space:nowrap;}
@@ -98,12 +98,11 @@
     <li><a href="#s2">엔드포인트 상세 (사용법 · 실제 응답)</a>
       <ol>
         <li><a href="#s2-1">도메인 인벤토리 — <code>/domains</code></a></li>
-        <li><a href="#s2-2">스캔 상태 · 결과 — <code>/scan-status</code> · <code>/result</code> · <code>/scan</code></a></li>
+        <li><a href="#s2-2">스캔 상태 · 결과 · 즉시 스캔 — <code>/scan-status</code> · <code>/result</code> · <code>/scan</code> · <code>/scan-now</code></a></li>
         <li><a href="#s2-3">결합 디스커버리(판단 근거) — <code>/discovery</code></a></li>
         <li><a href="#s2-4">스펙 — <code>/spec</code></a></li>
-        <li><a href="#s2-5">분류 설정 — <code>/classification</code></a></li>
-        <li><a href="#s2-6">엣지 hostname 역방향 — <code>/hostnames</code></a></li>
-        <li><a href="#s2-7">운영 — <code>/actuator</code></a></li>
+        <li><a href="#s2-5">분류 설정 · 가중치 편집 — <code>/classification</code></a></li>
+        <li><a href="#s2-6">운영 — <code>/actuator</code></a></li>
       </ol>
     </li>
     <li><a href="#s3">조건부 GET (ETag) — 304 실증</a></li>
@@ -119,27 +118,28 @@
 <table>
   <thead><tr><th>메서드</th><th>경로</th><th>용도</th><th>Loki</th></tr></thead>
   <tbody>
-    <tr><td><span class="m m-get">GET</span></td><td><code>/domains</code></td><td>전체 도메인 목록(<a href="#s4">대량·N+1 주의</a>)</td><td>DB</td></tr>
+    <tr><td><span class="m m-get">GET</span></td><td><code>/domains</code></td><td>도메인 목록(페이지네이션)</td><td>DB</td></tr>
     <tr><td><span class="m m-post">POST</span></td><td><code>/domains</code></td><td>도메인 등록(201)</td><td>DB</td></tr>
-    <tr><td><span class="m m-get">GET</span></td><td><code>/domains/{host}</code></td><td>도메인 설정 조회</td><td>DB</td></tr>
-    <tr><td><span class="m m-put">PUT</span></td><td><code>/domains/{host}</code></td><td>도메인 설정 수정</td><td>DB</td></tr>
+    <tr><td><span class="m m-get">GET</span></td><td><code>/domains/{host}</code></td><td>도메인 상세(설정 + effective + spec)</td><td>DB</td></tr>
+    <tr><td><span class="m m-put">PUT</span></td><td><code>/domains/{host}</code></td><td>도메인 설정 부분수정</td><td>DB</td></tr>
     <tr><td><span class="m m-del">DELETE</span></td><td><code>/domains/{host}</code></td><td>도메인 삭제(204)</td><td>DB</td></tr>
-    <tr><td><span class="m m-get">GET</span></td><td><code>/domains/{host}/scan-status</code></td><td>최신 스캔 상태·요약</td><td>DB</td></tr>
-    <tr><td><span class="m m-get">GET</span></td><td><code>/domains/{host}/result</code></td><td>전체 리포트(조건부 GET)</td><td>DB</td></tr>
-    <tr><td><span class="m m-post">POST</span></td><td><code>/domains/{host}/scan</code></td><td>온디맨드 재스캔(202)</td><td><span class="loki">⚠️ Loki</span></td></tr>
+    <tr><td><span class="m m-get">GET</span></td><td><code>/domains/{host}/scan-status</code></td><td>최신 스캔 상태·요약(+latestSpec)</td><td>DB</td></tr>
+    <tr><td><span class="m m-get">GET</span></td><td><code>/domains/{host}/result</code></td><td>전체 리포트(+rationale · 조건부 GET)</td><td>DB</td></tr>
+    <tr><td><span class="m m-post">POST</span></td><td><code>/domains/{host}/scan</code></td><td>온디맨드 재스캔(비동기 202)</td><td><span class="loki">⚠️ Loki</span></td></tr>
+    <tr><td><span class="m m-post">POST</span></td><td><code>/domains/{host}/scan-now</code></td><td>즉시 동기 스캔(결과 반환)</td><td><span class="loki">⚠️ Loki</span></td></tr>
     <tr><td><span class="m m-get">GET</span></td><td><code>/domains/{host}/discovery</code></td><td>결합 디스커버리 + 판단 근거</td><td>DB</td></tr>
-    <tr><td><span class="m m-put">PUT</span></td><td><code>/domains/{host}/spec</code></td><td>스펙 업로드</td><td>DB</td></tr>
-    <tr><td><span class="m m-get">GET</span></td><td><code>/domains/{host}/spec</code></td><td>활성 스펙 메타</td><td>DB</td></tr>
+    <tr><td><span class="m m-put">PUT</span></td><td><code>/domains/{host}/spec</code></td><td>스펙 업로드(<code>?filename</code>)</td><td>DB</td></tr>
+    <tr><td><span class="m m-get">GET</span></td><td><code>/domains/{host}/spec</code></td><td>활성 스펙 목록(배열)</td><td>DB</td></tr>
     <tr><td><span class="m m-get">GET</span></td><td><code>/classification</code></td><td>전역 분류 설정</td><td>DB</td></tr>
     <tr><td><span class="m m-put">PUT</span></td><td><code>/classification</code></td><td>전역 분류 설정 수정</td><td>DB</td></tr>
+    <tr><td><span class="m m-patch">PATCH</span></td><td><code>/classification/weights</code></td><td>전역 가중치 부분편집(→CUSTOM)</td><td>DB</td></tr>
     <tr><td><span class="m m-get">GET</span></td><td><code>/domains/{host}/classification</code></td><td>도메인 분류 설정(override + effective)</td><td>DB</td></tr>
     <tr><td><span class="m m-put">PUT</span></td><td><code>/domains/{host}/classification</code></td><td>도메인 override 수정</td><td>DB</td></tr>
-    <tr><td><span class="m m-get">GET</span></td><td><code>/hostnames/{hostname}/domains</code></td><td>엣지가 서빙하는 도메인 목록</td><td>DB</td></tr>
-    <tr><td><span class="m m-post">POST</span></td><td><code>/hostnames/{hostname}/domains/{domain}/query</code></td><td>(hostname, domain) 온디맨드 조회</td><td><span class="loki">⚠️ Loki</span></td></tr>
+    <tr><td><span class="m m-patch">PATCH</span></td><td><code>/domains/{host}/classification/weights</code></td><td>도메인 가중치 부분편집(→CUSTOM)</td><td>DB</td></tr>
     <tr><td><span class="m m-get">GET</span></td><td><code>/actuator/health</code></td><td>헬스체크</td><td>DB</td></tr>
   </tbody>
 </table>
-<p class="legend">아래 실제 응답은 라이브 배포(전역 도메인 <strong>42,809건</strong>)에서 캡처한 것이다. 예시 도메인 <code>api.weble.net</code> 은 api 서브도메인이며 스펙이 없어 검출이 전부 Shadow 다.</p>
+<p class="legend">아래 실제 응답은 라이브 재배포(<code>c435d9f</code>, 전역 도메인 <strong>45,592건</strong>)에서 캡처한 것이다. 예시 도메인 <code>api.weble.net</code> 은 api 서브도메인이며 스펙이 없어 검출이 전부 Shadow 다.</p>
 
 <!-- ============================================================ -->
 <h2 id="s2">2. 엔드포인트 상세 (사용법 · 실제 응답)</h2>
@@ -149,16 +149,20 @@
 
 <div class="ep">
   <div class="sig"><span class="m m-get">GET</span><code>/api/v1/domains</code></div>
-  <p>등록된 <strong>전체</strong> 도메인 목록. 각 원소는 <code>GET /domains/{host}</code> 와 동일한 객체(<code>DomainView</code>)다.</p>
-  <pre><code>curl http://&lt;host&gt;:8080/api/v1/domains</code></pre>
-  <pre><code>[
-  { "host":"www.takigen.co.jp", "enabled":true, "hostnames":["..."],
+  <p><strong>페이지네이션</strong> 도메인 목록. 응답 body 는 JSON 배열(각 원소는 경량 <code>DomainView</code>)이고, <strong>페이지 정보는 응답 헤더</strong>에 실린다. 파라미터 <code>?page</code>(0-based, 기본 0)·<code>?size</code>(기본 1000, 범위 <code>[1,1000]</code>). host 오름차순 정렬(결정적).</p>
+  <pre><code>curl -i 'http://&lt;host&gt;:8080/api/v1/domains?page=0&amp;size=2'</code></pre>
+  <pre><code># 응답 헤더
+X-Total-Count: 45592
+X-Total-Pages: 22796
+X-Current-Page: 0
+
+# 응답 body (배열, size=2)
+[
+  { "host":"0.0.0.0", "enabled":true, "hostnames":["AAI43","ALDI1", "..."],
     "intervalOverride":null, "specMergeStrategy":"MERGE", "basePathStrip":null, "spec":null },
-  { "host":"api.weble.net", "enabled":true, "hostnames":["AORV1","AORV2","PORV1","PORV2"],
-    "intervalOverride":null, "specMergeStrategy":"MERGE", "basePathStrip":null, "spec":null }
-  /* … 총 42,809건 (페이지네이션 없음) */
+  { "host":"...", "enabled":true, "hostnames":["..."], "spec":null }
 ]</code></pre>
-  <div class="callout warn"><span class="ct">대량 주의</span> 42,809건을 <strong>한 번에</strong> 반환하고 도메인마다 활성 스펙을 조회(N+1)하므로 느리고 무겁다. 대량 환경에서는 비권장 — <a href="#s5">페이지네이션은 TODO</a>.</div>
+  <p class="legend">전체 도메인이 4만+ 건이라 페이지네이션이 필수다(과거 무페이지 전건 반환은 폐지). <code>X-Total-Pages</code>·<code>X-Current-Page</code> 로 순회한다. 목록의 <code>spec</code> 은 경량 메타이며, 페이지당(최대 1000건) 스펙 조회가 있다(<a href="#s5">배치 로드는 TODO</a>).</p>
 </div>
 
 <div class="ep">
@@ -172,7 +176,7 @@
 
 <div class="ep">
   <div class="sig"><span class="m m-get">GET</span><code>/api/v1/domains/{host}</code></div>
-  <p>한 도메인의 설정. 엣지 <code>hostnames</code>·병합 전략·base-path-strip·활성 스펙 메타(<code>spec</code>)를 담는다.</p>
+  <p>한 도메인의 <strong>상세</strong>(<code>DomainDetailView</code>). 목록(경량)과 달리 <code>lastScanAt</code> 과 <strong>도메인 현재 effective 설정</strong>(<code>effectiveClassification</code>)·활성 스펙 메타(<code>spec</code>)까지 보강해 준다.</p>
   <pre><code>curl http://&lt;host&gt;:8080/api/v1/domains/api.weble.net</code></pre>
   <pre><code>{
   "host":"api.weble.net",
@@ -181,28 +185,35 @@
   "intervalOverride":null,
   "specMergeStrategy":"MERGE",
   "basePathStrip":null,
-  "spec":null
+  "spec":null,
+  "lastScanAt":"2026-06-29T05:00:37.105715Z",
+  "effectiveClassification":{
+    "profile":"MIDDLE", "threshold":0.7, "weightsSource":"preset",
+    "weights":{ "hostApiSubdomain":0.4, "corsPreflight":0.3, "..." :"… 14키" }
+  }
 }</code></pre>
+  <p class="legend">스펙이 있으면 <code>spec</code> 은 <code>{"format":"OPENAPI","specVersion":1,"endpointCount":2,"uploadedAt":"…","specName":"default","filename":"petstore-v1.json","active":true}</code> 형태(없으면 null). <code>effectiveClassification</code> 읽는 법은 <a href="#s2-3">§2.3</a> 참조.</p>
 </div>
 
 <div class="ep">
   <div class="sig"><span class="m m-put">PUT</span><code>/api/v1/domains/{host}</code> &nbsp;·&nbsp; <span class="m m-del">DELETE</span><code>/api/v1/domains/{host}</code></div>
-  <p><strong>PUT</strong> 은 설정 수정(body = <code>DomainUpsert</code>, GET 응답과 동형 반환). <strong>DELETE</strong> 는 삭제 후 <code>204 No Content</code>(없으면 404).</p>
-  <pre><code># 설정 수정 — 예: 병합 전략·스캔 주기 override
+  <p><strong>PUT</strong> 은 <strong>부분 수정</strong>(PATCH 의미)이다 — body 에 <strong>전달한 필드만</strong> 반영하고 미전달 필드는 기존값을 유지한다. 전 항목을 다 보낼 필요가 없다. <strong>DELETE</strong> 는 삭제 후 <code>204 No Content</code>(없으면 404).</p>
+  <pre><code># 부분 수정 — enabled 만 비활성으로 (나머지 설정은 그대로 유지)
 curl -X PUT http://&lt;host&gt;:8080/api/v1/domains/api.weble.net \
   -H 'Content-Type: application/json' \
-  -d '{"host":"api.weble.net","enabled":true,"specMergeStrategy":"MERGE","intervalOverride":"PT1H"}'
+  -d '{"enabled":false}'
 
 # 삭제
 curl -X DELETE http://&lt;host&gt;:8080/api/v1/domains/api.weble.net   # → 204</code></pre>
+  <p class="legend">미전달 규칙: <code>enabled</code> 미전달=유지(명시 <code>false</code> 만 비활성), <code>hostnames</code> 미전달=유지·<code>[]</code>=비우기(명시 빈 배열), <code>intervalOverride</code>·<code>specMergeStrategy</code>·<code>basePathStrip</code> 미전달=유지. 응답은 수정된 <code>DomainView</code>.</p>
 </div>
 
 <!-- ===== 2.2 ===== -->
-<h3 id="s2-2">2.2 스캔 상태 · 결과 — <code>/scan-status</code> · <code>/result</code> · <code>/scan</code></h3>
+<h3 id="s2-2">2.2 스캔 상태 · 결과 · 즉시 스캔 — <code>/scan-status</code> · <code>/result</code> · <code>/scan</code> · <code>/scan-now</code></h3>
 
 <div class="ep">
   <div class="sig"><span class="m m-get">GET</span><code>/api/v1/domains/{host}/scan-status</code></div>
-  <p>가벼운 상태 메타. 중앙 서버가 <code>version</code>·<code>lastScanAt</code> 만 비교해 결과 재조회 여부를 결정한다. <code>summary</code> 카운트 의미는 <a href="#s2-3">§2.3</a>·DB 스키마 매뉴얼 참조.</p>
+  <p>가벼운 상태 메타. 중앙 서버가 <code>version</code>·<code>lastScanAt</code> 만 비교해 결과 재조회 여부를 결정한다. <code>latestSpec</code> 은 최근 업로드된 활성 스펙 요약(파일명·업로드 일시·파일에서 추출한 API 수)이며 스펙이 없으면 null. <code>summary</code> 카운트 의미는 <a href="#s2-3">§2.3</a>·DB 스키마 매뉴얼 참조.</p>
   <pre><code>curl http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/scan-status</code></pre>
   <pre><code>{
   "host":"api.weble.net",
@@ -210,15 +221,17 @@ curl -X DELETE http://&lt;host&gt;:8080/api/v1/domains/api.weble.net   # → 204
   "lastScanAt":"2026-06-26T09:04:13.072008Z",
   "version":"1913dd805b705e7a",
   "summary":{"discovered":166,"active":0,"shadow":161,"zombie":0,"unused":0},
-  "totalDropped":5
+  "totalDropped":5,
+  "latestSpec":null
 }</code></pre>
+  <p class="legend"><code>latestSpec</code> 보유 예: <code>{"filename":"petstore-v1.json","uploadedAt":"…","endpointCount":2, …}</code>. <code>api.weble.net</code> 은 스펙 미업로드라 null.</p>
 </div>
 
 <div class="ep">
   <div class="sig"><span class="m m-get">GET</span><code>/api/v1/domains/{host}/result</code></div>
-  <p>스캔 전체 리포트(<code>DiscoveryReport</code> JSON). <strong>조건부 GET 대상</strong> — <code>ETag</code> 응답 헤더에 <code>version</code> 이 실린다(<a href="#s3">§3</a>). 아직 완료된 스캔이 없으면 <code>204 No Content</code>.</p>
+  <p>스캔 전체 리포트(<code>DiscoveryReport</code> JSON). <strong>조건부 GET 대상</strong> — <code>ETag</code> 응답 헤더에 <code>version</code> 이 실린다(<a href="#s3">§3</a>). 아직 완료된 스캔이 없으면 <code>204 No Content</code>. <strong>200 응답에는 엔드포인트별 판단 근거 <code>rationale</code> 배열이 가산</strong>된다(<a href="#s2-3">§2.3</a> 의 <code>/discovery</code> 와 동일 shape). 기존 <code>report_json</code> 필드는 불변이라 중앙 조건부 GET 은 깨지지 않는다.</p>
   <pre><code>curl -i http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/result</code></pre>
-  <p>응답 본문 상위 키와 핵심 부분(트림).</p>
+  <p>응답 본문 상위 키와 핵심 부분(트림). <code>rationale</code> 가 끝에 가산된다.</p>
   <pre><code>{
   "host":"api.weble.net", "generatedAt":"…", "logWindow":{…}, "specVersion":…,
   "summary":{"discovered":166,"active":0,"shadow":161,"zombie":0,"unused":0,"lowConfidence":0},
@@ -233,15 +246,27 @@ curl -X DELETE http://&lt;host&gt;:8080/api/v1/domains/api.weble.net   # → 204
   ],
   "droppedNonApi":{"excluded":0,"webForm":0,"lowScore":5,"total":5},
   "droppedByLimit":{…}, "droppedNonExistent":{…},
-  "endpointKindSignal":{…}, "typeDistribution":{…}, "preflightSignal":{…}, "specSource":{…}
+  "endpointKindSignal":{…}, "typeDistribution":{…}, "preflightSignal":{…}, "specSource":{…},
+  "rationale":[ { "method":"…", "pathTemplate":"…", "classification":"…", "basis":{…} } ]
 }</code></pre>
-  <p class="legend">상위 키: <code>host</code>·<code>generatedAt</code>·<code>logWindow</code>·<code>specVersion</code>·<code>summary</code>·<code>findings</code>·<code>droppedNonApi</code>·<code>droppedByLimit</code>·<code>droppedNonExistent</code>·<code>endpointKindSignal</code>·<code>typeDistribution</code>·<code>preflightSignal</code>·<code>specSource</code>.</p>
+  <p class="legend">상위 키: <code>host</code>·<code>generatedAt</code>·<code>logWindow</code>·<code>specVersion</code>·<code>summary</code>·<code>findings</code>·<code>droppedNonApi</code>·<code>droppedByLimit</code>·<code>droppedNonExistent</code>·<code>endpointKindSignal</code>·<code>typeDistribution</code>·<code>preflightSignal</code>·<code>specSource</code>·<code>rationale</code>(가산).</p>
+  <div class="callout warn"><span class="ct">★ 시점 차이</span> <code>report_json</code> 의 <code>findings</code> 는 <strong>스캔 시점</strong> 결과지만, 가산된 <code>rationale</code> 는 <strong>조회 시점</strong> 현재 설정으로 재계산된다 — 둘이 다를 수 있다. 또 <code>304</code> 캐시 body 의 <code>rationale</code> 는 갱신되지 않는다(<code>ETag</code> 는 <code>report</code> 만 추적). 의도된 트레이드오프다.</div>
 </div>
 
 <div class="ep">
   <div class="sig"><span class="m m-post">POST</span><code>/api/v1/domains/{host}/scan</code> <span class="loki">⚠️ Loki</span></div>
-  <p>온디맨드 재스캔 트리거. <strong>운영 Loki 를 호출</strong>하므로 남발 금지. 즉시 <code>202 Accepted</code> 를 반환한다(현재는 동기 트리거 — <a href="#s5">비동기 큐잉은 TODO</a>).</p>
+  <p>온디맨드 재스캔 트리거(<strong>비동기</strong>). <strong>운영 Loki 를 호출</strong>하므로 남발 금지. 즉시 <code>202 Accepted</code> 만 반환하고 결과는 따로 <code>/scan-status</code>·<code>/result</code> 로 조회한다(<a href="#s5">비동기 큐잉은 TODO</a>). 즉시 결과가 필요하면 아래 <code>/scan-now</code>.</p>
   <pre><code>curl -i -X POST http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/scan   # → 202 Accepted</code></pre>
+</div>
+
+<div class="ep">
+  <div class="sig"><span class="m m-post">POST</span><code>/api/v1/domains/{host}/scan-now</code> <span class="loki">⚠️ Loki</span></div>
+  <p>즉시 <strong>동기</strong> 스캔. Loki 를 호출해 스캔을 끝낸 뒤 <strong>결합 결과(findings + rationale + effectiveClassification)</strong>를 바로 반환한다(<a href="#s2-3">§2.3 <code>/discovery</code></a> 와 동일 shape). 미등록 도메인이면 <strong>자동 등록(enabled=true) 후 스캔</strong>한다. 파라미터 <code>?window</code>(ISO-8601 Duration, 기본/상한 = <code>scan.max-window</code>).</p>
+  <pre><code>curl -X POST 'http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/scan-now?window=PT1H'</code></pre>
+  <div class="callout warn">
+    <span class="ct">⚠️ 동기 Loki 호출 — busy 도메인 주의</span>
+    응답이 올 때까지 스캔이 진행되므로 트래픽이 많은 도메인은 <strong>응답이 지연</strong>될 수 있다 — <code>window</code> 를 작게 잡는다. 부하보호(slice·throttle·동시성·백오프·예산)는 내부에서 준수되고 watermark 는 전진하지 않는다(온디맨드 스냅샷). 비동기로 던지고 싶으면 <code>POST /scan</code>(202). Loki 수집/분석 실패 시 <code>502 Bad Gateway</code>, host 누락 <code>400</code>.
+  </div>
 </div>
 
 <!-- ===== 2.3 ===== -->
@@ -306,20 +331,29 @@ curl -X DELETE http://&lt;host&gt;:8080/api/v1/domains/api.weble.net   # → 204
 
 <div class="ep">
   <div class="sig"><span class="m m-put">PUT</span><code>/api/v1/domains/{host}/spec</code> &nbsp;·&nbsp; <span class="m m-get">GET</span><code>/api/v1/domains/{host}/spec</code></div>
-  <p><strong>PUT</strong> 은 스펙 원문(OpenAPI / Postman / CSV 바이트)을 업로드한다. <strong>GET</strong> 은 활성 스펙 메타를 반환하며, 스펙이 없으면 <code>404</code>.</p>
-  <pre><code># 업로드(예: OpenAPI YAML)
-curl -X PUT http://&lt;host&gt;:8080/api/v1/domains/api.example.com/spec \
+  <p><strong>PUT</strong> 은 스펙 원문(OpenAPI / Postman / CSV 바이트)을 업로드한다. <code>?filename</code>(옵션)으로 원본 파일명을 함께 남길 수 있다(미전달 null). <strong>GET</strong> 은 활성 스펙 문서 <strong>목록(배열)</strong>을 반환하며, 스펙이 없으면 <code>404</code> 가 아니라 <strong>빈 배열 <code>[]</code>(200)</strong>이다. 문서별 <code>filename</code>·<code>uploadedAt</code> 을 포함한다.</p>
+  <pre><code># 업로드(예: OpenAPI JSON, 파일명 기록)
+curl -X PUT 'http://&lt;host&gt;:8080/api/v1/domains/api.example.com/spec?filename=petstore-v1.json' \
   -H 'Content-Type: application/octet-stream' \
-  --data-binary @openapi.yaml
+  --data-binary @petstore-v1.json
+# → {"format":"OPENAPI","specVersion":1,"endpointCount":2,"uploadedAt":"…","specName":"default","filename":"petstore-v1.json","active":true}
 
 # 조회 — 스펙 미업로드 도메인(api.weble.net)
-curl -i http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/spec</code></pre>
-  <pre><code>{ "status":404, "error":"Not Found", "path":"/api/v1/domains/api.weble.net/spec" }</code></pre>
-  <p class="legend"><code>api.weble.net</code> 은 스펙이 없어 모든 검출이 Shadow 로 분류된다(매칭 대조 대상 부재).</p>
+curl http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/spec   # → [] (200)
+
+# 조회 — 스펙 보유 도메인
+curl http://&lt;host&gt;:8080/api/v1/domains/api.example.com/spec</code></pre>
+  <pre><code>[
+  { "format":"OPENAPI", "specVersion":1, "endpointCount":2,
+    "uploadedAt":"2026-06-29T07:35:40.406366Z", "specName":"default",
+    "filename":"petstore-v1.json", "active":true }
+]</code></pre>
+  <div class="callout warn"><span class="ct">★ Breaking 변경</span> 이전 버전의 <code>GET /spec</code> 은 <strong>단일 객체 또는 404</strong> 였으나, 이제 <strong>배열(무스펙=<code>[]</code>·200)</strong>이다. 기존 소비자는 배열 처리로 바꿔야 한다.</div>
+  <p class="legend"><code>api.weble.net</code> 은 스펙이 없어(<code>[]</code>) 모든 검출이 Shadow 로 분류된다(매칭 대조 대상 부재).</p>
 </div>
 
 <!-- ===== 2.5 ===== -->
-<h3 id="s2-5">2.5 분류 설정 — <code>/classification</code></h3>
+<h3 id="s2-5">2.5 분류 설정 · 가중치 편집 — <code>/classification</code></h3>
 
 <div class="ep">
   <div class="sig"><span class="m m-get">GET</span><code>/api/v1/classification</code> &nbsp;·&nbsp; <span class="m m-put">PUT</span><code>/api/v1/classification</code></div>
@@ -333,6 +367,17 @@ curl -i http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/spec</code></pre>
   "updatedAt":"2026-06-25T14:09:40.440546Z"
 }</code></pre>
 </div>
+
+<h4>설정 필드 의미 — <code>thresholdOverride</code> · <code>customWeights</code> · <code>matcher</code></h4>
+<table>
+  <thead><tr><th>필드</th><th>의미</th><th>적용 방식</th></tr></thead>
+  <tbody>
+    <tr><td><code>thresholdOverride</code></td><td>API 점수 게이트 임계값(<code>[0,1]</code>) 교체. Shadow(미문서) 후보가 이 값 이상이면 API 로 ADMIT.</td><td>미설정(null)=preset 기본(MIDDLE 0.70 · HIGH 0.85 · LOW 0.55) 상속. <strong>전 프로파일에서</strong> 설정 가능.</td></tr>
+    <tr><td><code>customWeights</code></td><td>14개 신호 가중치 override map. 설정된 키만 교체·나머지는 베이스. 점수 = 발화 신호 가중치 합(clamp<code>[0,1]</code>).</td><td><strong><code>profile=CUSTOM</code> 한정</strong>. unknown 키·비유한 값은 <code>400</code> 거부(<code>WEIGHT_KEYS</code> 14개만 허용).</td></tr>
+    <tr><td><code>matcher</code></td><td>매칭/힌트 — api 힌트(경로 직접 선언 시 임계 무관 <strong>강제 ADMIT</strong>)·<code>exclude</code>(게이트 최우선 제외)·<code>includeWebForms</code>(write-method web-form 억제 on/off).</td><td>explicit-hint 모드면 내장 path-shape 신호를 끄고 선언 경로만 <code>pathHint</code> 로 가산.</td></tr>
+  </tbody>
+</table>
+<p class="legend">적용 우선순위: <strong>도메인 override → 전역 → preset/MIDDLE</strong>(<code>EffectiveClassificationResolver</code>). 신호·가중치·모드 상세는 <em>API 판독 매뉴얼 §4.3·§4.4</em>.</p>
 
 <div class="ep">
   <div class="sig"><span class="m m-get">GET</span><code>/api/v1/domains/{host}/classification</code> &nbsp;·&nbsp; <span class="m m-put">PUT</span><code>/api/v1/domains/{host}/classification</code></div>
@@ -349,25 +394,26 @@ curl -i http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/spec</code></pre>
   <p class="legend"><code>override</code> 가 전부 null = 전역(없으면 MIDDLE) 상속. 병합 우선순위(도메인 → 전역 → preset)는 <em>API 판독 매뉴얼 §4.4</em> 참조.</p>
 </div>
 
+<div class="ep">
+  <div class="sig"><span class="m m-patch">PATCH</span><code>/api/v1/classification/weights</code> &nbsp;·&nbsp; <span class="m m-patch">PATCH</span><code>/api/v1/domains/{host}/classification/weights</code></div>
+  <p>신호 가중치를 <strong>부분 편집</strong>한다. body = 편집할 키만 담은 weight map. ★편집하면 <code>profile</code> 이 <strong>자동으로 CUSTOM</strong> 이 되고, <strong>편집하지 않은 키는 현재 effective 값을 유지</strong>한다(MIDDLE 로 리셋되지 않음). <code>threshold</code>·<code>matcher</code> 는 건드리지 않는다(그건 <code>PUT /classification</code>). unknown 키·비유한 값은 <code>400</code>, 도메인 PATCH 는 미등록 도메인이면 <code>404</code>.</p>
+  <pre><code># 전역 MIDDLE 도메인에 apiSegment 가중치만 0.7 로
+curl -X PATCH http://&lt;host&gt;:8080/api/v1/classification/weights \
+  -H 'Content-Type: application/json' \
+  -d '{"apiSegment":0.7}'</code></pre>
+  <pre><code>{
+  "profile":"CUSTOM",
+  "thresholdOverride":null,
+  "customWeights":{ "hostApiSubdomain":0.4, "corsPreflight":0.3, "apiSegment":0.7, "..." :"… 나머지 14키는 기존 effective 유지" },
+  "matcher":null,
+  "updatedAt":"…"
+}
+# effective.profile=CUSTOM, effective.weights.apiSegment=0.7 (편집 안 한 키는 그대로)</code></pre>
+  <p class="legend">도메인 가중치는 <code>PATCH /api/v1/domains/{host}/classification/weights</code> 로 동일하게 편집한다(응답에 <code>override</code>·<code>effective</code> 동봉).</p>
+</div>
+
 <!-- ===== 2.6 ===== -->
-<h3 id="s2-6">2.6 엣지 hostname 역방향 — <code>/api/v1/hostnames/{hostname}</code></h3>
-
-<div class="ep">
-  <div class="sig"><span class="m m-get">GET</span><code>/api/v1/hostnames/{hostname}/domains</code></div>
-  <p>특정 엣지 서버(Loki hostname 라벨)가 서빙하는 도메인 목록(host 문자열 배열).</p>
-  <pre><code>curl http://&lt;host&gt;:8080/api/v1/hostnames/AORV1/domains</code></pre>
-  <pre><code>["www.61ysw.com","138.002.019.185","www.9longny.com","10.0.246.198","127.0.0.1"]
-/* … 총 14건 */</code></pre>
-</div>
-
-<div class="ep">
-  <div class="sig"><span class="m m-post">POST</span><code>/api/v1/hostnames/{hostname}/domains/{domain}/query</code> <span class="loki">⚠️ Loki</span></div>
-  <p>특정 (hostname, domain) 1쌍을 즉시 조회·분석한다. <strong>운영 Loki 를 호출</strong>한다. 쿼리 파라미터 <code>from</code>·<code>to</code>(ISO-8601)로 윈도우를 지정할 수 있고, 미지정 시 기본 윈도우를 쓴다. 응답은 <code>scan-status</code> 와 같은 <code>ScanStatusView</code>.</p>
-  <pre><code>curl -X POST 'http://&lt;host&gt;:8080/api/v1/hostnames/AORV1/domains/api.weble.net/query?from=2026-06-26T00:00:00Z&amp;to=2026-06-26T06:00:00Z'</code></pre>
-</div>
-
-<!-- ===== 2.7 ===== -->
-<h3 id="s2-7">2.7 운영 — <code>/actuator</code></h3>
+<h3 id="s2-6">2.6 운영 — <code>/actuator</code></h3>
 <div class="ep">
   <div class="sig"><span class="m m-get">GET</span><code>/actuator/health</code></div>
   <p>헬스체크(DB 연결 포함). 그 외 <code>info</code>·<code>metrics</code>·<code>configprops</code> 등이 노출된다.</p>
@@ -395,11 +441,12 @@ curl -i -H 'If-None-Match: "1913dd805b705e7a"' \
   <tbody>
     <tr><td><strong>인증</strong></td><td>인증·인가 <strong>없음</strong></td><td>8080 에 도달 가능한 누구나 호출. 완화 = 방화벽 IP 제한·게이트웨이 뒤 배치(현재 운영검증용).</td></tr>
     <tr><td><strong>네트워크</strong></td><td>외부 접근 차단 상태</td><td>VM 방화벽이 8080 미개방(열림: 5432/9100/9443) → 현재 VM 내부(localhost)에서만. 외부 노출 시 위 무인증과 함께 고려.</td></tr>
-    <tr><td><strong>목록</strong></td><td><code>GET /domains</code> 무페이지네이션 + 도메인별 spec 조회(N+1)</td><td>42,809건에서 느리고 무겁다. 대량 환경 비권장.</td></tr>
-    <tr><td><strong>재계산</strong></td><td><code>/discovery</code>·<code>/classification</code> 의 effective·rationale 는 <strong>조회 시점</strong> 현재 설정으로 재계산</td><td>스캔 당시 값이 아니다. preset 을 바꾸면 즉시 반영(과거 점수 재현 아님).</td></tr>
+    <tr><td><strong>목록</strong></td><td><code>GET /domains</code> 는 <strong>페이지네이션 필수</strong>(전체 45,592건)</td><td>전건 일괄 반환은 폐지. 목록의 spec 조회는 페이지당(≤1000) N+1 이 남아 있다(<a href="#s5">배치 로드 후속</a>).</td></tr>
+    <tr><td><strong>Breaking</strong></td><td><code>GET /spec</code> 응답이 <strong>단일 객체/404 → 배열/<code>[]</code>/200</strong> 으로 변경(M6)</td><td>기존 소비자는 배열 처리로 수정 필요.</td></tr>
+    <tr><td><strong>재계산</strong></td><td><code>/discovery</code>·<code>/classification</code> 의 effective·rationale, <code>/result</code> 가산 rationale 은 <strong>조회 시점</strong> 현재 설정으로 재계산</td><td>스캔 당시 값이 아니다. preset 을 바꾸면 즉시 반영(과거 점수 재현 아님).</td></tr>
     <tr><td><strong>카탈로그 vs 스캔</strong></td><td><code>/discovery</code> 의 findings·rationale 는 누적 검출 카탈로그(<code>discovered_endpoint</code>) 기반</td><td>특정 스캔 윈도우의 <code>/scan-status</code>·<code>/result</code> 수치와 다를 수 있다(예: discovery 192 vs scan-status shadow 161).</td></tr>
     <tr><td><strong>결과 보관</strong></td><td><code>/result</code> 리포트는 도메인당 <strong>최신 1건만</strong> 보관(덮어쓰기)</td><td>과거 이력 없음.</td></tr>
-    <tr><td><strong>Loki 부하</strong></td><td><code>POST /scan</code>·<code>POST /hostnames/…/query</code> 만 운영 Loki 호출</td><td>남발 금지(부하보호). 나머지는 DB-only.</td></tr>
+    <tr><td><strong>Loki 부하</strong></td><td><code>POST /scan</code>(비동기)·<code>POST /scan-now</code>(동기) 만 운영 Loki 호출</td><td>남발 금지(부하보호). <code>scan-now</code> 는 동기라 busy 도메인에서 응답 지연 — <code>window</code> 작게. 나머지는 DB-only.</td></tr>
     <tr><td><strong>dropped</strong></td><td>비-API 로 drop 된 엔드포인트는 findings·rationale 에 <strong>없음</strong></td><td>집계 <code>droppedNonApi</code> 만 제공.</td></tr>
     <tr><td><strong>기타</strong></td><td>API 버저닝(<code>/v1</code> 외)·rate limit·HATEOAS 미제공</td><td>—</td></tr>
   </tbody>
@@ -409,15 +456,17 @@ curl -i -H 'If-None-Match: "1913dd805b705e7a"' \
 <h2 id="s5">5. TODO</h2>
 <ul>
   <li><strong>인증·인가 추가</strong>(API key / mTLS / 게이트웨이) — <strong>최우선</strong>.</li>
-  <li><code>GET /domains</code> 페이지네이션·필터 + spec 조회 N+1 해소.</li>
+  <li><code>GET /domains</code> 목록의 spec <strong>배치 로드</strong>(현재 페이지당 N+1) · 필터.</li>
   <li><code>POST /scan</code> 비동기 큐잉(현재 코드 TODO 주석: 동기 트리거).</li>
   <li><code>/discovery</code> 대량 호출용 응답 캐시(ETag) — 현재 plain GET.</li>
   <li>dropped 엔드포인트 per-item 근거 노출(현재 집계만).</li>
+  <li>스펙 <strong>멀티 문서 + API 상태 추적</strong>(ADDED/DELETED/UPDATED) — <strong>보류(M7)</strong>, 추후 access-log 파라미터 추출과 함께.</li>
+  <li><code>spec_record.rawDoc</code> <code>oid → bytea</code> 마이그레이션(D51 후속).</li>
   <li>rate limiting / API 버저닝 정책.</li>
   <li>(선택) 정크 도메인(IP·0패딩 IP) 디스커버리 필터.</li>
 </ul>
 
-<p class="legend" style="margin-top:36px;">근거: REST 컨트롤러(<code>DomainController</code>·<code>ScanController</code>·<code>CombinedDiscoveryController</code>·<code>SpecController</code>·<code>ClassificationController</code>·<code>HostQueryController</code>) · 판단 근거 설계 doc/34 · 신호/가중치 상세는 <em>API 판독 매뉴얼</em>, DB 컬럼 의미는 <em>DB 테이블 명세</em> 참조. 응답 예시는 라이브 배포 캡처(2026-06-26).</p>
+<p class="legend" style="margin-top:36px;">근거: REST 컨트롤러(<code>DomainController</code>·<code>ScanController</code>·<code>CombinedDiscoveryController</code>·<code>SpecController</code>·<code>ClassificationController</code>) · 변경 배치 doc/35 · 판단 근거 설계 doc/34 · 신호/가중치 상세는 <em>API 판독 매뉴얼</em>, DB 컬럼 의미는 <em>DB 테이블 명세</em> 참조. 응답 예시는 라이브 재배포 캡처(2026-06-29, <code>c435d9f</code>).</p>
 
 </div>
 </body>
