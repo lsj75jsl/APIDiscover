@@ -1,7 +1,7 @@
 # REST API 대규모 변경 배치 — 삭제·수정·신규 종합 설계 (사용자 요청)
 
 > 브랜치 단계별 배정(매니저). 근거: doc/07(REST)·doc/26(멀티스펙·CombinedDiscovery)·doc/10·11(분류설정)·doc/34(rationale 재사용)·doc/30(DomainRegistrar). 근거 결정 **DECISIONS D50**.
-> **진행 상태**: PR1(D1+M1+M3) 머지(#39). **PR2(spec-meta 노출: spec_record.filename + M2+M4+M6) 구현 완료**(브랜치 feat/api-batch-p1-specmeta, build green 472·커밋 보류). 나머지 P1(M5·A2)·P3(A1)=후속 PR, **P2(M7)=이번 보류**(§P2). 운영 Loki 미호출(정적/mock).
+> **진행 상태**: PR1(D1+M1+M3) 머지(#39)·PR2(filename+M2+M4+M6) 머지(#40). **PR3(M5 /result rationale + A2 가중치 편집) 구현 완료**(브랜치 feat/api-batch-p1-result-weights, build green 480·커밋 보류). **P1 전부 완료**. P3(A1)=후속 PR, **P2(M7)=보류**(§P2). 운영 Loki 미호출(정적/mock).
 > 사용자 확정: **GET /domains/{host}=유지+보강**(삭제 아님), **/result rationale=조회시 재계산**(report_json·ETag·중앙계약 불변, /discovery 메커니즘 재사용).
 
 ## 0. 단계 분할(phase) — 위험·의존도 기준
@@ -179,9 +179,9 @@ architect 가 의미만 정리(아래), TW 가 §2.5 편집:
 - [x] **PR2** M2 GET /domains/{host} 보강(`DomainDetailView`: `lastScanAt`·spec`{filename,uploadedAt,...}`·`effectiveClassification`). ★목록(M1)은 경량 `DomainView` 유지=성능 회귀 방지(단건만 scan/resolver 조회). effective 빌더=`EffectiveClassification.toView()` 공유(/discovery 와 중복 제거).
 - [x] M3 PUT /domains 부분수정(`DomainUpsert` enabled Boolean nullable·present-only apply, []=비우기·null=유지, 전항목=무회귀·create 무회귀).
 - [x] **PR2** M4 GET /scan-status 보강(`latestSpec`=SpecMetaView{filename·uploadedAt·endpointCount(추출 API수)} 재사용, 없으면 null).
-- [ ] M5 GET /result rationale 가산(serve-time, report_json/ETag 불변, classifyExplained 재사용) + 중앙 additive-safe 검증. — 후속 PR
+- [x] **PR3** M5 GET /result rationale 가산 — serve-time 에 report_json 파싱→`rationale` 주입→재직렬화(`CombinedDiscoveryService.forHost(host).rationale()` 재사용). report_json 기존 필드·ETag(r.version) 불변, 304 경로 보존(rationale 미재계산), report null=204.
 - [x] **PR2** M6 GET /spec 목록 — flat `List<SpecMetaView>`(specName·filename·active 가산, activeRecords·specName/version 정렬, 무스펙=[]). `?history` 옵션은 후속.
-- [ ] A2 PATCH /classification/weights(도메인·전역, 현 effective 스냅샷+부분 override+profile CUSTOM, applyOverrides 재사용).
+- [x] **PR3** A2 PATCH /classification/weights(도메인·전역) — 현 effective 14 스냅샷(`resolver.resolve`/신규 `resolveGlobal`) ∪ 요청 부분 → profile CUSTOM·편집 안 한 키 유지(MIDDLE 리셋 방지). threshold·matcher 미터치. validateWeightOverrides→400. 기존 PUT /classification 불변(가산).
 - [ ] 테스트(각 항목 + 무회귀: M3 전항목 동일·M5 report_json 불변·페이지네이션 경계).
 
 **P2 (M7, 고위험) — ★이번 보류**(추후 access-log 파라미터 추출과 함께, §P2)

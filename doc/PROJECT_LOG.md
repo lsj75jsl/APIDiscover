@@ -5,6 +5,20 @@
 
 ---
 
+## 2026-06-29 세션 52 — REST API 배치 PR3(M5 /result rationale + A2 가중치 편집, doc/35) — P1 완료
+
+### 한 일
+- **M5 GET /result rationale 가산(조회시 재계산)**: `ScanController.result()` 200 경로에서 report_json 파싱(ObjectNode)→`rationale` 키 주입→재직렬화. rationale = `CombinedDiscoveryService.forHost(host).rationale()`(/discovery 와 동일 메커니즘, 현재 discovered+spec+effective 재계산, doc/34). ★report_json 기존 필드 불변(중앙 additive-safe), ETag=r.version 유지(rationale 는 ETag 입력 아님), 304 경로 보존(rationale 미재계산), report null=204. ScanController 에 CombinedDiscoveryService·ObjectMapper 주입. caveat 주석(findings=스캔시점 vs rationale=현재).
+- **A2 PATCH /classification/weights(도메인·전역)**: 부분 weight map → ① 현 effective 14 스냅샷(도메인=`resolver.resolve(host).weights()`, 전역=신규 `resolver.resolveGlobal()`) ② profile=CUSTOM 자동 ③ customWeights = 스냅샷 ∪ 요청(요청 키 override) → ★편집 안 한 키는 현 effective 유지(MIDDLE 리셋 방지). validateWeightOverrides(unknown/비유한)→400. threshold·matcher 미터치(weights 만). resolver.invalidate(All). 기존 PUT /classification 불변(가산).
+- **resolver `resolveGlobal()` 신규**: build(host) 를 `buildFrom(global, domain, label)` 로 추출 → resolveGlobal=buildFrom(global, null, "global"). A2 전역 스냅샷용(단일 진실원, 병합 로직 중복 0).
+
+### 결과
+- `./gradlew build` BUILD SUCCESSFUL. 전체 **480**(+8) 실패0 errors0 skip2(-Dloki.live). `ScanControllerTest` +3(rationale 주입·기존 필드/ETag 불변·304 미재계산·204)·`ClassificationControllerTest` +5(도메인/전역 PATCH→CUSTOM·편집 안 한 키 HIGH 유지·threshold 미터치·unknown 400·PUT 무회귀). PostgresIntegrationTest 21(/result 실 report_json rationale 주입 검증)·기존 무회귀. 운영 Loki 미호출(M5=DB 재계산·A2=설정 저장).
+- ★P1(D1·M1·M2·M3·M4·M5·M6·A2 + filename) 전부 완료.
+
+### 다음 단계
+- 커밋 금지(매니저, 브랜치 feat/api-batch-p1-result-weights). 매뉴얼(api-rest-manual.html: /result rationale·PATCH weights)=TW 후속. 후속 PR: P3(A1 즉시스캔). P2(M7)=보류.
+
 ## 2026-06-29 세션 51 — REST API 배치 PR2(spec-meta 노출: filename + M2·M4·M6, doc/35)
 
 ### 한 일

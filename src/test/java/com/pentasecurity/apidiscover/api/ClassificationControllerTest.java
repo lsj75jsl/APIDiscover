@@ -3,6 +3,7 @@ package com.pentasecurity.apidiscover.api;
 
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -232,6 +233,66 @@ class ClassificationControllerTest {
         mvc.perform(get("/api/v1/domains/a.example.com/classification"))
                 .andExpect(jsonPath("$.effective.profile").value("HIGH"))      // 전역 변경 전 호스트 반영
                 .andExpect(jsonPath("$.effective.weights.threshold").value(0.85));
+    }
+
+    // --- A2: PATCH weights (부분 편집·profile 자동 CUSTOM·편집 안 한 키 유지, doc/35 A2) ---
+
+    @Test
+    void patchDomainWeightsBecomesCustomKeepingUneditedEffectiveKeys() throws Exception {
+        // 전역 HIGH → 도메인은 HIGH 상속. 1키 PATCH 후 나머지는 HIGH 값 유지(MIDDLE 리셋 아님)
+        mvc.perform(put("/api/v1/classification").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"profile\":\"HIGH\"}")).andExpect(status().isOk());
+        registerDomain("shop.example.com");
+
+        mvc.perform(patch("/api/v1/domains/shop.example.com/classification/weights")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"apiSegment\":0.99}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.override.profile").value("CUSTOM"))            // 자동 CUSTOM
+                .andExpect(jsonPath("$.effective.profile").value("CUSTOM"))
+                .andExpect(jsonPath("$.effective.weights.apiSegment").value(0.99))    // 편집 키 반영
+                .andExpect(jsonPath("$.effective.weights.hostApiSubdomain").value(0.35)); // ★HIGH 값 유지(MIDDLE 0.40 아님)
+    }
+
+    @Test
+    void patchGlobalWeightsBecomesCustomKeepingUneditedEffectiveKeys() throws Exception {
+        mvc.perform(put("/api/v1/classification").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"profile\":\"HIGH\"}")).andExpect(status().isOk());
+
+        mvc.perform(patch("/api/v1/classification/weights")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"query\":0.99}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.profile").value("CUSTOM"))
+                .andExpect(jsonPath("$.customWeights.query").value(0.99))             // 편집 키
+                .andExpect(jsonPath("$.customWeights.hostApiSubdomain").value(0.35)); // ★HIGH 값 유지
+    }
+
+    @Test
+    void patchDomainWeightsLeavesThresholdUntouched() throws Exception {
+        registerDomain("shop.example.com");
+        mvc.perform(put("/api/v1/domains/shop.example.com/classification").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"profile\":\"LOW\",\"thresholdOverride\":0.5}")).andExpect(status().isOk());
+
+        mvc.perform(patch("/api/v1/domains/shop.example.com/classification/weights")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"apiSegment\":0.9}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.effective.profile").value("CUSTOM"))
+                .andExpect(jsonPath("$.effective.weights.threshold").value(0.5)); // threshold 미터치(weights 만)
+    }
+
+    @Test
+    void patchWeightsRejectsUnknownKey() throws Exception {
+        mvc.perform(patch("/api/v1/classification/weights")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"apiSegmnet\":0.5}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void putClassificationUnaffectedByA2() throws Exception {
+        // A2(PATCH)=가산. 기존 PUT /classification 전체 교체 동작 불변
+        mvc.perform(put("/api/v1/classification").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"profile\":\"LOW\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.profile").value("LOW"));
     }
 
     // --- P3-1: 저장 데이터 손상 → 서버 오류(500), 요청 검증(400) 아님 ---
