@@ -92,6 +92,11 @@
   - 2단계(M7, 고위험·독립 PR) **— ★이번 보류(사용자 확정, 추후 access-log 파라미터 추출과 함께)**: [ ] 멀티문서 업로드(filename→specName·버전관리) + API 상태추적 ADDED/DELETED/UPDATED **(compute-on-read·신규 테이블 없음, 동일성=method+path_template, ★UPDATED=deprecated/version 한정 — canonical query param 미보유)**
   - 3단계(A1, 독립 PR) **— ★PR4 구현 완료(브랜치 feat/api-batch-p3-scannow, build green 486·커밋 보류·머지 시 Done, 마지막 기능 PR)**: [x] POST /domains/{host}/scan-now 동기 즉시스캔(ScanController: 정규화 null→400 → registerIfAbsent 자동등록 → onDemandWindow(?window)+scanOnDemand watermark 미전진 → forHost findings/rationale 반환. Loki 실패=502. 비동기 POST /scan(202) 와 구분, 둘 다 유지. 테스트 전부 Loki mock)
   - [ ] W1 매뉴얼 §2.5 /classification 의미 정리(thresholdOverride·customWeights·matcher) → technical_writer
+- [x] **실배포 버그: rawDoc oid auto-commit 500 (메타조회 M2/M4/M6 + forHost /discovery·/result M5)** **(구현 완료 — build green 488·실 PG 회귀가드 2건 PASS·각 fix 원복 RED 확인·커밋 보류·머지 시 Done. doc/28 §10·DECISIONS D51, 브랜치 fix/spec-meta-oid-autocommit)** — `SpecRecord.rawDoc=@Lob byte[]`=PG oid → 비-@Transactional(OSIV=false→auto-commit) 엔티티 로드 → oid materialize → `Large Objects may not be used in auto-commit mode` 500. prod 스펙 0 이라 잠복.
+  - [x] 메타 조회(M2/M4/M6) → `SpecMetaProjection`(rawDoc 미선택 JPQL) 전환(스키마 변경 없음). 가드 `specMetaEndpointsDoNotMaterializeRawDocOidInAutoCommit`.
+  - [x] forHost(/discovery·/result M5) → `CombinedDiscoveryService.forHost` 에 `@Transactional(readOnly=true)`(진입점 tx, loadActiveCanonical 미터치=analyze 무영향). 가드 `forHostEndpointsTolerateRawDocOidSpecOnRealPg`.
+  - [x] M6 projection 쿼리 ORDER BY `specName asc nulls first` 명시(h2-pg-null-ordering-trap·D48 동형, 인메모리 nullsFirst 동작 일치). 실 PG 가드 `specListNullSpecNameOrdersFirstDeterministicallyOnRealPg`(nulls first 제거 시 PG NULLS LAST 발산 RED 확인).
+  - [ ] (선택 후속) rawDoc `@Lob byte[]` oid → bytea 매핑 정밀화(마이그레이션 위험 동반) — 실수요 시.
 - [ ] 부하/운영 메트릭 (쿼리수·바이트·429) Actuator/Micrometer 노출 + 알람 — doc/12 `DroppedNonApi`·doc/13 `DroppedByLimit` 카운트 재사용 가능 **(→ 계측은 doc/33 E PR1, 알람 연동은 별도 후속)**
 - [ ] Spring Batch JobRepository 실연결 (현재 `@Scheduled`만, `batch.job.enabled=false`)
 - [x] 도메인별 `intervalOverride` 스케줄 반영 (도메인 설정은 이미 영속, 스케줄러 반영만) **(완료 — doc/33 C, PR2 `ScanTier` override 최우선 파싱, PR #29 머지)**

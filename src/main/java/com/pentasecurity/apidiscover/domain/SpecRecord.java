@@ -36,7 +36,12 @@ public class SpecRecord {
 
     private long specVersion;
 
-    /** 원본 문서(감사/재파싱용). */
+    /**
+     * 원본 문서(감사/재파싱용). ★PG oid(Large Object) — 이 코드베이스의 유일한 @Lob(canonicalJson/warningsJson 은 D40 에서 text 로 이전).
+     * ★메타 조회는 반드시 {@link SpecMetaProjection}(rawDoc 미선택)으로(doc/28): 엔티티 로드는 oid 를 materialize 하는데,
+     * 트랜잭션 밖(auto-commit) 이면 "Large Objects may not be used in auto-commit mode" 500. 재파싱/감사는 @Transactional 내에서만 접근.
+     * (대안 기각: bytea = oid→bytea ddl-auto 미변환·수동 마이그레이션 위험 / 메타조회 @Transactional = rawDoc 불필요 materialize·M1 목록 LOB 폭증 → projection 채택.)
+     */
     @Lob
     private byte[] rawDoc;
 

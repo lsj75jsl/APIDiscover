@@ -5,6 +5,22 @@
 
 ---
 
+## 2026-06-29 세션 54 — 실배포 버그 수정: GET /spec·M2·M4 500 (rawDoc oid auto-commit, fix/spec-meta-oid-autocommit)
+
+### 한 일
+- **근본원인(실 PG 스택트레이스 확정)**: `SpecRecord.rawDoc=@Lob byte[]`=PG `oid`(유일 @Lob). REST 메타 조회(M2 GET /domains/{host}·M4 GET /scan-status·M6 GET /spec)가 `@Transactional` 없이(application.yml `open-in-view: false`→auto-commit) SpecRecord **엔티티**를 로드 → Hibernate 가 rawDoc oid 를 materialize → `PSQLException: Large Objects may not be used in auto-commit mode`/`JpaSystemException: Unable to access lob stream` → 500. prod 는 업로드 스펙 0 이라 잠복(H2·기존 PG 통합은 'spec 업로드 후 메타 GET' 미커버).
+- **수정(projection, 스키마·oid 마이그레이션 없음)**: `domain/SpecMetaProjection`(record) + `SpecRecordRepository.findActiveSpecMetas`(JPQL 생성자식, 메타 컬럼만 SELECT·rawDoc/canonicalJson/warningsJson 미선택). SpecStore `activeSpecMetas`(M6)·`latestSpecMeta`(M2/M4) projection 신설. REST 소비처(SpecController.meta·DomainController.toView/get·ScanController.status) 전환. `SpecMetaView.of(SpecMetaProjection)` 오버로드. ★엔티티 반환(activeMeta/activeRecords)은 스캔 경로(@Transactional analyze, line 191) 전용 유지(미변경). SpecRecord.rawDoc 가드 주석 + 대안 기각(bytea/메타조회 @Transactional) 명시.
+- **forHost 동일버그도 같은 PR 에서 수정(매니저 지시)**: `CombinedDiscoveryService.forHost`(/discovery·/result M5 진입점)가 비-@Transactional·OSIV off 로 `loadActiveCanonical`/`activeRecords` 엔티티(rawDoc oid) 로드 → spec 보유 도메인서 동일 500. 수정 = `forHost` 에 **`@Transactional(readOnly=true)`**(진입점 1곳 tx → 내부 엔티티 로드 안전, 읽기+분류 전용이라 readOnly 적합·LOB 호스트당 active spec 소수라 bounded). 공유 스캔 메서드 `loadActiveCanonical` 미터치(analyze 무영향·저위험).
+- **M6 정렬 결정성(P3 보완)**: M6 projection 쿼리 ORDER BY 에 `specName asc nulls first` 명시(specName 레거시 null 가능). h2-pg-null-ordering-trap(H2 ASC=NULLS FIRST 가 PG ASC=NULLS LAST 발산을 가림, D48 findDueForScan 동형) → 기존 인메모리 `Comparator.nullsFirst` 동작·결정성 일치.
+- **★실 PG 회귀가드 3건(H2 재현 불가, podman Testcontainers)**: ① `specMetaEndpointsDoNotMaterializeRawDocOidInAutoCommit`(M2/M4/M6 200) ② `forHostEndpointsTolerateRawDocOidSpecOnRealPg`(rawDoc 보유 spec 도메인 GET /discovery·/result 200) ③ `specListNullSpecNameOrdersFirstDeterministicallyOnRealPg`(specName=null 행 nulls-first 결정적). ★진위 증명: 각 fix 임시 원복(projection→엔티티 / @Transactional 제거 / nulls first 제거) 시 RED — ①②=`Large Objects may not be used in auto-commit mode`/`Unable to access lob stream`(JpaSystemException), ③=PG NULLS LAST 로 `$[0].filename expected:<a-null.yaml> but was:<b-zzz.yaml>` 순서 발산 — 확인 후 복원 → GREEN.
+
+### 결과
+- `./gradlew build`(podman) BUILD SUCCESSFUL. 전체 **489**(+3) 실패0 errors0 skip2(-Dloki.live). PostgresIntegrationTest **24/24 PASS(skip 0)** — oid 회귀 2건 + nulls-first 정렬 1건 포함. 운영 Loki 미호출(DB 조회 경로). 기존 SpecControllerTest/DomainControllerTest/ScanControllerTest(mock)는 projection 메서드로 갱신 후 green.
+- 문서: doc/28 §10(가정 정정·버그·메타조회+forHost 수정 기록)·DECISIONS D51·TASKS·이 로그.
+
+### 다음 단계
+- 커밋 금지(매니저, 브랜치 fix/spec-meta-oid-autocommit). ★머지 후 재배포 시 검증 권장. rawDoc bytea 마이그레이션은 선택 후속(별도).
+
 ## 2026-06-29 세션 53 — REST API 배치 PR4(P3 A1 즉시스캔, doc/35) — P1·P3 완료, 마지막 기능 PR
 
 ### 한 일

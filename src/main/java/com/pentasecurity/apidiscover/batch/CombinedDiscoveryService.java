@@ -33,6 +33,7 @@ import java.util.TreeMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class CombinedDiscoveryService {
@@ -68,7 +69,13 @@ public class CombinedDiscoveryService {
      * host 결합 Discovery: 누적 검출 카탈로그(discovered_endpoint) ∪ active spec → Classifier(불변)로
      * Shadow/Active/Zombie/Unused 산출. VERSION_GROUPED 모드면 version 라벨별 그룹도 함께 노출(그 외 flat).
      * per-scan /result 와 별개의 누적 뷰(분류 로직·게이트는 동일, 입력만 누적 카탈로그).
+     *
+     * <p>★{@code @Transactional(readOnly=true)}(doc/28 §10·D51): {@code loadActiveCanonical}/{@code activeRecords} 가
+     * {@code SpecRecord} 엔티티({@code rawDoc}=PG oid LOB)를 로드하므로, 트랜잭션 없이(OSIV=false→auto-commit) 호출하면
+     * "Large Objects may not be used in auto-commit mode" 500. /discovery·/result(M5) 의 진입점이라 여기 1곳에 tx 를 둬
+     * spec 보유 도메인에서도 안전. 읽기+분류만이라 readOnly 적합(공유 스캔 메서드 loadActiveCanonical 은 미터치=analyze 무영향).
      */
+    @Transactional(readOnly = true)
     public CombinedDiscovery forHost(String host) {
         List<DiscoveredEndpoint> discovered = discoveredRepo.findByHost(host).stream()
                 .map(this::toDiscovered).toList();

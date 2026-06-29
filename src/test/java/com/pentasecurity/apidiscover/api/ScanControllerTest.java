@@ -20,7 +20,7 @@ import com.pentasecurity.apidiscover.batch.DomainRegistrar;
 import com.pentasecurity.apidiscover.domain.DomainConfig;
 import com.pentasecurity.apidiscover.domain.ScanResult;
 import com.pentasecurity.apidiscover.domain.ScanResultRepository;
-import com.pentasecurity.apidiscover.domain.SpecRecord;
+import com.pentasecurity.apidiscover.domain.SpecMetaProjection;
 import com.pentasecurity.apidiscover.ingest.LogWindow;
 import com.pentasecurity.apidiscover.model.ApiBasis;
 import com.pentasecurity.apidiscover.model.Classification;
@@ -54,7 +54,7 @@ class ScanControllerTest {
     @Test
     void statusIncludesLatestSpecFilenameAndApiCount() {
         when(scanRepo.findById(HOST)).thenReturn(Optional.of(scan()));
-        when(specStore.activeMeta(HOST)).thenReturn(Optional.of(spec("users-api.yaml", 18)));
+        when(specStore.latestSpecMeta(HOST)).thenReturn(Optional.of(spec("users-api.yaml", 18)));
 
         ScanStatusView view = controller.status(HOST);
 
@@ -66,7 +66,7 @@ class ScanControllerTest {
     @Test
     void statusLatestSpecNullWhenNoSpec() {
         when(scanRepo.findById(HOST)).thenReturn(Optional.of(scan()));
-        when(specStore.activeMeta(HOST)).thenReturn(Optional.empty());
+        when(specStore.latestSpecMeta(HOST)).thenReturn(Optional.empty());
 
         assertThat(controller.status(HOST).latestSpec()).isNull(); // 스펙 없음=null(무회귀)
     }
@@ -211,16 +211,8 @@ class ScanControllerTest {
         return r;
     }
 
-    private static SpecRecord spec(String filename, int endpointCount) {
-        SpecRecord r = new SpecRecord();
-        r.setHost(HOST);
-        r.setSpecName("default");
-        r.setFilename(filename);
-        r.setFormat(SpecFormat.OPENAPI);
-        r.setSpecVersion(1L);
-        r.setEndpointCount(endpointCount);
-        r.setUploadedAt(Instant.EPOCH);
-        r.setActive(true);
-        return r;
+    private static SpecMetaProjection spec(String filename, int endpointCount) {
+        // ★REST 메타는 projection(rawDoc oid 미접근, doc/28) — latestSpecMeta 가 SpecMetaProjection 반환
+        return new SpecMetaProjection(SpecFormat.OPENAPI, 1L, endpointCount, Instant.EPOCH, "default", filename, true);
     }
 }
