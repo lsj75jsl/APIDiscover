@@ -108,7 +108,7 @@
 - [x] `spec/SpecDiffService`(compute-on-read: 현 active vs 직전 inactive canonicalJson 역직렬화·method+path_template 맵·ADDED/DELETED/UPDATED[deprecated/version], TreeMap 정렬 결정적) — **projection only(loadVersions 단일 지점, oid 회피)**.
 - [x] `GET /api/v1/domains/{host}/spec/changes`(SpecController, 기본 active 전 specName·`?specName/from/to/status`·`updatedScope` 노출·host 정규화 null→400) + `spec/SpecChanges` DTO(api.dto↔spec 순환 회피로 spec 패키지).
 - [x] 실 PG 테스트(§6: ADDED/DELETED/deprecated-UPDATED·최초=전ADDED·멀티문서 specName 분리·param-only 미보고+updatedScope·★oid 가드 RED-확인). null 정렬은 기존 `findActiveSpecMetas`(nulls first) 가드 재사용.
-- [ ] 매뉴얼(TW): /spec/changes + ★UPDATED (a) 한계(param 미포함) 명시.
+- [x] 매뉴얼(TW): /spec/changes + ★UPDATED (a) 한계(param 미포함) 명시. — `api-rest-manual.html` §2.4 반영(커밋 fd441db).
 
 **M7b (후속·고위험·별도 PR)**
 - [ ] canonical param 추출(파서·CanonicalEndpoint·canonicalJson 스키마·재파싱) → param-level UPDATED. access-log 파라미터 추출 묶음. **별도 설계**.
