@@ -65,7 +65,7 @@ class CliListRunnerTest {
     }
 
     private CliListRunner runner(String outputDir) {
-        return new CliListRunner(repo, new CliProperties(null, outputDir, null, null, null, true), ctx);
+        return new CliListRunner(repo, new CliProperties(null, outputDir, null, null, null, true, null), ctx);
     }
 
     private static DomainConfig domain(String host, boolean enabled, List<String> hostnames, Instant discoveredAt) {

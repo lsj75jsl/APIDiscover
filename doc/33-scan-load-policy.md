@@ -156,7 +156,8 @@ off-peak 는 **due 술어를 바꾸지 않고** 예산·윈도우만 스위치(d
 운영자가 특정 도메인 API 정보가 **즉시** 필요할 때 스케줄러를 안 기다리고 CLI 로 바로 스캔.
 
 - **명령**: `-domain -scan <domain>` [옵션 `-window PT1H` / `-edge <hostname>`](단일대시 서브커맨드, D47 통일문법 — 내부 `--adc.cli.scan-domain=`/`window=`/`edge=` 로 translate). `-domain` 없음=서버. `@Profile("cli")`·`web(NONE)`·스케줄러 미기동 = 기존(doc/31 §B1) 동일.
-- **동작**: 윈도우 산정(기본 `window` 옵션 또는 `scan.max-window` 기본, **상한=max-window**) → 수집(--edge 지정 시 그 엣지만 `runOnDemand(edge,domain,win)`; 미지정 시 도메인 hostnames 전체 collect) → `analyze`(ScanResult 영속 + discovered_endpoint upsert).
+- **즉시 등록 CLI(`-domain -register <domain>`)**: 스캔 없이 DB 에만 등록(정규화 host·`enabled=true`·멱등, Loki 미호출). 신규 도메인을 미리 잡아두는 용도. 등록 로직은 `DomainRegistrar.registerIfAbsent`(공유 헬퍼) — 자동 디스커버리(`DomainUpserter`)와 달리 `discoveredAt=null`(수동 등록 자연 구분). exit: 0 성공(이미 존재 포함) / 2 도메인 미지정 / 4 DB 오류.
+- **동작**: 도메인 정규화(`DomainNames.normalize`) → **미등록이면 `DomainRegistrar.registerIfAbsent` 로 `enabled=true` 자동등록 후 스캔**(사용자 요청, `-register` 와 동일 헬퍼). 단 **존재하지만 비활성(`enabled=false`)이면 자동 활성화하지 않고 스캔 불가**(운영자 결정 존중). 이후 윈도우 산정(기본 `window` 옵션 또는 `scan.max-window` 기본, **상한=max-window**) → 수집(--edge 지정 시 그 엣지만 `runOnDemand(edge,domain,win)`; 미지정 시 도메인 hostnames 전체 collect) → `analyze`(ScanResult 영속 + discovered_endpoint upsert).
 - **★watermark 관계(설계 답)**: 온디맨드는 **임시 윈도우만, watermark 전진 안 함**(`runOnDemand` 이 현재도 advanceWatermark 미호출 — 기존 동작). 이유: 즉시 스캔이 [now−1h, now) 을 보고 watermark 를 당기면 스케줄러가 [lastEnd, now−1h) 를 **skip → 데이터 갭**. 임시 스냅샷은 누적(discovered_endpoint)·최신 결과(ScanResult)만 갱신하고, 증분 진행은 스케줄러가 계속 소유.
 - **출력/종료코드**: 스캔 후 **요약(검출 수·Active/Zombie/Shadow/Unused 카운트) 출력** + exit(성공 0 / 도메인 미존재·미enabled 비0 / Loki 실패 비0). 기존 `CliExportRunner` exit 패턴 동형.
 - **Loki 부하**: 단일 도메인 즉시 스캔도 **LokiClient 보호·E 예산 준수**(윈도우 상한·스로틀·동시·백오프). 운영 대용량은 off-peak 권장 문구.

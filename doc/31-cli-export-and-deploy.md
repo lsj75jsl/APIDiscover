@@ -17,6 +17,7 @@
 - **스케줄러/Loki 차단**: 현재 `@EnableScheduling` 이 main 클래스에 무조건 부착 → **`SchedulingConfig`(@Configuration @EnableScheduling) 로 분리하고 `@Profile("!cli")`** 부여. CLI 모드는 스케줄러(스캔·디스커버리)·Loki 미기동. (batch.job.enabled=false 는 기존대로.)
 - **실행체**: `CliExportRunner implements CommandLineRunner`(`@Profile("cli")`) — `adc.cli.export-domain` 읽어 1 도메인 내보내고, `SpringApplication.exit`→`System.exit(code)`(성공 0 / 미존재·오류 비0). 웹·스케줄 미기동이라 비데몬 스레드 없음 → 자연 종료(명시 exit 로 코드 보장).
 - **확장 형태(과설계 금지)**: 명령 디스패치는 "어떤 `adc.cli.*` 인자가 있나" 수준의 단순 분기만. 향후 명령은 프로퍼티/서브분기 추가로 자연 확장. **일반 CLI 프레임워크(picocli 등) 미도입**(신규 의존 0).
+- **추가 서브커맨드(D47 확장)**: `-domain -ls`(목록 CSV) / **`-domain -register <domain>`(즉시 등록, DB만·Loki 미호출·멱등)** / `-domain -export <domain>`(결과 CSV) / `-domain -scan <domain>`(즉시 스캔, **미등록이면 `enabled=true` 자동등록 후 스캔**; doc/33 §7). 복수 서브커맨드 동시 지정은 모호 → usage 오류(fail-loud). 등록 로직은 `DomainRegistrar`(register·scan 자동등록 공유, REST `DomainController` 는 409 라 CLI 부적합).
 
 ## B2. CSV 스키마 (architect 확정)
 

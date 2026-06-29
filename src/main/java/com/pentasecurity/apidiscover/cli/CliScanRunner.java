@@ -2,10 +2,12 @@
 package com.pentasecurity.apidiscover.cli;
 
 import com.pentasecurity.apidiscover.batch.DiscoveryJobService;
+import com.pentasecurity.apidiscover.batch.DomainRegistrar;
 import com.pentasecurity.apidiscover.domain.DomainConfig;
 import com.pentasecurity.apidiscover.domain.DomainConfigRepository;
 import com.pentasecurity.apidiscover.domain.ScanResult;
 import com.pentasecurity.apidiscover.ingest.LogWindow;
+import com.pentasecurity.apidiscover.util.DomainNames;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
@@ -31,13 +33,15 @@ public class CliScanRunner implements CommandLineRunner {
 
     private final DiscoveryJobService jobService;
     private final DomainConfigRepository domainRepo;
+    private final DomainRegistrar registrar;
     private final CliProperties props;
     private final ConfigurableApplicationContext context;
 
     public CliScanRunner(DiscoveryJobService jobService, DomainConfigRepository domainRepo,
-                         CliProperties props, ConfigurableApplicationContext context) {
+                         DomainRegistrar registrar, CliProperties props, ConfigurableApplicationContext context) {
         this.jobService = jobService;
         this.domainRepo = domainRepo;
+        this.registrar = registrar;
         this.props = props;
         this.context = context;
     }
@@ -53,14 +57,25 @@ public class CliScanRunner implements CommandLineRunner {
 
     /** 온디맨드 스캔 본체 — exit code 반환(System.exit 안 함, 테스트 가능). */
     int scan() {
-        String domain = props.scanDomain();
-        if (domain == null || domain.isBlank()) {
+        String domain = DomainNames.normalize(props.scanDomain()); // 정규화: 자동등록 중복키 방지·findById/Loki 쿼리 정합
+        if (domain == null) {
             System.err.println("adc.cli.scan-domain 미지정 — 스캔할 도메인이 없습니다");
             return EXIT_NO_DOMAIN;
         }
         DomainConfig cfg = domainRepo.findById(domain).orElse(null);
-        if (cfg == null || !cfg.isEnabled()) {
-            System.err.println("도메인 '" + domain + "' 미존재 또는 비활성(enabled=false) — 스캔 불가");
+        if (cfg == null) {
+            // ★미등록 → 자동 등록(enabled=true) 후 스캔(사용자 요청). 등록 로직은 -register 와 공유(DomainRegistrar).
+            try {
+                registrar.registerIfAbsent(domain);
+                System.out.printf("자동 등록: %s (enabled=true)%n", domain);
+            } catch (RuntimeException e) {
+                log.warn("auto-register failed for {}", domain, e);
+                System.err.println("자동 등록 실패: " + e.getMessage());
+                return EXIT_NOT_SCANNABLE;
+            }
+        } else if (!cfg.isEnabled()) {
+            // 존재하지만 비활성 = 운영자 명시적 결정 존중 → 자동 활성화 안 함(자동등록은 '미등록' 한정)
+            System.err.println("도메인 '" + domain + "' 비활성(enabled=false) — 자동 활성화 안 함, 스캔 불가");
             return EXIT_NOT_SCANNABLE;
         }
         try {
