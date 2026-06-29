@@ -1,7 +1,7 @@
 # REST API 대규모 변경 배치 — 삭제·수정·신규 종합 설계 (사용자 요청)
 
 > 브랜치 단계별 배정(매니저). 근거: doc/07(REST)·doc/26(멀티스펙·CombinedDiscovery)·doc/10·11(분류설정)·doc/34(rationale 재사용)·doc/30(DomainRegistrar). 근거 결정 **DECISIONS D50**.
-> **진행 상태**: PR1(D1+M1+M3) 머지(#39)·PR2(filename+M2+M4+M6) 머지(#40). **PR3(M5 /result rationale + A2 가중치 편집) 구현 완료**(브랜치 feat/api-batch-p1-result-weights, build green 480·커밋 보류). **P1 전부 완료**. P3(A1)=후속 PR, **P2(M7)=보류**(§P2). 운영 Loki 미호출(정적/mock).
+> **진행 상태**: PR1(D1+M1+M3) #39·PR2(filename+M2+M4+M6) #40·PR3(M5+A2) #41 머지. **PR4(P3 A1 즉시스캔) 구현 완료**(브랜치 feat/api-batch-p3-scannow, build green 486·커밋 보류). **P1·P3 전부 완료**(A1 이 마지막 기능 PR). **P2(M7)=보류**만 잔존(§P2, 추후 access-log 파라미터 추출과 함께). 운영 Loki 미호출(정적/mock).
 > 사용자 확정: **GET /domains/{host}=유지+보강**(삭제 아님), **/result rationale=조회시 재계산**(report_json·ETag·중앙계약 불변, /discovery 메커니즘 재사용).
 
 ## 0. 단계 분할(phase) — 위험·의존도 기준
@@ -189,9 +189,9 @@ architect 가 의미만 정리(아래), TW 가 §2.5 편집:
 - [ ] M7.2 API 상태추적(compute-on-read diff: specName N vs N-1, method+path_template 키, ADDED/DELETED/UPDATED[deprecated·version 한정]) + 노출(GET /spec 또는 /api-status). ★UPDATED 한계 명시.
 - [ ] 테스트(ADDED/DELETED/UPDATED·최초업로드 전부 ADDED·param-diff 범위밖 확인).
 
-**P3 (A1)**
-- [ ] A1 POST /domains/{host}/scan-now(registerIfAbsent+scanOnDemand+forHost findings/rationale, window 상한·부하보호, 비동기 /scan 과 구분).
-- [ ] 테스트(미등록 자동등록·watermark 미전진·findings 반환, 운영 Loki 단위 mock).
+**P3 (A1) — ★구현 완료(PR4)**
+- [x] **PR4** A1 `POST /domains/{host}/scan-now`(ScanController) — 정규화(null→400) → `DomainRegistrar.registerIfAbsent`(미등록 자동등록) → `onDemandWindow`(?window·상한 scan.max-window) → `scanOnDemand`(★watermark 미전진) → `CombinedDiscoveryService.forHost`(findings+rationale+effectiveClassification) 반환. Loki 실패=502, 정규화=400. 기존 비동기 `POST /scan`(202) 와 구분(둘 다 유지).
+- [x] **PR4** 테스트(미등록 자동등록·멱등·정규화·window 위임·scanOnDemand 502·blank 400, 전부 mock=운영 Loki 미호출).
 
 ## 범위 밖 / 후속
 

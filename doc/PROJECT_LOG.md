@@ -5,6 +5,20 @@
 
 ---
 
+## 2026-06-29 세션 53 — REST API 배치 PR4(P3 A1 즉시스캔, doc/35) — P1·P3 완료, 마지막 기능 PR
+
+### 한 일
+- **A1 `POST /api/v1/domains/{host}/scan-now`(동기 즉시 스캔)**: ScanController 에 추가. 동작 순서 — ① `DomainNames.normalize(host)`(null→400 BAD_REQUEST; DomainController.requireNormalizedHost 는 private 이라 util 직접 사용) ② `DomainRegistrar.registerIfAbsent`(미등록 자동등록, enabled=true·discoveredAt=null — CLI -scan 자동등록 일관) ③ `jobService.onDemandWindow(?window)`(상한=scan.max-window) ④ `jobService.scanOnDemand(host, w, null)`(★watermark 미전진, doc/33 §7 온디맨드 스냅샷) ⑤ `CombinedDiscoveryService.forHost(host)` 반환(findings+rationale+effectiveClassification, /discovery 일관). ScanController 에 DomainRegistrar 주입 추가.
+- **기존 `POST /scan`(비동기 202·runScan 스케줄 트리거)와 구분**: 둘 다 유지. javadoc 에 'busy 도메인 지연 가능 → window 작게·비동기는 POST /scan' 명시.
+- **에러 매핑**: 정규화 실패=400, scanOnDemand(Loki 수집/분석) 실패=502 BAD_GATEWAY(try/catch RuntimeException), 등록 실패=uncaught→500. Loki 부하보호(slice·throttle·동시·백오프·LokiBudget)는 scanOnDemand 내부 준수·window 상한으로 폭주 차단(우회 없음).
+
+### 결과
+- `./gradlew build` BUILD SUCCESSFUL. 전체 **486**(+6) 실패0 errors0 skip2(-Dloki.live). `ScanControllerTest` +6(미등록 자동등록+scanOnDemand+forHost 반환·멱등·정규화 FOO→foo·window 위임·blank 400·Loki실패 502). ★전부 mock(registrar/jobService/combined) — 운영 Loki(192.168.8.100:3200) 미호출. PostgresIntegrationTest 등 기존 무회귀.
+- ★P1(D1·M1·M2·M3·M4·M5·M6·A2 + filename) + P3(A1) 전부 완료 = doc/35 기능 PR 종료. P2(M7)=보류만 잔존(추후 access-log 파라미터 추출과 함께).
+
+### 다음 단계
+- 커밋 금지(매니저, 브랜치 feat/api-batch-p3-scannow). 매뉴얼(api-rest-manual.html: POST /scan-now)=TW 후속. ★spec_record.filename(PR2) 포함 일괄 재배포는 매니저. M7=보류.
+
 ## 2026-06-29 세션 52 — REST API 배치 PR3(M5 /result rationale + A2 가중치 편집, doc/35) — P1 완료
 
 ### 한 일

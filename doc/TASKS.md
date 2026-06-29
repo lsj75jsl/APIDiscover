@@ -78,7 +78,7 @@
     - [x] 설정키(`tiering-enabled`·active/default/inactive-interval·active-threshold·off-peak-*·dormant-*) application.yml + **무회귀**(`tiering-enabled=false`→effectiveInterval=ZERO→nextScanDueAt 항상 now→LRS=PR1 동치, off-peak 미설정=항상 peak)
     - [x] 테스트 — `ScanTierTest`(active/inactive/dormant/default/override정상·실패폴백/tiering-off ZERO 밴드 경계)·`OffPeakWindowTest`(in/out·경계·자정wrap·blank/파싱실패=peak·zone)·`ScanSelectorTest`(due 술어 미due 제외·nullsFirst asc·K·off-peak K 스위치)·`DiscoverySchedulerTest`(touchScanSchedule=now+effectiveInterval·tiering-off PR1 동치·off-peak maxWindow 주입). 운영 Loki 단위 mock
 - [x] off-peak 시간대 제한 **(완료 — doc/33 D, PR2 `OffPeakWindow`·K/윈도우 스위치, PR #29 머지)**
-- [ ] **REST API 대규모 변경 배치 (삭제·수정·신규)** **(설계 → doc/35 / D50. PR1(D1+M1+M3) 머지 #39·PR2(filename+M2+M4+M6) 머지 #40·PR3(M5+A2) 구현 완료(브랜치 feat/api-batch-p1-result-weights, build green 480·커밋 보류·머지 시 Done). ★P1 전부 완료. 나머지 P3(A1)·P2(M7) 후속)** — 스키마변경=`spec_record.filename` 1건(PR2·재배포 필요). ★중앙영향: M1=배열+헤더(non-breaking)·M2/M4/M6=additive·M5 rationale 가산(additive·ETag 불변).
+- [ ] **REST API 대규모 변경 배치 (삭제·수정·신규)** **(설계 → doc/35 / D50. PR1(D1+M1+M3) #39·PR2(filename+M2+M4+M6) #40·PR3(M5+A2) #41 머지·PR4(P3 A1) 구현 완료(브랜치 feat/api-batch-p3-scannow, build green 486·커밋 보류·머지 시 Done). ★P1·P3 전부 완료(A1=마지막 기능 PR). P2(M7)=보류만 잔존)** — 스키마변경=`spec_record.filename` 1건(PR2·재배포 필요). ★중앙영향: M1=배열+헤더(non-breaking)·M2/M4/M6=additive·M5 rationale 가산(additive·ETag 불변)·A1=신규(영향 0).
   - 1단계(저위험·additive, 독립 PR):
     - [x] **PR1 D1** `HostQueryController` 제거(+`GET /hostnames/{}/domains`·`POST .../query`) + `findByHostname` orphan 정리(전용 확인 후 삭제). 매뉴얼 `/hostnames` 절=TW 후속
     - [x] **PR1 M1** GET /domains 페이지네이션 — ★body=JSON 배열 유지 + 헤더(X-Total-Count/Pages·X-Current-Page), page 0-based(음수→0)·size [1,1000] clamp·host asc. non-breaking. N+1 은 page-bounded 완화+batch meta 후속(ponytail)
@@ -90,7 +90,7 @@
     - [x] **PR2 M6** GET /spec 목록 — flat `List<SpecMetaView>`(specName·filename·active 가산, activeRecords·정렬, 무스펙=[]). `?history` 후속
     - [x] **PR3 A2** PATCH /classification/weights(도메인·전역) — 현 effective 14 스냅샷(resolve/신규 resolveGlobal) ∪ 요청 부분 → profile CUSTOM·편집 안 한 키 유지(MIDDLE 리셋 방지)·threshold/matcher 미터치·unknown 키 400. 기존 PUT 불변(가산)
   - 2단계(M7, 고위험·독립 PR) **— ★이번 보류(사용자 확정, 추후 access-log 파라미터 추출과 함께)**: [ ] 멀티문서 업로드(filename→specName·버전관리) + API 상태추적 ADDED/DELETED/UPDATED **(compute-on-read·신규 테이블 없음, 동일성=method+path_template, ★UPDATED=deprecated/version 한정 — canonical query param 미보유)**
-  - 3단계(A1, 독립 PR): [ ] POST /domains/{host}/scan-now 즉시스캔(registerIfAbsent+scanOnDemand+forHost findings/rationale, Loki 동기·window 상한·부하보호, 비동기 /scan 과 구분)
+  - 3단계(A1, 독립 PR) **— ★PR4 구현 완료(브랜치 feat/api-batch-p3-scannow, build green 486·커밋 보류·머지 시 Done, 마지막 기능 PR)**: [x] POST /domains/{host}/scan-now 동기 즉시스캔(ScanController: 정규화 null→400 → registerIfAbsent 자동등록 → onDemandWindow(?window)+scanOnDemand watermark 미전진 → forHost findings/rationale 반환. Loki 실패=502. 비동기 POST /scan(202) 와 구분, 둘 다 유지. 테스트 전부 Loki mock)
   - [ ] W1 매뉴얼 §2.5 /classification 의미 정리(thresholdOverride·customWeights·matcher) → technical_writer
 - [ ] 부하/운영 메트릭 (쿼리수·바이트·429) Actuator/Micrometer 노출 + 알람 — doc/12 `DroppedNonApi`·doc/13 `DroppedByLimit` 카운트 재사용 가능 **(→ 계측은 doc/33 E PR1, 알람 연동은 별도 후속)**
 - [ ] Spring Batch JobRepository 실연결 (현재 `@Scheduled`만, `batch.job.enabled=false`)
