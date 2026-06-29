@@ -96,6 +96,18 @@ class SpecStoreTest {
     }
 
     @Test
+    void uploadDerivesSpecNameFromFilenameElseDefault() {
+        when(repo.findFirstByHostOrderBySpecVersionDesc(HOST)).thenReturn(Optional.empty());
+        when(repo.findByHostAndActiveIsTrue(HOST)).thenReturn(List.of());
+        when(repo.save(any(SpecRecord.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // doc/36 M7.1: filename → specName(trim·소문자), 미전달/빈 = "default"(하위호환)
+        assertThat(store.upload(HOST, OPENAPI, "Users-API.yaml").getSpecName()).isEqualTo("users-api.yaml");
+        assertThat(store.upload(HOST, OPENAPI).getSpecName()).isEqualTo("default");        // 파일명 미전달
+        assertThat(store.upload(HOST, OPENAPI, "   ").getSpecName()).isEqualTo("default");   // 빈 파일명
+    }
+
+    @Test
     void secondUploadIncrementsVersionAndDeactivatesPrevious() {
         SpecRecord prev = new SpecRecord();
         prev.setHost(HOST);

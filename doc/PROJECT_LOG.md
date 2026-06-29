@@ -5,6 +5,22 @@
 
 ---
 
+## 2026-06-29 세션 56 — M7a: spec 멀티문서 관리 + API 상태추적(ADDED/DELETED/UPDATED, doc/36)
+
+### 한 일
+- **M7.1 멀티문서 버전관리**: `SpecStore.upload(host,content,filename)` 의 specName 을 ★filename 에서 도출(trim·소문자, 미전달/빈=`"default"` 하위호환). 다른 filename=별개 문서, 동일 filename 재업로드=그 specName 새 버전(기존 MERGE 가 같은 specName 비활성·구active 보존). loadActiveCanonical·specMergeStrategy 불변.
+- **M7.2 상태추적(compute-on-read·스키마 0)**: `domain/SpecCanonicalProjection`(canonicalJson 포함·**rawDoc oid 미선택**) + `SpecRecordRepository.findCanonicalVersions`(JPQL 생성자식·`coalesce(specName,'default')` 레거시 null 매칭·specVersion desc). `spec/SpecDiffService`(현 active vs 직전 inactive[같은 specName active=false 중 최대 버전] canonicalJson 역직렬화 → method+path_template 맵 → ADDED/DELETED 완전 + UPDATED=deprecated/version, TreeMap 정렬 결정적, UNCHANGED 미보고). ★projection-only(loadVersions 단일 지점)로 비-tx oid materialize 회피(D51).
+- **노출**: `GET /api/v1/domains/{host}/spec/changes`(SpecController, M6 목록과 분리). 기본=active 전 specName 현 vs 직전, `?specName/from/to/status` 필터, host 정규화(null→400). 응답=specName 별 {comparedVersion·previousVersion(없으면 null)·changes[{method·pathTemplate·status·changed·changedDetail}]} + 최상위 `updatedScope="deprecated_version_only"`(M7a UPDATED 한계 자기노출). DTO `spec/SpecChanges`(api.dto↔spec 순환 회피로 spec 패키지).
+- **★UPDATED 범위=M7a(deprecated/version 만)**: param-level 변경은 canonical 미보유라 미검출(M7b 후속·access-log param 묶음). path 변경=다른 template=ADDED+DELETED. updatedScope 로 한계 노출.
+
+### 결과
+- `./gradlew build`(podman) BUILD SUCCESSFUL. 전체 **496**(+7) 실패0 errors0 skip2(-Dloki.live). PostgresIntegrationTest **28/28 PASS(skip 0)**: M7a 실 PG 4건(① v1→v2 ADDED/DELETED/deprecated-UPDATED·previousVersion ② 최초=전ADDED·previous null ③ 멀티문서 specName 분리·?specName ④ param-only 미보고+updatedScope). 단위 `SpecControllerTest`+2(/changes 위임·status 파싱·host 400)·`SpecStoreTest`+1(specName 도출). 운영 Loki 미호출(spec=파싱·DB only).
+- **★oid 가드 RED-확인**: loadVersions 를 엔티티 로드(rawDoc oid)로 임시 원복 → M7a /spec/changes 4건 전부 `Large Objects may not be used in auto-commit mode`/`Unable to access lob stream`(JpaSystemException) RED 확인 후 복원 → GREEN. projection-only 가 실제 oid 500 을 막음을 실증(H2 미재현).
+- 문서: doc/36 §9(M7a [x])·TASKS·이 로그. ★스키마 변경 0·재배포 불요.
+
+### 다음 단계
+- 커밋 금지(매니저, 브랜치 feat/m7a-spec-changes). 매뉴얼(/spec/changes·UPDATED (a) 한계)=TW 후속. M7b(canonical param 추출→param-level UPDATED)=후속 PR(access-log param 묶음·별도 설계).
+
 ## 2026-06-29 세션 55 — REST API 매뉴얼 일괄 갱신 (doc/35 배치 머지+재배포 c435d9f, 문서만, TW)
 
 ### 한 일
