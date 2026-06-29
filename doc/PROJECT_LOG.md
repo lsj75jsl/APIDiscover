@@ -5,6 +5,23 @@
 
 ---
 
+## 2026-06-29 세션 51 — REST API 배치 PR2(spec-meta 노출: filename + M2·M4·M6, doc/35)
+
+### 한 일
+- **스키마 ADD `spec_record.filename`**: `SpecRecord` 에 `filename` 컬럼+접근자(ddl-auto update·기존행 null·무손실). ★머지 후 재배포 필요.
+- **filename 수신**: `SpecStore.upload` 에 filename 오버로드 추가(`upload(host,content,filename)`·`upload(host,specName,content,filename)` core, 기존 2/3-arg 는 filename=null 위임=무회귀). `SpecController.upload` 에 `@RequestParam(required=false) String filename` → 저장.
+- **M6 GET /spec 복수**: 단일 `SpecMetaView`(404) → flat `List<SpecMetaView>`(200, 무스펙=[]). `SpecMetaView` 에 `specName`·`filename`·`active` 가산(additive — 단일 meta 소비처 무회귀). `activeRecords` specName/version 정렬(결정적). 별도 wrapper DTO 안 만듦(린).
+- **M2 GET /domains/{host} 보강**: 신규 `DomainDetailView`(DomainView 필드 + `lastScanAt`·`effectiveClassification`). ★목록(M1)은 경량 `DomainView` 유지 — 단건 get() 만 scanRepo.findById·resolver.resolve 조회(page 당 N+1 회귀 방지). DomainController 에 ScanResultRepository·EffectiveClassificationResolver 주입.
+- **M4 GET /scan-status 보강**: `ScanStatusView` 에 `latestSpec`(SpecMetaView 재사용=filename·uploadedAt·endpointCount) 가산. ScanController 에 SpecStore 주입.
+- **effective 빌더 공유**: `EffectiveClassification.toView()`(classify→model) 추출 — CombinedDiscoveryService(/discovery)·DomainController(M2) 가 공유(중복 제거). CombinedDiscoveryService 의 private effectiveView 제거.
+- **SpecMetaView 매핑 단일화**: `SpecMetaView.of(SpecRecord)` 팩토리 — upload/M2/M4/M6 공유(7-arg 생성 중복 제거).
+
+### 결과
+- `./gradlew build` BUILD SUCCESSFUL. 전체 **472**(+8) 실패0 errors0 skip2(-Dloki.live). 신규 `SpecControllerTest` 3(filename 수신·M6 목록 정렬·빈배열)·`ScanControllerTest` 2(latestSpec·null)·`DomainControllerTest` +2(M2 detail·null)·`SpecStoreTest` +1(filename 저장/null). CombinedDiscoveryServiceTest(effective toView 공유)·integration(/discovery·/result) 무회귀. 운영 Loki 미호출.
+
+### 다음 단계
+- 커밋 금지(매니저, 브랜치 feat/api-batch-p1-specmeta). ★filename 컬럼 추가 → 머지 후 재배포 필요. 매뉴얼(api-rest-manual.html: /spec 복수·PUT ?filename·/domains/{host} 보강·/scan-status latestSpec)=TW 후속. 후속 PR: M5·A2·P3(A1). P2(M7)=보류.
+
 ## 2026-06-29 세션 50 — REST API 배치 PR1(도메인 엔드포인트 D1+M1+M3, doc/35)
 
 ### 한 일

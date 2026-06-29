@@ -57,18 +57,28 @@ public class SpecStore {
         this.parsersByFormat = map;
     }
 
-    /** 하위호환 — 문서명 미지정 업로드는 "default" 문서(현행 단일 스펙 경로). */
+    /** 하위호환 — 문서명·파일명 미지정 업로드는 "default" 문서(현행 단일 스펙 경로). */
     public SpecRecord upload(String host, byte[] content) {
-        return upload(host, "default", content);
+        return upload(host, "default", content, null);
+    }
+
+    /** 파일명 동반 업로드(PUT /spec ?filename=, doc/35 M2/M6) — specName="default"(M7 에서 filename→specName 도출). */
+    public SpecRecord upload(String host, byte[] content, String filename) {
+        return upload(host, "default", content, filename);
+    }
+
+    /** 하위호환 — 파일명 미지정 멀티문서 업로드(specName 지정). */
+    public SpecRecord upload(String host, String specName, byte[] content) {
+        return upload(host, specName, content, null);
     }
 
     /**
      * 업로드 시점 처리(동기): 포맷 감지 → 파싱 → 검증 → 새 specVersion 으로 영속. 멀티 스펙(doc/26 §3/§5).
      * 모드별 비활성화: SEPARATE=host 전체 교체, MERGE/VERSION_GROUPED=같은 specName 만(형제 문서 유지).
-     * 무효 문서/빈 스펙은 IllegalArgumentException(중앙에 400 으로 동기 피드백, doc/07 §3.1).
+     * 무효 문서/빈 스펙은 IllegalArgumentException(중앙에 400 으로 동기 피드백, doc/07 §3.1). {@code filename}=원본 파일명(nullable, doc/35).
      */
     @Transactional
-    public SpecRecord upload(String host, String specName, byte[] content) {
+    public SpecRecord upload(String host, String specName, byte[] content, String filename) {
         SpecFormat format = detector.detect(content);
         SpecParser parser = parsersByFormat.get(format);
         if (parser == null) {
@@ -100,6 +110,7 @@ public class SpecStore {
         SpecRecord record = new SpecRecord();
         record.setHost(host);
         record.setSpecName(name);
+        record.setFilename(filename); // 원본 파일명(nullable, doc/35 M2/M6)
         record.setFormat(format);
         record.setSpecVersion(nextVersion);
         record.setRawDoc(content);

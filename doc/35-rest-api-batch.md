@@ -1,7 +1,7 @@
 # REST API 대규모 변경 배치 — 삭제·수정·신규 종합 설계 (사용자 요청)
 
 > 브랜치 단계별 배정(매니저). 근거: doc/07(REST)·doc/26(멀티스펙·CombinedDiscovery)·doc/10·11(분류설정)·doc/34(rationale 재사용)·doc/30(DomainRegistrar). 근거 결정 **DECISIONS D50**.
-> **진행 상태**: PR1(도메인 엔드포인트 D1+M1+M3) **구현 완료**(브랜치 feat/api-batch-p1-domain, build green 464·커밋 보류). 나머지 P1(filename·M2·M4·M5·M6·A2)·P3(A1)=후속 PR, **P2(M7)=이번 보류**(§P2). 운영 Loki 미호출(정적/mock).
+> **진행 상태**: PR1(D1+M1+M3) 머지(#39). **PR2(spec-meta 노출: spec_record.filename + M2+M4+M6) 구현 완료**(브랜치 feat/api-batch-p1-specmeta, build green 472·커밋 보류). 나머지 P1(M5·A2)·P3(A1)=후속 PR, **P2(M7)=이번 보류**(§P2). 운영 Loki 미호출(정적/mock).
 > 사용자 확정: **GET /domains/{host}=유지+보강**(삭제 아님), **/result rationale=조회시 재계산**(report_json·ETag·중앙계약 불변, /discovery 메커니즘 재사용).
 
 ## 0. 단계 분할(phase) — 위험·의존도 기준
@@ -23,6 +23,7 @@
 | **M5** GET /result | body 에 `rationale` 필드 **가산** | additive-safe — 기존 report_json 필드 불변, 신규 필드만(중앙 파서 무영향). ETag=report version 유지. |
 | **M3** PUT /domains | 미전달 항목 = **기존 유지**(전엔 clear) | 의미 변경 — 전 항목 전달 시 무회귀. "omit=clear" 의존 소비자만 영향(희소). |
 | **D1** /hostnames/** | 엔드포인트 **제거** | Breaking — 해당 소비자 있으면 영향(현 자체용, 중앙 미사용 추정). |
+| **M6** GET /spec | 응답 **단일 객체 → 배열**·404 폐지(무스펙=`[]`) | **★Breaking** — 단일 객체/404 의존 소비자 깨짐. 중앙/소비자 동시 갱신 또는 소비 여부 확인(§M6). |
 | **A1·A2** | 신규 엔드포인트 | 영향 0(가산). |
 | **M7** PUT /spec | `filename` 옵션 파라미터 가산·멀티문서 | additive(filename 미전달=현행 default). |
 
@@ -75,18 +76,16 @@
 - **★정직 caveat**: report_json findings=**스캔시점**, rationale=**현재 재계산**(현재 effective 설정 기준) → 둘이 다를 수 있음(doc/34 "현재설정 기준" 한계 동일). 또 조건부GET 304 시 캐시 body 의 rationale 는 갱신 안 됨(ETag 가 report 만 추적) — 신선 rationale 은 200 응답에서. 의도된 트레이드오프(ETag=스캔리포트 계약 보존).
 - 샘플: report_json 객체 + `"rationale":[ {method,host,pathTemplate,classification,basis} ]`(doc/34 §2 shape).
 
-## M6. GET /spec 복수 반환
+## M6. GET /spec 복수 반환 (★구현 = flat `List<SpecMetaView>`)
 
-- **현**: 단일 active `SpecMetaView`. → 도메인 **spec 문서 목록** 반환(문서별 업로드 일시·파일명).
-- 응답:
+- **현**: 단일 active `SpecMetaView`(404 if none). → 도메인 **spec 문서 목록** 반환(문서별 업로드 일시·파일명). 무스펙=빈 배열(200, 404 폐지).
+- **★구현(PR2)**: 별도 wrapper(`SpecListView{host,mode,documents}`) 대신 **`SpecMetaView` 배열**을 직접 반환(린·DTO 추가 0). `SpecMetaView` 에 `specName`·`filename`·`active` 가산(additive — 단일 meta 소비처 DomainView.spec·upload 무회귀). `activeRecords(host)` → specName asc·specVersion asc 정렬(결정적).
+- 응답(구현):
 ```jsonc
-{ "host":"api.example.com", "mode":"MERGE",
-  "documents":[
-    { "specName":"users", "filename":"users-api.yaml", "format":"OPENAPI",
-      "specVersion":42, "endpointCount":18, "uploadedAt":"2026-06-29T...", "active":true } ] }
+[ { "format":"OPENAPI", "specVersion":42, "endpointCount":18, "uploadedAt":"2026-06-29T...",
+    "specName":"users", "filename":"users-api.yaml", "active":true } ]
 ```
-- 데이터: 기본=active 목록(`activeRecords`). 버전 이력 포함 옵션 `?history=true` → `findByHostOrderByUploadedAtDesc`(신규 쿼리, inactive 포함). DTO `SpecListView`/`SpecDocView`.
-- spec_record 이미 멀티(id/specName/specVersion/active/uploadedAt) + filename(P1) → 목록화.
+- 데이터: 기본=active 목록(`activeRecords`). 버전 이력 옵션 `?history=true`(inactive 포함)는 **후속**(신규 repo 쿼리 필요·이번 미구현). spec_record 멀티(id/specName/specVersion/active/uploadedAt) + filename(PR2) → 목록화.
 
 ## A2. 가중치 편집 API (profile 자동 CUSTOM)
 
@@ -176,12 +175,12 @@ architect 가 의미만 정리(아래), TW 가 §2.5 편집:
 **P1 (저위험·additive)** — ★PR1(도메인 엔드포인트 D1+M1+M3) 구현 완료(브랜치 feat/api-batch-p1-domain, build green 464·커밋 보류). 나머지(filename·M2·M4·M5·M6·A2)는 후속 PR.
 - [x] D1 `HostQueryController` 제거(+`GET /hostnames/{}/domains`·`POST .../query`) + `findByHostname` orphan 정리(전용·타 사용처 0 확인 후 삭제). 매뉴얼 `/hostnames` 절=TW 후속.
 - [x] M1 GET /domains 페이지네이션 — ★body=JSON 배열 유지 + 헤더(X-Total-Count/Pages·X-Current-Page), page 0-based·size [1,1000] clamp·host asc. N+1 은 page-bounded(≤1000/page) 완화 + batch meta 로드 후속(ponytail 주석). non-breaking.
-- [ ] `spec_record.filename`(ADD-only) + `SpecRecord` 접근자 + PUT /spec 옵션 `filename` 파라미터(M2/M6/M7 공유). — 후속 PR
-- [ ] M2 GET /domains/{host} 보강(`lastScanAt`·`latestSpec{filename,uploadedAt,...}`·`effectiveClassification`). — 후속 PR
+- [x] **PR2** `spec_record.filename`(ADD-only·ddl-auto·기존행 null) + `SpecRecord` 접근자 + PUT /spec 옵션 `?filename=`(SpecStore.upload 오버로드, M2/M6/M7 공유). ★머지 후 재배포 필요(컬럼).
+- [x] **PR2** M2 GET /domains/{host} 보강(`DomainDetailView`: `lastScanAt`·spec`{filename,uploadedAt,...}`·`effectiveClassification`). ★목록(M1)은 경량 `DomainView` 유지=성능 회귀 방지(단건만 scan/resolver 조회). effective 빌더=`EffectiveClassification.toView()` 공유(/discovery 와 중복 제거).
 - [x] M3 PUT /domains 부분수정(`DomainUpsert` enabled Boolean nullable·present-only apply, []=비우기·null=유지, 전항목=무회귀·create 무회귀).
-- [ ] M4 GET /scan-status 보강(`latestSpec{filename,uploadedAt,specEndpointCount}`).
-- [ ] M5 GET /result rationale 가산(serve-time, report_json/ETag 불변, classifyExplained 재사용) + 중앙 additive-safe 검증.
-- [ ] M6 GET /spec 목록(`SpecListView`·active 기본·`?history` 옵션·신규 repo 쿼리).
+- [x] **PR2** M4 GET /scan-status 보강(`latestSpec`=SpecMetaView{filename·uploadedAt·endpointCount(추출 API수)} 재사용, 없으면 null).
+- [ ] M5 GET /result rationale 가산(serve-time, report_json/ETag 불변, classifyExplained 재사용) + 중앙 additive-safe 검증. — 후속 PR
+- [x] **PR2** M6 GET /spec 목록 — flat `List<SpecMetaView>`(specName·filename·active 가산, activeRecords·specName/version 정렬, 무스펙=[]). `?history` 옵션은 후속.
 - [ ] A2 PATCH /classification/weights(도메인·전역, 현 effective 스냅샷+부분 override+profile CUSTOM, applyOverrides 재사용).
 - [ ] 테스트(각 항목 + 무회귀: M3 전항목 동일·M5 report_json 불변·페이지네이션 경계).
 

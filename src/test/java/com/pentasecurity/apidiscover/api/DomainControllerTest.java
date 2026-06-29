@@ -8,12 +8,22 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pentasecurity.apidiscover.api.dto.DomainDtos.DomainUpsert;
 import com.pentasecurity.apidiscover.api.dto.DomainDtos.DomainView;
+import com.pentasecurity.apidiscover.classify.EffectiveClassificationResolver;
+import com.pentasecurity.apidiscover.domain.ClassificationConfigRepository;
+import com.pentasecurity.apidiscover.domain.DomainClassificationConfigRepository;
 import com.pentasecurity.apidiscover.domain.DomainConfig;
 import com.pentasecurity.apidiscover.domain.DomainConfigRepository;
+import com.pentasecurity.apidiscover.domain.ScanResult;
+import com.pentasecurity.apidiscover.domain.ScanResultRepository;
+import com.pentasecurity.apidiscover.domain.SpecRecord;
+import com.pentasecurity.apidiscover.model.ClassificationProfile;
 import com.pentasecurity.apidiscover.model.SpecMergeStrategy;
+import com.pentasecurity.apidiscover.spec.SpecFormat;
 import com.pentasecurity.apidiscover.spec.SpecStore;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -30,7 +40,12 @@ class DomainControllerTest {
 
     private final DomainConfigRepository repo = mock(DomainConfigRepository.class);
     private final SpecStore specStore = mock(SpecStore.class);
-    private final DomainController controller = new DomainController(repo, specStore);
+    private final ScanResultRepository scanRepo = mock(ScanResultRepository.class);
+    // 실 resolver(빈 config repo mock) → resolve=MIDDLE effective(non-null, toView 동작). doc/34 일관.
+    private final EffectiveClassificationResolver resolver = new EffectiveClassificationResolver(
+            mock(ClassificationConfigRepository.class), mock(DomainClassificationConfigRepository.class),
+            new ObjectMapper());
+    private final DomainController controller = new DomainController(repo, specStore, scanRepo, resolver);
 
     @Test
     void createNormalizesHostBeforeSave() {
@@ -207,6 +222,58 @@ class DomainControllerTest {
 
         assertThat(view.enabled()).isTrue();
         assertThat(view.hostnames()).isEmpty();
+    }
+
+    // --- M2: GET /domains/{host} 단건 상세 보강 ---
+
+    @Test
+    void getReturnsDetailViewWithLastScanSpecAndEffectiveClassification() {
+        DomainConfig d = new DomainConfig();
+        d.setHost("example.com");
+        d.setEnabled(true);
+        when(repo.findById("example.com")).thenReturn(Optional.of(d));
+        when(specStore.activeMeta("example.com")).thenReturn(Optional.of(spec("users-api.yaml", 18)));
+        ScanResult sr = new ScanResult();
+        sr.setHost("example.com");
+        sr.setLastScanAt(Instant.EPOCH);
+        when(scanRepo.findById("example.com")).thenReturn(Optional.of(sr));
+
+        var view = controller.get("example.com");
+
+        assertThat(view.lastScanAt()).isEqualTo(Instant.EPOCH);
+        assertThat(view.spec().filename()).isEqualTo("users-api.yaml"); // M6/filename
+        assertThat(view.spec().endpointCount()).isEqualTo(18);
+        assertThat(view.effectiveClassification().profile()).isEqualTo(ClassificationProfile.MIDDLE);
+        assertThat(view.effectiveClassification().weightsSource()).isEqualTo("preset");
+        assertThat(view.effectiveClassification().weights()).hasSize(14);
+    }
+
+    @Test
+    void getWithoutScanOrSpecYieldsNullsButAlwaysEffectiveClassification() {
+        DomainConfig d = new DomainConfig();
+        d.setHost("example.com");
+        when(repo.findById("example.com")).thenReturn(Optional.of(d));
+        when(specStore.activeMeta("example.com")).thenReturn(Optional.empty());
+        when(scanRepo.findById("example.com")).thenReturn(Optional.empty());
+
+        var view = controller.get("example.com");
+
+        assertThat(view.spec()).isNull();
+        assertThat(view.lastScanAt()).isNull();
+        assertThat(view.effectiveClassification()).isNotNull(); // resolver 는 항상 effective 반환(MIDDLE 기본)
+    }
+
+    private static SpecRecord spec(String filename, int endpointCount) {
+        SpecRecord r = new SpecRecord();
+        r.setHost("example.com");
+        r.setSpecName("default");
+        r.setFilename(filename);
+        r.setFormat(SpecFormat.OPENAPI);
+        r.setSpecVersion(3L);
+        r.setEndpointCount(endpointCount);
+        r.setUploadedAt(Instant.EPOCH);
+        r.setActive(true);
+        return r;
     }
 
     private static DomainConfig existing() {

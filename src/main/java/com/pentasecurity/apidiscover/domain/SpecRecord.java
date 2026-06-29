@@ -28,6 +28,9 @@ public class SpecRecord {
     /** host 내 문서 식별(멀티 스펙, doc/26 §3). null→"default" 로 해석. 멀티문서 upsert 동작은 2단계. */
     private String specName;
 
+    /** 원본 파일명(PUT /spec ?filename=, doc/35 M2/M6). ADD-only(ddl-auto)·기존행/미전달 null→표시 폴백. */
+    private String filename;
+
     @Enumerated(EnumType.STRING)
     private SpecFormat format;
 
@@ -71,6 +74,14 @@ public class SpecRecord {
 
     public void setSpecName(String specName) {
         this.specName = specName;
+    }
+
+    public String getFilename() {
+        return filename;
+    }
+
+    public void setFilename(String filename) {
+        this.filename = filename;
     }
 
     public SpecFormat getFormat() {

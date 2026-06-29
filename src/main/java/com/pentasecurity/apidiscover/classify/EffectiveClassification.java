@@ -3,6 +3,7 @@ package com.pentasecurity.apidiscover.classify;
 
 import com.pentasecurity.apidiscover.match.ApiHintMatcher;
 import com.pentasecurity.apidiscover.model.ClassificationProfile;
+import com.pentasecurity.apidiscover.model.EffectiveClassificationView;
 import com.pentasecurity.apidiscover.model.MatcherConfig;
 
 /**
@@ -16,4 +17,14 @@ public record EffectiveClassification(
         MatcherConfig matcher,
         ApiScorer scorer,
         ApiHintMatcher hints) {
+
+    /**
+     * /discovery·/domains 응답용 effective 뷰 (doc/34 §2, doc/35 M2). weightsSource=CUSTOM→custom·그 외 preset.
+     * ★단일 진실원 — CombinedDiscoveryService(/discovery)·DomainController(M2)가 공유(중복 회피).
+     */
+    public EffectiveClassificationView toView() {
+        String weightsSource = (profile == ClassificationProfile.CUSTOM) ? "custom" : "preset";
+        return new EffectiveClassificationView(profile, scorer.threshold(), weightsSource,
+                ApiScorer.weightsAsMap(weights));
+    }
 }

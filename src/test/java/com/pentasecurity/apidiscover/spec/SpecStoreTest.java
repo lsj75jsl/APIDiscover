@@ -86,6 +86,16 @@ class SpecStoreTest {
     }
 
     @Test
+    void uploadStoresFilenameWhenProvidedElseNull() {
+        when(repo.findFirstByHostOrderBySpecVersionDesc(HOST)).thenReturn(Optional.empty());
+        when(repo.findByHostAndActiveIsTrue(HOST)).thenReturn(List.of());
+        when(repo.save(any(SpecRecord.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        assertThat(store.upload(HOST, OPENAPI, "users-api.yaml").getFilename()).isEqualTo("users-api.yaml");
+        assertThat(store.upload(HOST, OPENAPI).getFilename()).isNull(); // 미전달=null(doc/35 M2)
+    }
+
+    @Test
     void secondUploadIncrementsVersionAndDeactivatesPrevious() {
         SpecRecord prev = new SpecRecord();
         prev.setHost(HOST);
