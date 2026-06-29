@@ -4,6 +4,8 @@ package com.pentasecurity.apidiscover.spec;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
+import com.pentasecurity.apidiscover.model.ParamIn;
+import com.pentasecurity.apidiscover.model.SpecParam;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -113,7 +115,41 @@ public class PostmanSpecParser implements SpecParser {
         String host = extractHost(urlNode, vars);
         boolean dep = deprecated || isDeprecatedDescription(request.path("description"));
         return new CanonicalEndpoint(method.toUpperCase(Locale.ROOT), template, host, dep,
-                version, "postman#" + namePath);
+                version, "postman#" + namePath, params(urlNode, request.get("body")));
+    }
+
+    /** url.query / url.variable(path) / body(urlencoded·formdata·raw) → SpecParam (doc/37 §2). */
+    private static List<SpecParam> params(JsonNode urlNode, JsonNode body) {
+        List<SpecParam> out = new ArrayList<>();
+        if (urlNode != null && urlNode.isObject()) {
+            forEachEnabled(urlNode.get("query"), key -> out.add(new SpecParam(key, ParamIn.QUERY, false, "string")));
+            forEachEnabled(urlNode.get("variable"), key -> out.add(new SpecParam(key, ParamIn.PATH, true, "string")));
+        }
+        if (body != null && body.isObject()) {
+            String mode = text(body.path("mode"));
+            if ("urlencoded".equals(mode) || "formdata".equals(mode)) {
+                forEachEnabled(body.get(mode), key -> out.add(new SpecParam(key, ParamIn.BODY, false, "string")));
+            } else if ("raw".equals(mode) && text(body.path("raw")) != null) {
+                out.add(new SpecParam("body", ParamIn.BODY, false, "object"));
+            }
+        }
+        return out;
+    }
+
+    /** {key,value,disabled} 배열 순회 — disabled 제외, key 비-null 만 콜백. */
+    private static void forEachEnabled(JsonNode arr, java.util.function.Consumer<String> consumer) {
+        if (arr == null || !arr.isArray()) {
+            return;
+        }
+        for (JsonNode n : arr) {
+            if (n.path("disabled").asBoolean(false)) {
+                continue;
+            }
+            String key = text(n.path("key"));
+            if (key != null) {
+                consumer.accept(key);
+            }
+        }
     }
 
     // --- url path ---

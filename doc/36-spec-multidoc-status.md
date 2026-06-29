@@ -1,5 +1,8 @@
 # M7 — spec 멀티문서 관리 + API 상태추적 (ADDED/DELETED/UPDATED) 상세 설계
 
+> ## ★ SUPERSEDED — doc/37 로 대체 (M7 재설계)
+> 본 문서의 **compute-on-read 문서버전 diff 모델**(현 active vs 직전 inactive `canonicalJson` 조회 시점 비교·`SpecDiffService`·`GET /spec/changes`)은 **사용자 의도와 불일치**로 폐기됐다. 사용자 의도 = **영속 API 인벤토리 + 업로드마다 문서별 reconcile**(파라미터 보유·ADDED/UPDATED/DELETED 를 현재 상태 속성으로 관리·DELETED 를 Zombie 입력으로). 재설계는 **doc/37 — 영속 API 인벤토리 + reconcile** 참조. M7a 구현(PR #44/#45)은 doc/37 §5 롤백 경계에 따라 제거·이관된다. 본 문서는 이력 보존용(삭제 안 함).
+
 > doc/35 P2(고위험) 상세화. 근거: doc/26(멀티스펙·specMergeStrategy·SpecStore)·doc/03(canonical)·doc/28 §10·DECISIONS D51(rawDoc oid 교훈)·doc/35 M6(filename·projection). 근거 결정 **DECISIONS D52**.
 > **M7a 구현 완료**(브랜치 feat/m7a-spec-changes, build green 496·PostgresIntegrationTest 28·커밋 보류). **M7b(param-level UPDATED)=후속**(별도 PR·access-log param 묶음). 운영 Loki 미호출. 스키마 변경 0·재배포 불요.
 

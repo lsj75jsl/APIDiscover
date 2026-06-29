@@ -27,6 +27,7 @@ import com.pentasecurity.apidiscover.model.CombinedDiscovery;
 import com.pentasecurity.apidiscover.model.EndpointRationale;
 import com.pentasecurity.apidiscover.model.Finding;
 import com.pentasecurity.apidiscover.model.SpecMergeStrategy;
+import com.pentasecurity.apidiscover.spec.ApiInventoryService;
 import com.pentasecurity.apidiscover.spec.SpecFormat;
 import com.pentasecurity.apidiscover.spec.SpecStore;
 import java.time.Instant;
@@ -40,6 +41,14 @@ class CombinedDiscoveryServiceTest {
 
     private final DiscoveredEndpointRepository discoveredRepo = mock(DiscoveredEndpointRepository.class);
     private final SpecStore specStore = mock(SpecStore.class);
+    // DELETED→Zombie 결합 입력(doc/37 §6). 기본 빈 키집합 → 분류 무영향(무회귀). DELETED Zombie 테스트만 stub.
+    private final ApiInventoryService apiInventoryService = stubInventory();
+
+    private static ApiInventoryService stubInventory() {
+        ApiInventoryService m = mock(ApiInventoryService.class);
+        when(m.deletedKeys(org.mockito.ArgumentMatchers.any())).thenReturn(java.util.Set.of());
+        return m;
+    }
     private final DomainConfigRepository domainRepo = mock(DomainConfigRepository.class);
     private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
     private final ClassificationConfigRepository globalClassRepo = mock(ClassificationConfigRepository.class);
@@ -47,7 +56,7 @@ class CombinedDiscoveryServiceTest {
             globalClassRepo, mock(DomainClassificationConfigRepository.class), objectMapper);
 
     private final CombinedDiscoveryService service = new CombinedDiscoveryService(
-            discoveredRepo, specStore, new EndpointMatcherCache(), new Classifier(new ApiScorer()),
+            discoveredRepo, specStore, apiInventoryService, new EndpointMatcherCache(), new Classifier(new ApiScorer()),
             resolver, domainRepo, objectMapper);
 
     @Test

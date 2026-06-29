@@ -35,6 +35,7 @@ import com.pentasecurity.apidiscover.normalize.InventoryBuilder;
 import com.pentasecurity.apidiscover.parse.LogLineParser;
 import com.pentasecurity.apidiscover.report.EtagUtil;
 import com.pentasecurity.apidiscover.report.ReportBuilder;
+import com.pentasecurity.apidiscover.spec.ApiInventoryService;
 import com.pentasecurity.apidiscover.spec.SpecStore;
 import com.pentasecurity.apidiscover.util.DomainNames;
 import java.time.Duration;
@@ -59,6 +60,7 @@ public class DiscoveryJobService {
     private final LogLineParser parser;
     private final InventoryBuilder inventoryBuilder;
     private final SpecStore specStore;
+    private final ApiInventoryService apiInventoryService;
     private final EndpointMatcherCache matcherCache;
     private final Classifier classifier;
     private final EffectiveClassificationResolver classificationResolver;
@@ -76,6 +78,7 @@ public class DiscoveryJobService {
     public DiscoveryJobService(LogLineParser parser,
                                InventoryBuilder inventoryBuilder,
                                SpecStore specStore,
+                               ApiInventoryService apiInventoryService,
                                EndpointMatcherCache matcherCache,
                                Classifier classifier,
                                EffectiveClassificationResolver classificationResolver,
@@ -92,6 +95,7 @@ public class DiscoveryJobService {
         this.parser = parser;
         this.inventoryBuilder = inventoryBuilder;
         this.specStore = specStore;
+        this.apiInventoryService = apiInventoryService;
         this.matcherCache = matcherCache;
         this.classifier = classifier;
         this.classificationResolver = classificationResolver;
@@ -239,9 +243,11 @@ public class DiscoveryJobService {
         });
         // base-path-strip prefix (doc/27 §3). null=off=현행. 매처가 as-is 우선·미매칭 시 prefix 재부착 재시도.
         String stripPrefix = domainRepo.findById(host).map(c -> c.getBasePathStrip()).orElse(null);
-        // findings + non_api dropped 메트릭 동시 산출 (doc/12 §1, doc/24·26·27)
+        // DELETED→Zombie 결합 입력(doc/37 §6) — host 의 DELETED 인벤토리 키 1쿼리. 비면 무영향(무회귀).
+        Set<String> deletedKeys = apiInventoryService.deletedKeys(host);
+        // findings + non_api dropped 메트릭 동시 산출 (doc/12 §1, doc/24·26·27, doc/37 §6)
         ClassificationResult classified = classifier.classifyWithMetrics(
-                discovered, spec, matcher, eff.scorer(), eff.hints(), priorFirstSeen, stripPrefix, host);
+                discovered, spec, matcher, eff.scorer(), eff.hints(), priorFirstSeen, stripPrefix, host, deletedKeys);
         List<Finding> findings = classified.findings();
         // OPTIONS 는 CORS 신호로만 쓰고 보고에서 제외되므로 인벤토리 카운트에서도 뺀다 (과대집계 방지)
         long reportedCount = discovered.stream()

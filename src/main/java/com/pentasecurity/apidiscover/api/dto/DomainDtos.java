@@ -71,7 +71,7 @@ public final class DomainDtos {
                     r.getSpecName(), r.getFilename(), r.isActive());
         }
 
-        /** SpecMetaProjection → 메타 뷰 매핑(★REST 메타 조회 — rawDoc oid 미접근, doc/28). */
+        /** SpecMetaProjection → 메타 뷰 매핑(★REST 메타 조회 — 대용량 text 미로드 projection, doc/28). */
         public static SpecMetaView of(SpecMetaProjection p) {
             return new SpecMetaView(p.format(), p.specVersion(), p.endpointCount(), p.uploadedAt(),
                     p.specName(), p.filename(), p.active());

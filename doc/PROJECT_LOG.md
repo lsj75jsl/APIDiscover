@@ -5,6 +5,25 @@
 
 ---
 
+## 2026-06-29 세션 59 — M7 재설계: 영속 API 인벤토리 + 업로드 reconcile (P1-1~P1-8, doc/37 / D53, 브랜치 feat/documented-api-inventory)
+
+### 한 일
+- **P1-1 롤백(M7a)**: `SpecDiffService`·`SpecChanges`·`SpecCanonicalProjection` 삭제, `SpecRecordRepository.findCanonicalVersions` 제거, `SpecController` /spec/changes 핸들러·`SpecDiffService` 주입 제거, `SpecControllerTest` diff 단위테스트 2건 제거, `PostgresIntegrationTest` specChanges 4건 + 헬퍼(saveSpecVersion·ep) 제거, `reuploadSameFilenameViaHttpDoesNotHit500` 단언을 `/spec/changes`→`/apis` 로 이관.
+- **P1-2 신규 테이블 `documented_api`**: `DocumentedApiRecord`(자연키 host+specName+method+path_template unique·paramsJson text[@Lob 금지]·status{ACTIVE,DELETED}·lastChange{ADDED,UPDATED,UNCHANGED}·deprecated·version·sourceSpecVersion·3 타임스탬프·@DynamicUpdate·인덱스 host/host,spec_name/host,status) + `ApiStatus`·`ApiChangeKind` enum + `DocumentedApiRepository`(findByHostAndSpecName·findByHostOrdered·findKeysByHostAndStatus). ddl-auto=update ADD TABLE(무손실).
+- **P1-3 파라미터**: `SpecParam(name,ParamIn{QUERY/PATH/HEADER/COOKIE/BODY},required,type)` + `CanonicalEndpoint` params 가산(compact 생성자 null→빈·6-arg 편의 생성자=기존 호출부·구 canonicalJson 하위호환). `SpecCanonicalizer.withDeprecated` params 보존. 3 파서 추출 — OpenAPI(path+operation parameters·requestBody→BODY·schema type 요약), Postman(url.query/variable[path]/body urlencoded·formdata·raw), CSV(`params` 컬럼 `name:in:required:type` 세미콜론).
+- **P1-4 reconcile**: `ApiInventoryService.reconcile(host,specName,parsed,version,now)` — upload 4-arg core @Transactional 안에서 호출(별도 빈=프록시 정상·전파 REQUIRED·self-invocation 무관). 부재→INSERT(ADDED)·DELETED 재등장→ADDED·param/deprecated/version 변경→UPDATED·동일→UNCHANGED·인벤토리 ACTIVE 인데 파싱 부재→DELETED(★WHERE spec_name 한정=삭제 격리). param 변경 판정=Set<SpecParam> 비교. `SpecStore.upload` 가 `setRawDoc` 제거 + reconcile 호출.
+- **P1-5 노출**: `ApiInventoryController` `GET /api/v1/domains/{host}/apis`(?specName/status/method·DELETED 노출·host 정규화 null→400·잘못된 status→400). `DocumentedApiView`(params 역직렬화). `ApiInventoryService.list`.
+- **P1-6 ★DELETED→Zombie 결합**: Classifier core 에 `Set<String> deletedKeys` 인자 가산(빈=무회귀·바이트 동일). 1st pass active spec 미매칭 + DELETED 키("METHOD path") → `Finding.Zombie`(confidence 0.8·estimated=false·specRef="deleted-from-spec"·게이트 우회). DiscoveryJobService(스캔)·CombinedDiscoveryService(forHost) 가 `ApiInventoryService.deletedKeys(host)` 1쿼리 주입(classifyWithMetrics 9-arg·classifyExplained 7-arg 신규 오버로드). 2차(deprecated/version Zombie)와 중복 없음(active 미포함).
+- **P1-7 ★rawDoc 삭제**: `SpecRecord.rawDoc`(@Lob byte[]=PG oid) 필드·getter/setter·@Lob import 제거 → oid 함정 클래스(D51 3건) 구조적 소멸. rawDoc 전용 테스트 은퇴(`rawDocActualTypeRecorded` 삭제·round-trip/meta/forHost 에서 rawDoc strip·meta/forHost 는 projection·readOnly tx 200 가드로 잔존). ops DDL(lo_unlink→DROP COLUMN/vacuumlo)=차기 점검창(dev 범위 밖). 백필=재업로드.
+- **P1-8 실 PG 테스트(podman Testcontainers)**: `uploadsUnionPerSpecNameAndIsolateDeletionOnRealPg`(①②④⑥)·`reuploadReconcilesUpdatedDeletedAddedUnchangedOnRealPg`(③⑧)·`deletedApiWithTrafficClassifiesAsDeletedFromSpecZombieOnRealPg`(⑨)·기존 `reuploadSameFilenameViaHttpDoesNotHit500`(⑦ 이관). 전부 MockMvc 실 HTTP(auto-commit)=oid 안전(⑤). CSV 업로드로 param 정밀 제어.
+
+### 결과
+- `./gradlew build`(podman) **BUILD SUCCESSFUL**. 전체 **493** 실패0 errors0 skip2(-Dloki.live). PostgresIntegrationTest **27/27 PASS(skip 0)**. 운영 Loki 미호출(spec=파싱·DB only). 스키마=ADD TABLE documented_api(무손실)·rawDoc DROP 은 ops DDL(코드 디커플).
+- ★실 PG RED-확인(매니저 표준): Zombie 결합(분기 `false &&` 비활성→specRef 미검출 RED)·reconcile DELETED(루프 비활성→/drop ACTIVE 잔존 RED) 각각 RED→복원→GREEN. 격리는 findByHostAndSpecName 스코핑으로 구조 보장.
+- ★교훈: finding JSON 은 record 컴포넌트만 직렬화 — interface `classification()` 미노출(@JsonProperty 만 예외). /discovery 단언은 컴포넌트(specRef/confidence)로.
+- 문서: doc/37(supersede doc/36)·DECISIONS D53(채택·구현)·TASKS P1-1~P1-8 [x]·이 로그. 커밋 보류(매니저 git/PR/머지). P1-9 매뉴얼=TW 후속.
+- 다음 단계: 매니저 리뷰·머지(+재배포 시 documented_api 테이블 자동 생성·rawDoc DROP ops 런북 doc/37 §7.4).
+
 ## 2026-06-29 세션 58 — REST API 매뉴얼 M7a(spec 멀티문서 + API 상태추적) 갱신 (PR #44/#45 머지+재배포 201d0b5, 문서만, TW)
 
 ### 한 일

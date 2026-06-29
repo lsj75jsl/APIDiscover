@@ -78,7 +78,7 @@ class ScanSliceBoundedTest {
             return List.of("line");
         });
         DiscoveryJobService svc = new DiscoveryJobService(
-                null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null,
                 loki, new LokiQueryBuilder(props), budget, null, props);
         return svc.collectBounded(cfg, window);
     }

@@ -30,6 +30,9 @@ import org.springframework.stereotype.Component;
 @Component
 public class Classifier {
 
+    /** deleted-from-spec Zombie 의 specRef/근거 마커(doc/37 §6) — deprecated(문서 내 폐기예정)와 구분. */
+    private static final String DELETED_FROM_SPEC = "deleted-from-spec";
+
     private final ApiScorer apiScorer;
 
     public Classifier(ApiScorer apiScorer) {
@@ -140,7 +143,24 @@ public class Classifier {
                                                     Map<String, Instant> priorFirstSeen,
                                                     String stripPrefix,
                                                     String host) {
-        return classifyWithMetrics(discovered, spec, matcher, scorer, hints, priorFirstSeen, stripPrefix, host, null);
+        return classifyWithMetrics(discovered, spec, matcher, scorer, hints, priorFirstSeen, stripPrefix, host, Set.of(), null);
+    }
+
+    /**
+     * 9-arg(+deletedKeys): 스캔 경로의 DELETED→Zombie 결합(doc/37 §6). deletedKeys=host 의 DELETED 인벤토리 키집합
+     * ("METHOD path_template"). 관측이 active spec 미매칭이고 이 집합에 있으면 SHADOW 대신 Zombie(deleted-from-spec, 0.8).
+     * 빈 집합(현행)=무회귀. rationale 미수집(스캔 경로).
+     */
+    public ClassificationResult classifyWithMetrics(List<DiscoveredEndpoint> discovered,
+                                                    List<CanonicalEndpoint> spec,
+                                                    EndpointMatcher matcher,
+                                                    ApiScorer scorer,
+                                                    ApiHintMatcher hints,
+                                                    Map<String, Instant> priorFirstSeen,
+                                                    String stripPrefix,
+                                                    String host,
+                                                    Set<String> deletedKeys) {
+        return classifyWithMetrics(discovered, spec, matcher, scorer, hints, priorFirstSeen, stripPrefix, host, deletedKeys, null);
     }
 
     /** findings + rationale(판단 근거) 동시 산출 결과 (doc/34). rationale 는 findings 와 동일 순서·identity 병렬. */
@@ -156,15 +176,29 @@ public class Classifier {
                                                      ApiScorer scorer,
                                                      ApiHintMatcher hints,
                                                      String stripPrefix) {
+        return classifyExplained(discovered, spec, matcher, scorer, hints, stripPrefix, Set.of());
+    }
+
+    /**
+     * 7-arg(+deletedKeys): 결합 뷰(forHost /discovery·/result)의 DELETED→Zombie 결합(doc/37 §6). 스캔 경로와 동일 게이트,
+     * rationale 동봉. 빈 집합=현행 무회귀. deleted-from-spec Zombie 도 rationale 병렬(SpecMatchBasis, specRef="deleted-from-spec").
+     */
+    public ExplainedClassification classifyExplained(List<DiscoveredEndpoint> discovered,
+                                                     List<CanonicalEndpoint> spec,
+                                                     EndpointMatcher matcher,
+                                                     ApiScorer scorer,
+                                                     ApiHintMatcher hints,
+                                                     String stripPrefix,
+                                                     Set<String> deletedKeys) {
         List<EndpointRationale> rationale = new ArrayList<>();
         ClassificationResult r = classifyWithMetrics(
-                discovered, spec, matcher, scorer, hints, Map.of(), stripPrefix, null, rationale);
+                discovered, spec, matcher, scorer, hints, Map.of(), stripPrefix, null, deletedKeys, rationale);
         return new ExplainedClassification(r.findings(), rationale);
     }
 
     /**
-     * 9-arg core: +rationaleOut(nullable) — 비-null 이면 각 finding 과 병렬로 판단 근거 수집(doc/34 §2).
-     * null(스캔 경로)이면 rationale 작업 전무 → findings/dropped/preflight 가 8-arg 와 완전 동일(무회귀·ETag 불변).
+     * 10-arg core: +deletedKeys(doc/37 §6) +rationaleOut(nullable, doc/34 §2). deletedKeys 빈 + rationaleOut null(스캔 현행)이면
+     * findings/dropped/preflight 가 이전과 완전 동일(무회귀·ETag 불변). rationaleOut 비-null 이면 finding 과 병렬로 판단 근거 수집.
      */
     public ClassificationResult classifyWithMetrics(List<DiscoveredEndpoint> discovered,
                                                     List<CanonicalEndpoint> spec,
@@ -174,6 +208,7 @@ public class Classifier {
                                                     Map<String, Instant> priorFirstSeen,
                                                     String stripPrefix,
                                                     String host,
+                                                    Set<String> deletedKeys,
                                                     List<EndpointRationale> rationaleOut) {
         List<Finding> findings = new ArrayList<>();
         int excluded = 0;
@@ -236,6 +271,22 @@ public class Classifier {
                 // Active/Zombie 는 2차 (스펙 권위, 게이트 우회). 매칭 d 메트릭을 Evidence 에 누적(severity 용)
                 observedSpec.computeIfAbsent(key(matched.get()), k -> new Evidence())
                         .add(d, priorFirstSeen.get(EndpointIdentity.key(d.method(), host, d.pathTemplate())));
+                continue;
+            }
+            // ★active spec 미매칭이지만 DELETED 인벤토리 키 → deleted-from-spec Zombie (doc/37 §6). 게이트 우회(한때 문서화=실 API).
+            //   active spec 미포함이라 2차(deprecated/version Zombie)와 중복 없음. 빈 deletedKeys=현행(무회귀).
+            if (deletedKeys.contains(deletedKey(d.method(), d.pathTemplate()))) {
+                Evidence ev = new Evidence();
+                ev.add(d, priorFirstSeen.get(EndpointIdentity.key(d.method(), host, d.pathTemplate())));
+                Instant prior = ev.entrenchedFirstSeen != null ? ev.entrenchedFirstSeen : ev.firstSeen;
+                findings.add(new Finding.Zombie(d.host(), d.method(), d.pathTemplate(), 0.8,
+                        ZombieSeverity.of(ev, prior), false, DELETED_FROM_SPEC,
+                        "문서에서 제거됐으나 트래픽 지속 — 차단/마이그레이션 검토",
+                        new ParamCandidates(ev.queryCandidates(), pathParamsFromTemplate(d.pathTemplate()))));
+                if (rationaleOut != null) {
+                    rationaleOut.add(new EndpointRationale(d.method(), d.host(), d.pathTemplate(),
+                            Classification.ZOMBIE, new ApiBasis.SpecMatchBasis(DELETED_FROM_SPEC, false, false)));
+                }
                 continue;
             }
             // 문서에 없음 → ApiScorer 게이트 (doc/08, doc/09 §2.2). 전달된 scorer 사용(doc/10 §6)
@@ -374,6 +425,11 @@ public class Classifier {
     /** 부동소수점 잡음 제거 + 리포트 가독성을 위해 소수 3자리 반올림. */
     private static double round3(double v) {
         return Math.round(v * 1000.0) / 1000.0;
+    }
+
+    /** DELETED 인벤토리 키 = METHOD(대문자) + path_template (ApiInventoryService.deletedKeys 와 동형, doc/37 §6.5). */
+    private static String deletedKey(String method, String pathTemplate) {
+        return method.toUpperCase(Locale.ROOT) + " " + pathTemplate;
     }
 
     /** 문서/관찰 엔드포인트의 매칭 동일성 키. host=null 은 host-agnostic("*"). */
