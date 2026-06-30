@@ -5,6 +5,17 @@
 
 ---
 
+## 2026-06-30 세션 63 — REST API 매뉴얼 응답 예시 축약 펼치기 (사용자 요구=숨은 필드 0, 문서만, TW)
+
+### 한 일
+- `api-rest-manual.html` 의 모든 축약 마커(`…`·`{…}`·`"…":"…"`·`/* …14키 */`·`...14키`)를 라이브 실값으로 펼침. bounded 구조는 전부 노출: GET /domains 2행+헤더(51353), effectiveClassification.weights 14키, scan-status 전체, /result 중첩객체 9종 전부+findings 대표 1건(/stats), rationale 13 신호 전부(/clips·미발화 포함), /apis 14필드×4행, 분류설정 effective.weights 16필드(Weights 레코드=14+repeatMinCount+threshold)·customWeights 14키. 대용량 배열(findings 153·rationale 194)은 대표 1건 완전+"총 N건" 주석(263KB 전건 덤프 회피).
+- scan-status/result/§3 ETag 를 동일 스캔 새 캡처(829bfa4c628a7ede·discovered 162·shadow 153·totalDropped 9)로 일관화, §4 카탈로그 vs 스캔 예시도 194/153 동기. /clips rationale 전환에 맞춰 읽는법 계산식(0.4+0.3+0.34=1.04) 갱신.
+- 코드 교차검증: ApiScorer.Weights 레코드 16필드·weightsAsMap 14키·EffectiveView javadoc(threshold·repeatMinCount 포함)·ParamDiff.
+
+### 결과
+- HTMLParser OK·HTML 태그 균형 EMPTY·숨김 축약 마커 0(`…`/`{…}`/`"…":"…"`/`"..."`/`...14키` 전부 0, 남은 `13개`=해설 문구)·signals 13키·effective 16필드·구 version 잔존 0 검증. 자기완결. main 직접 커밋.
+- 다음 단계: 매니저 검증 대기.
+
 ## 2026-06-30 세션 62 — REST API 매뉴얼 P2(breaking 판정 + merged 뷰) 현행화 (PR #47 머지+재배포 b60b929, 문서만, TW)
 
 ### 한 일

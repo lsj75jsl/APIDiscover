@@ -156,6 +156,9 @@
 
 ## Done
 
+### REST API 매뉴얼 응답 예시 축약 펼치기 (2026-06-30, 사용자 요청, 문서만) — TW
+- [x] `api-rest-manual.html` 의 모든 축약(`…`·`{…}`·`"…":"…"`·`...14키`·`13개`) → 라이브 실값으로 펼침(숨은 필드 0). bounded 구조(14키 weights·effective 16필드·/apis 14필드·scan-status·/result 중첩객체·13 신호) 전부 표시, 대용량 배열(findings 153·rationale 194)은 대표 1건 완전+건수 주석. scan-status/result/§3 새 캡처(829bfa4c628a7ede·162/153/9) 일관화. 코드 교차검증(Weights 레코드 16필드·weightsAsMap 14키·ParamDiff). 커밋 후속.
+
 ### REST API 사용 매뉴얼 신규 작성 (2026-06-29, 사용자 요청, 문서만) — TW
 - [x] `doc/manual/api-rest-manual.html` 신규 — 전 엔드포인트(도메인 CRUD·scan-status·result·discovery(신규 rationale)·spec·classification·hostnames·actuator) 18종 사용법(curl)+라이브 실데이터 응답 예시(VM 재배포 8b37f89 캡처)+조건부 GET(ETag 304 실증)+현재 제약사항·TODO 절. 자기완결 HTML. 컨트롤러 6종 라우트·상태코드(201/204/202·ETag) 교차검증.
 

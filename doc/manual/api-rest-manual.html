@@ -153,15 +153,16 @@
   <p><strong>페이지네이션</strong> 도메인 목록. 응답 body 는 JSON 배열(각 원소는 경량 <code>DomainView</code>)이고, <strong>페이지 정보는 응답 헤더</strong>에 실린다. 파라미터 <code>?page</code>(0-based, 기본 0)·<code>?size</code>(기본 1000, 범위 <code>[1,1000]</code>). host 오름차순 정렬(결정적).</p>
   <pre><code>curl -i 'http://&lt;host&gt;:8080/api/v1/domains?page=0&amp;size=2'</code></pre>
   <pre><code># 응답 헤더
-X-Total-Count: 45592
-X-Total-Pages: 22796
+X-Total-Count: 51353
+X-Total-Pages: 25677
 X-Current-Page: 0
 
 # 응답 body (배열, size=2)
 [
-  { "host":"0.0.0.0", "enabled":true, "hostnames":["AAI43","ALDI1", "..."],
+  { "host":"0.0.0.0", "enabled":true, "hostnames":["AAI43","ALDI1","ALI41","AOC3-ICN-2501M0"],
     "intervalOverride":null, "specMergeStrategy":"MERGE", "basePathStrip":null, "spec":null },
-  { "host":"...", "enabled":true, "hostnames":["..."], "spec":null }
+  { "host":"00.674e7e49.v3-202405.cbricdns.com", "enabled":true, "hostnames":["AYJ11"],
+    "intervalOverride":null, "specMergeStrategy":"MERGE", "basePathStrip":null, "spec":null }
 ]</code></pre>
   <p class="legend">전체 도메인이 4만+ 건이라 페이지네이션이 필수다(과거 무페이지 전건 반환은 폐지). <code>X-Total-Pages</code>·<code>X-Current-Page</code> 로 순회한다. 목록의 <code>spec</code> 은 경량 메타이며, 페이지당(최대 1000건) 스펙 조회가 있다(<a href="#s5">배치 로드는 TODO</a>).</p>
 </div>
@@ -190,10 +191,13 @@ X-Current-Page: 0
   "lastScanAt":"2026-06-29T05:00:37.105715Z",
   "effectiveClassification":{
     "profile":"MIDDLE", "threshold":0.7, "weightsSource":"preset",
-    "weights":{ "hostApiSubdomain":0.4, "corsPreflight":0.3, "..." :"… 14키" }
+    "weights":{ "hostApiSubdomain":0.4, "corsPreflight":0.3, "apiSegment":0.55, "graphqlSegment":0.55,
+                "versionSegment":0.26, "pathIdSegment":0.15, "machineEndpoint":0.2, "writeMethod":0.34,
+                "query":0.12, "nonBrowserUa":0.24, "staticAssetPenalty":-0.6, "repeatBonus":0.12,
+                "pathHint":0.55, "responseTypeApi":0.25 }
   }
 }</code></pre>
-  <p class="legend">스펙이 있으면 <code>spec</code> 은 <code>{"format":"OPENAPI","specVersion":1,"endpointCount":2,"uploadedAt":"…","specName":"petstore-v1.json","filename":"petstore-v1.json","active":true}</code> 형태(없으면 null). <code>effectiveClassification</code> 읽는 법은 <a href="#s2-3">§2.3</a> 참조.</p>
+  <p class="legend">스펙이 있으면 <code>spec</code> 은 <code>{"format":"OPENAPI","specVersion":1,"endpointCount":2,"uploadedAt":"2026-06-29T07:35:40.406366Z","specName":"petstore-v1.json","filename":"petstore-v1.json","active":true}</code> 형태(없으면 null). <code>effectiveClassification</code> 읽는 법은 <a href="#s2-3">§2.3</a> 참조.</p>
 </div>
 
 <div class="ep">
@@ -219,13 +223,13 @@ curl -X DELETE http://&lt;host&gt;:8080/api/v1/domains/api.weble.net   # → 204
   <pre><code>{
   "host":"api.weble.net",
   "state":"idle",
-  "lastScanAt":"2026-06-26T09:04:13.072008Z",
-  "version":"1913dd805b705e7a",
-  "summary":{"discovered":166,"active":0,"shadow":161,"zombie":0,"unused":0},
-  "totalDropped":5,
+  "lastScanAt":"2026-06-29T05:00:37.105715Z",
+  "version":"829bfa4c628a7ede",
+  "summary":{"discovered":162,"active":0,"shadow":153,"zombie":0,"unused":0},
+  "totalDropped":9,
   "latestSpec":null
 }</code></pre>
-  <p class="legend"><code>latestSpec</code> 보유 예: <code>{"filename":"petstore-v1.json","uploadedAt":"…","endpointCount":2, …}</code>. <code>api.weble.net</code> 은 스펙 미업로드라 null.</p>
+  <p class="legend"><code>latestSpec</code> 보유 예: <code>{"filename":"petstore-v1.json","uploadedAt":"2026-06-29T07:35:40.406366Z","endpointCount":2}</code>. <code>api.weble.net</code> 은 스펙 미업로드라 null.</p>
 </div>
 
 <div class="ep">
@@ -234,21 +238,30 @@ curl -X DELETE http://&lt;host&gt;:8080/api/v1/domains/api.weble.net   # → 204
   <pre><code>curl -i http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/result</code></pre>
   <p>응답 본문 상위 키와 핵심 부분(트림). <code>rationale</code> 가 끝에 가산된다.</p>
   <pre><code>{
-  "host":"api.weble.net", "generatedAt":"…", "logWindow":{…}, "specVersion":…,
-  "summary":{"discovered":166,"active":0,"shadow":161,"zombie":0,"unused":0,"lowConfidence":0},
+  "host":"api.weble.net",
+  "generatedAt":"2026-06-29T05:00:37.105714556Z",
+  "logWindow":{"from":"2026-06-19T07:48:48.580072Z","to":"2026-06-19T08:18:48.580072Z"},
+  "specVersion":0,
+  "summary":{"discovered":162,"active":0,"shadow":153,"zombie":0,"unused":0,"lowConfidence":0},
   "findings":[
-    { "host":"api.weble.net", "method":"GET", "pathTemplate":"/requests",
+    { "host":"api.weble.net", "method":"GET", "pathTemplate":"/stats",
       "confidence":0.9, "reason":"트래픽 존재, 문서 내 매칭 템플릿 없음",
-      "params":{ "query":[
-          {"name":"campaignId","count":10075,"lenBuckets":["S"],"sensitive":false},
-          {"name":"type","count":10075,"lenBuckets":["S"],"sensitive":false} ],
-        "path":[] },
+      "params":{ "query":[], "path":[] },
       "low_confidence":false }
+    /* 총 153건(Shadow) — 각 건 위와 동일 구조(엔드포인트별 1건) */
   ],
-  "droppedNonApi":{"excluded":0,"webForm":0,"lowScore":5,"total":5},
-  "droppedByLimit":{…}, "droppedNonExistent":{…},
-  "endpointKindSignal":{…}, "typeDistribution":{…}, "preflightSignal":{…}, "specSource":{…},
-  "rationale":[ { "method":"…", "pathTemplate":"…", "classification":"…", "basis":{…} } ]
+  "droppedNonApi":{"excluded":0,"webForm":0,"lowScore":9,"total":9},
+  "droppedByLimit":{"templates":0,"params":0,"total":0},
+  "droppedNonExistent":{"notFound":0},
+  "endpointKindSignal":{"status":"DORMANT","staticRatio":0.0,"refererPresentRatio":0.994},
+  "typeDistribution":{"top":[{"type":"document","count":346501}],"other":0},
+  "preflightSignal":{"status":"DORMANT","acrmPresentOptions":0},
+  "specSource":{"specVersion":0,"format":null,"warnings":[],"documents":[]},
+  "rationale":[
+    { "method":"POST", "host":"api.weble.net", "pathTemplate":"/clips", "classification":"SHADOW",
+      "basis":{ /* §2.3 ②의 basis 와 동일 구조: type·mode·gate·apiScore·threshold·signals(전체) */ } }
+    /* 총 194건 — 각 건 §2.3 의 rationale 1건과 동일 구조 */
+  ]
 }</code></pre>
   <p class="legend">상위 키: <code>host</code>·<code>generatedAt</code>·<code>logWindow</code>·<code>specVersion</code>·<code>summary</code>·<code>findings</code>·<code>droppedNonApi</code>·<code>droppedByLimit</code>·<code>droppedNonExistent</code>·<code>endpointKindSignal</code>·<code>typeDistribution</code>·<code>preflightSignal</code>·<code>specSource</code>·<code>rationale</code>(가산).</p>
   <div class="callout warn"><span class="ct">★ 시점 차이</span> <code>report_json</code> 의 <code>findings</code> 는 <strong>스캔 시점</strong> 결과지만, 가산된 <code>rationale</code> 는 <strong>조회 시점</strong> 현재 설정으로 재계산된다 — 둘이 다를 수 있다. 또 <code>304</code> 캐시 body 의 <code>rationale</code> 는 갱신되지 않는다(<code>ETag</code> 는 <code>report</code> 만 추적). 의도된 트레이드오프다.</div>
@@ -292,24 +305,32 @@ curl -X DELETE http://&lt;host&gt;:8080/api/v1/domains/api.weble.net   # → 204
 }</code></pre>
 
   <h4>② 엔드포인트별 판단 근거 — <code>rationale[]</code> (findings 와 병렬)</h4>
-  <p><code>rationale[i]</code> 는 <code>findings[i]</code> 와 동일 순서·동일 identity(method·host·pathTemplate)다. 아래는 점수로 판정된 <strong>Shadow</strong> 의 실제 근거다(<code>api.weble.net</code>, findings·rationale 각 192건).</p>
+  <p><code>rationale[i]</code> 는 <code>findings[i]</code> 와 동일 순서·동일 identity(method·host·pathTemplate)다. 아래는 점수로 판정된 <strong>Shadow</strong> 의 실제 근거다(<code>api.weble.net</code>, findings·rationale 각 194건). <code>pathless</code> 모드라 평가 신호는 13개다(<code>pathHint</code> 는 explicit-hint 모드 전용=14번째 가중치, pathless 에선 미평가). 미발화 신호도 모두 포함된다(<code>fired:false</code>·<code>contribution:0.0</code>).</p>
   <pre><code>{
-  "method":"POST", "host":"api.weble.net", "pathTemplate":"/qnas",
+  "method":"POST", "host":"api.weble.net", "pathTemplate":"/clips",
   "classification":"SHADOW",
   "basis":{
-    "type":"score", "apiScore":1.0, "threshold":0.7, "gate":"ADMIT", "mode":"pathless",
+    "type":"score", "mode":"pathless", "gate":"ADMIT", "apiScore":1.0, "threshold":0.7,
     "signals":[
-      {"key":"hostApiSubdomain","weight":0.4, "fired":true, "contribution":0.4},
-      {"key":"corsPreflight",   "weight":0.3, "fired":true, "contribution":0.3},
-      {"key":"writeMethod",     "weight":0.34,"fired":true, "contribution":0.34},
-      {"key":"repeatBonus",     "weight":0.12,"fired":true, "contribution":0.12}
-      /* … 평가된 신호 전부(13개) — 미발화 신호는 "fired":false,"contribution":0.0 */
+      {"key":"hostApiSubdomain", "fired":true,  "weight":0.4,  "contribution":0.4},
+      {"key":"corsPreflight",    "fired":true,  "weight":0.3,  "contribution":0.3},
+      {"key":"apiSegment",       "fired":false, "weight":0.55, "contribution":0.0},
+      {"key":"graphqlSegment",   "fired":false, "weight":0.55, "contribution":0.0},
+      {"key":"versionSegment",   "fired":false, "weight":0.26, "contribution":0.0},
+      {"key":"pathIdSegment",    "fired":false, "weight":0.15, "contribution":0.0},
+      {"key":"machineEndpoint",  "fired":false, "weight":0.2,  "contribution":0.0},
+      {"key":"writeMethod",      "fired":true,  "weight":0.34, "contribution":0.34},
+      {"key":"query",            "fired":false, "weight":0.12, "contribution":0.0},
+      {"key":"nonBrowserUa",     "fired":false, "weight":0.24, "contribution":0.0},
+      {"key":"repeatBonus",      "fired":false, "weight":0.12, "contribution":0.0},
+      {"key":"staticAssetPenalty","fired":false,"weight":-0.6, "contribution":0.0},
+      {"key":"responseTypeApi",  "fired":false, "weight":0.25, "contribution":0.0}
     ]
   }
 }</code></pre>
   <div class="callout note">
     <span class="ct">읽는 법 — 위 예시</span>
-    발화 신호 기여 합 <code>0.4 + 0.3 + 0.34 + 0.12 = 1.16</code> → <code>[0,1]</code> clamp = <strong><code>apiScore</code> 1.0</strong> ≥ <code>threshold</code> 0.7 → <code>gate</code> <strong>ADMIT</strong>(API 로 확정 → 스펙에 없으므로 Shadow). <code>mode:"pathless"</code> 는 내장 path-shape 모드(operator 힌트 미설정). <code>contribution</code> 을 전부 더하면 <code>apiScore</code> 가 된다.
+    발화 신호 기여 합 <code>0.4 + 0.3 + 0.34 = 1.04</code> → <code>[0,1]</code> clamp = <strong><code>apiScore</code> 1.0</strong> ≥ <code>threshold</code> 0.7 → <code>gate</code> <strong>ADMIT</strong>(API 로 확정 → 스펙에 없으므로 Shadow). 위 예에서 발화한 신호는 <code>hostApiSubdomain</code>·<code>corsPreflight</code>·<code>writeMethod</code> 3개이고 나머지 10개는 미발화(<code>contribution</code> 0.0)다. <code>mode:"pathless"</code> 는 내장 path-shape 모드(operator 힌트 미설정). <code>contribution</code> 을 전부 더하면 <code>apiScore</code> 가 된다.
   </div>
 
   <h4>③ 분류별 근거가 다르다 — <code>basis.type</code></h4>
@@ -340,7 +361,7 @@ curl -X POST http://&lt;host&gt;:8080/api/v1/domains -H 'Content-Type: applicati
 curl -X PUT 'http://&lt;host&gt;:8080/api/v1/domains/spec-demo.example.com/spec?filename=demo.yaml' \
   -H 'Content-Type: application/octet-stream' \
   --data-binary @demo.yaml
-# → {"format":"OPENAPI","specVersion":1,"endpointCount":2,"uploadedAt":"…","specName":"demo.yaml","filename":"demo.yaml","active":true}
+# → {"format":"OPENAPI","specVersion":1,"endpointCount":2,"uploadedAt":"2026-06-29T07:35:40.406366Z","specName":"demo.yaml","filename":"demo.yaml","active":true}
 
 # 같은 filename 재업로드 = demo.yaml 문서의 새 버전 (200) — 구버전은 active=false 로 보존
 curl -X PUT 'http://&lt;host&gt;:8080/api/v1/domains/spec-demo.example.com/spec?filename=demo.yaml' \
@@ -367,18 +388,27 @@ curl http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/spec   # → [] (200)
     "status":"ACTIVE", "lastChange":"UPDATED", "deprecated":false, "version":"2.0.0",
     "params":[ {"name":"id","in":"PATH","required":true,"type":"integer"},
                {"name":"expand","in":"QUERY","required":false,"type":"string"} ],
-    "sourceSpecVersion":3, "firstDocumentedAt":"…", "lastDocumentedAt":"…", "changedAt":"…",
-    "lastChangeBreaking":false,
+    "sourceSpecVersion":3,
+    "firstDocumentedAt":"2026-06-29T05:10:00.100000Z", "lastDocumentedAt":"2026-06-29T05:12:00.200000Z",
+    "changedAt":"2026-06-29T05:12:00.200000Z", "lastChangeBreaking":false,
     "changedParams":{ "added":[{"name":"expand","in":"QUERY","required":false,"type":"string"}],
                       "removed":[], "modified":[], "empty":false } },
   { "specName":"inv-a.yaml", "method":"GET", "pathTemplate":"/v2/products",
-    "status":"ACTIVE", "lastChange":"ADDED", "params":[], "lastChangeBreaking":false, "changedParams":null, "…":"…" },
+    "status":"ACTIVE", "lastChange":"ADDED", "deprecated":false, "version":"2.0.0", "params":[],
+    "sourceSpecVersion":3,
+    "firstDocumentedAt":"2026-06-29T05:12:00.200000Z", "lastDocumentedAt":"2026-06-29T05:12:00.200000Z",
+    "changedAt":"2026-06-29T05:12:00.200000Z", "lastChangeBreaking":false, "changedParams":null },
   { "specName":"inv-a.yaml", "method":"GET", "pathTemplate":"/v2/orders",
-    "status":"DELETED", "lastChange":"ADDED",
+    "status":"DELETED", "lastChange":"ADDED", "deprecated":false, "version":"1.0.0",
     "params":[ {"name":"status","in":"QUERY","required":false,"type":"string"} ],
-    "lastChangeBreaking":false, "changedParams":null, "…":"…" },
+    "sourceSpecVersion":1,
+    "firstDocumentedAt":"2026-06-29T05:10:00.100000Z", "lastDocumentedAt":"2026-06-29T05:10:00.100000Z",
+    "changedAt":"2026-06-29T05:12:00.200000Z", "lastChangeBreaking":false, "changedParams":null },
   { "specName":"inv-b.yaml", "method":"GET", "pathTemplate":"/v2/health",
-    "status":"ACTIVE", "lastChange":"ADDED", "params":[], "lastChangeBreaking":false, "changedParams":null, "…":"…" }
+    "status":"ACTIVE", "lastChange":"ADDED", "deprecated":false, "version":"1.0.0", "params":[],
+    "sourceSpecVersion":2,
+    "firstDocumentedAt":"2026-06-29T05:11:00.150000Z", "lastDocumentedAt":"2026-06-29T05:11:00.150000Z",
+    "changedAt":"2026-06-29T05:11:00.150000Z", "lastChangeBreaking":false, "changedParams":null }
 ]</code></pre>
   <p class="legend">예: <code>inv-a.yaml</code> 재업로드(v2)에서 <code>/users/{id}</code>=UPDATED(<code>expand</code> 선택 파라미터 추가 → non-breaking)·<code>/products</code>=ADDED·<code>/orders</code>=DELETED. <code>inv-b.yaml</code> 의 <code>/health</code> 는 <strong>영향 없음</strong>(★문서별 격리·union). 필드: <code>specName</code>·<code>method</code>·<code>pathTemplate</code>·<code>params[{name, in(QUERY/PATH/HEADER/COOKIE/BODY), required, type}]</code>·<code>status</code>·<code>lastChange</code>·<code>deprecated</code>·<code>version</code>·<code>sourceSpecVersion</code>·<code>firstDocumentedAt</code>·<code>lastDocumentedAt</code>·<code>changedAt</code>·<code>lastChangeBreaking</code>·<code>changedParams</code>(UPDATED 만, 그 외 <code>null</code>).</p>
 
@@ -483,10 +513,13 @@ curl http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/spec   # → [] (200)
   "override":{ "profile":null, "thresholdOverride":null, "customWeights":null, "matcher":null },
   "effective":{
     "profile":"MIDDLE",
-    "weights":{ "hostApiSubdomain":0.4, "corsPreflight":0.3, /* …14키 */ "repeatMinCount":3 }
+    "weights":{ "hostApiSubdomain":0.4, "corsPreflight":0.3, "apiSegment":0.55, "graphqlSegment":0.55,
+                "versionSegment":0.26, "pathIdSegment":0.15, "machineEndpoint":0.2, "writeMethod":0.34,
+                "query":0.12, "nonBrowserUa":0.24, "staticAssetPenalty":-0.6, "repeatBonus":0.12,
+                "repeatMinCount":3, "pathHint":0.55, "responseTypeApi":0.25, "threshold":0.7 }
   }
 }</code></pre>
-  <p class="legend"><code>override</code> 가 전부 null = 전역(없으면 MIDDLE) 상속. 병합 우선순위(도메인 → 전역 → preset)는 <em>API 판독 매뉴얼 §4.4</em> 참조.</p>
+  <p class="legend"><code>override</code> 가 전부 null = 전역(없으면 MIDDLE) 상속. 병합 우선순위(도메인 → 전역 → preset)는 <em>API 판독 매뉴얼 §4.4</em> 참조. 이 <code>effective.weights</code> 에는 14 신호 가중치 외에 <code>repeatMinCount</code>·<code>threshold</code> 도 포함된다(<a href="#s2-3">§2.3</a> 의 <code>effectiveClassification.weights</code> 는 신호 14개만).</p>
 </div>
 
 <div class="ep">
@@ -499,9 +532,12 @@ curl -X PATCH http://&lt;host&gt;:8080/api/v1/classification/weights \
   <pre><code>{
   "profile":"CUSTOM",
   "thresholdOverride":null,
-  "customWeights":{ "hostApiSubdomain":0.4, "corsPreflight":0.3, "apiSegment":0.7, "..." :"… 나머지 14키는 기존 effective 유지" },
+  "customWeights":{ "hostApiSubdomain":0.4, "corsPreflight":0.3, "apiSegment":0.7, "graphqlSegment":0.55,
+                    "versionSegment":0.26, "pathIdSegment":0.15, "machineEndpoint":0.2, "writeMethod":0.34,
+                    "query":0.12, "nonBrowserUa":0.24, "staticAssetPenalty":-0.6, "repeatBonus":0.12,
+                    "pathHint":0.55, "responseTypeApi":0.25 },
   "matcher":null,
-  "updatedAt":"…"
+  "updatedAt":"2026-06-30T04:19:11.428834Z"
 }
 # effective.profile=CUSTOM, effective.weights.apiSegment=0.7 (편집 안 한 키는 그대로)</code></pre>
   <p class="legend">도메인 가중치는 <code>PATCH /api/v1/domains/{host}/classification/weights</code> 로 동일하게 편집한다(응답에 <code>override</code>·<code>effective</code> 동봉).</p>
@@ -521,13 +557,13 @@ curl -X PATCH http://&lt;host&gt;:8080/api/v1/classification/weights \
 <p>중앙 서버는 변경이 없을 때 큰 리포트 본문을 다시 받지 않도록 <strong>조건부 GET</strong> 을 쓴다. <code>/scan-status</code> 의 <code>version</code> 을 <code>If-None-Match</code> 헤더에 담아 <code>/result</code> 에 보내면, 결과가 그대로면 <code>304 Not Modified</code>(본문 없음)가 온다.</p>
 <pre><code># 1) version 확인
 curl -s http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/scan-status | grep version
-#   "version":"1913dd805b705e7a"
+#   "version":"829bfa4c628a7ede"
 
 # 2) 그 version 을 If-None-Match 로 result 에 — 변경 없으면 304
-curl -i -H 'If-None-Match: "1913dd805b705e7a"' \
+curl -i -H 'If-None-Match: "829bfa4c628a7ede"' \
   http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/result
 #   HTTP/1.1 304 Not Modified   ← 실측 확인됨 (본문 재전송 회피)</code></pre>
-<p class="legend">ETag 값은 따옴표를 포함한다(<code>"1913dd805b705e7a"</code>). version 이 달라지면(=새 스캔으로 결과 갱신) <code>200 OK</code> + 새 본문 + 새 <code>ETag</code> 가 온다. <code>/result</code>·<code>/scan-status</code> 의 <code>version</code> 은 동일 ETag 다.</p>
+<p class="legend">ETag 값은 따옴표를 포함한다(<code>"829bfa4c628a7ede"</code>). version 이 달라지면(=새 스캔으로 결과 갱신) <code>200 OK</code> + 새 본문 + 새 <code>ETag</code> 가 온다. <code>/result</code>·<code>/scan-status</code> 의 <code>version</code> 은 동일 ETag 다.</p>
 
 <!-- ============================================================ -->
 <h2 id="s4">4. 현재 제약사항</h2>
@@ -539,7 +575,7 @@ curl -i -H 'If-None-Match: "1913dd805b705e7a"' \
     <tr><td><strong>목록</strong></td><td><code>GET /domains</code> 는 <strong>페이지네이션 필수</strong>(전체 45,592건)</td><td>전건 일괄 반환은 폐지. 목록의 spec 조회는 페이지당(≤1000) N+1 이 남아 있다(<a href="#s5">배치 로드 후속</a>).</td></tr>
     <tr><td><strong>Breaking</strong></td><td><code>GET /spec</code> 응답이 <strong>단일 객체/404 → 배열/<code>[]</code>/200</strong> 으로 변경(M6)</td><td>기존 소비자는 배열 처리로 수정 필요.</td></tr>
     <tr><td><strong>재계산</strong></td><td><code>/discovery</code>·<code>/classification</code> 의 effective·rationale, <code>/result</code> 가산 rationale 은 <strong>조회 시점</strong> 현재 설정으로 재계산</td><td>스캔 당시 값이 아니다. preset 을 바꾸면 즉시 반영(과거 점수 재현 아님).</td></tr>
-    <tr><td><strong>카탈로그 vs 스캔</strong></td><td><code>/discovery</code> 의 findings·rationale 는 누적 검출 카탈로그(<code>discovered_endpoint</code>) 기반</td><td>특정 스캔 윈도우의 <code>/scan-status</code>·<code>/result</code> 수치와 다를 수 있다(예: discovery 192 vs scan-status shadow 161).</td></tr>
+    <tr><td><strong>카탈로그 vs 스캔</strong></td><td><code>/discovery</code> 의 findings·rationale 는 누적 검출 카탈로그(<code>discovered_endpoint</code>) 기반</td><td>특정 스캔 윈도우의 <code>/scan-status</code>·<code>/result</code> 수치와 다를 수 있다(예: discovery 194 vs scan-status shadow 153).</td></tr>
     <tr><td><strong>결과 보관</strong></td><td><code>/result</code> 리포트는 도메인당 <strong>최신 1건만</strong> 보관(덮어쓰기)</td><td>과거 이력 없음.</td></tr>
     <tr><td><strong>Loki 부하</strong></td><td><code>POST /scan</code>(비동기)·<code>POST /scan-now</code>(동기) 만 운영 Loki 호출</td><td>남발 금지(부하보호). <code>scan-now</code> 는 동기라 busy 도메인에서 응답 지연 — <code>window</code> 작게. 나머지는 DB-only.</td></tr>
     <tr><td><strong>dropped</strong></td><td>비-API 로 drop 된 엔드포인트는 findings·rationale 에 <strong>없음</strong></td><td>집계 <code>droppedNonApi</code> 만 제공.</td></tr>
