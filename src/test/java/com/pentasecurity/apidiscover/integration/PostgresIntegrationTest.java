@@ -392,15 +392,20 @@ class PostgresIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.findings").isArray());
 
-        // /result(M5) — serve-time rationale 가산도 forHost 경유 → 200(rationale 배열)
+        // /result(M5, ⓒ) — serve-time 판단근거를 각 finding 에 인라인. forHost 경유(readOnly tx)로 oid 안전 + basis 가산.
         ScanResult r = new ScanResult();
         r.setHost(host);
         r.setVersion("v1");
-        r.setReportJson("{\"summary\":\"ok\"}");
+        // report_json findings 에 위 검출(POST /api/orders/{id}) 매칭 1건 → forHost SHADOW basis 인라인 검증(스펙 미매칭)
+        r.setReportJson("{\"summary\":\"ok\",\"findings\":[{\"host\":\"" + host
+                + "\",\"method\":\"POST\",\"pathTemplate\":\"/api/orders/{id}\",\"confidence\":0.7}]}");
         scanRepo.save(r);
         mvc.perform(get("/api/v1/domains/{host}/result", host))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.rationale").isArray());
+                .andExpect(jsonPath("$.summary").value("ok"))                        // report 기존 필드 불변
+                .andExpect(jsonPath("$.findings[0].classification").value("SHADOW"))  // ⓒ 인라인(스펙 미매칭→SHADOW)
+                .andExpect(jsonPath("$.findings[0].basis.type").value("score"))
+                .andExpect(jsonPath("$.rationale").doesNotExist());                  // 별도 배열 제거(인라인 대체)
     }
 
     @Test
@@ -757,11 +762,34 @@ class PostgresIntegrationTest {
         domainRepo.save(due("dated3.example.com", now.minus(Duration.ofHours(3)))); // 가장 오래
         domainRepo.save(due("never.example.com", null));                            // null=즉시 due
 
-        List<DomainConfig> top2 = domainRepo.findDueForScan(now, PageRequest.of(0, 2)); // K=2
+        List<DomainConfig> top2 = domainRepo.findDueForScan(now, Instant.EPOCH, PageRequest.of(0, 2)); // K=2 (EPOCH=무접속 필터 미적용)
 
         assertThat(top2).hasSize(2);
         assertThat(top2.get(0).getHost()).as("nulls first — 신규 미스캔이 맨 앞").isEqualTo("never.example.com");
         assertThat(top2.get(1).getHost()).as("그다음 가장 오래된 dated").isEqualTo("dated3.example.com");
+    }
+
+    // --- ★무접속 중단(요구): inactive-after 보다 마지막 접속이 오래된 도메인 제외 (실 PG) ---
+
+    @Test
+    void findDueForScanExcludesStaleLastSeenOnRealPg() {
+        // staleCutoff=now−inactive-after 보다 lastSeenAt 이 과거면 제외. null lastSeenAt(미관측)은 포함.
+        // ★실 PG 가드: nullable :staleCutoff 바인딩(untyped-null) + null lastSeenAt 포함이 PG 에서 동작하는지(H2 가 가릴 수 있음).
+        Instant now = Instant.parse("2026-06-26T12:00:00Z");
+        Instant cutoff = now.minus(Duration.ofDays(30));
+        domainRepo.save(seen("recent.example.com", now.minus(Duration.ofDays(5))));  // 5일 전=활성→포함
+        domainRepo.save(seen("stale.example.com", now.minus(Duration.ofDays(40))));  // 40일 전=무접속→제외
+        domainRepo.save(seen("never.example.com", null));                           // 미관측→포함(스캔 기회)
+
+        List<String> hosts = domainRepo.findDueForScan(now, cutoff, PageRequest.of(0, 10))
+                .stream().map(DomainConfig::getHost).toList();
+        assertThat(hosts).contains("recent.example.com", "never.example.com");
+        assertThat(hosts).doesNotContain("stale.example.com"); // 마지막 접속 30일 초과 → 스캔(수집+평가) 제외
+
+        // staleCutoff=EPOCH → 비활성(현행 무회귀) → stale 도 포함
+        List<String> all = domainRepo.findDueForScan(now, Instant.EPOCH, PageRequest.of(0, 10))
+                .stream().map(DomainConfig::getHost).toList();
+        assertThat(all).contains("recent.example.com", "stale.example.com", "never.example.com");
     }
 
     // --- helpers ---
@@ -771,6 +799,16 @@ class PostgresIntegrationTest {
         d.setHost(host);
         d.setEnabled(true);
         d.setNextScanDueAt(nextScanDueAt);
+        return d;
+    }
+
+    /** 즉시 due(nextScanDueAt=null) + 마지막 접속(lastSeenAt) 지정 — 무접속 제외 테스트용. */
+    private DomainConfig seen(String host, Instant lastSeenAt) {
+        DomainConfig d = new DomainConfig();
+        d.setHost(host);
+        d.setEnabled(true);
+        d.setNextScanDueAt(null);
+        d.setLastSeenAt(lastSeenAt);
         return d;
     }
 

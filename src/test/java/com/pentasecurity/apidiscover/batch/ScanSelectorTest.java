@@ -58,19 +58,53 @@ class ScanSelectorTest {
         assertThat(new ScanSelector(repo, props, fixed(OFF_PEAK)).selectForTick()).hasSize(3); // off-peak
     }
 
+    @Test
+    void excludesDomainsWithLastAccessOlderThanInactiveAfter() {
+        // inactive-after=30d(props 기본). NOON 기준 cutoff=NOON−30d.
+        repo.save(domain("recent.example.com", null, true, NOON.minus(Duration.ofDays(5))));  // 5일 전 접속=활성→포함
+        repo.save(domain("stale.example.com", null, true, NOON.minus(Duration.ofDays(40))));  // 40일 전=무접속→제외
+        repo.save(domain("never-seen.example.com", null, true, null));                        // 미관측=제외 안 함(기회 부여)
+
+        ScanSelector selector = new ScanSelector(repo, props(10, 10, "UTC"), fixed(NOON));
+        var hosts = selector.selectForTick().stream().map(DomainConfig::getHost).toList();
+
+        assertThat(hosts).contains("recent.example.com", "never-seen.example.com");
+        assertThat(hosts).doesNotContain("stale.example.com"); // 마지막 접속 30일 초과 → 스캔(수집+평가) 제외
+    }
+
+    @Test
+    void inactiveAfterZeroDisablesStaleExclusion() {
+        repo.save(domain("stale.example.com", null, true, NOON.minus(Duration.ofDays(40))));
+
+        ScanSelector selector = new ScanSelector(repo, props(10, 10, "UTC", Duration.ZERO), fixed(NOON));
+
+        assertThat(selector.selectForTick().stream().map(DomainConfig::getHost).toList())
+                .contains("stale.example.com"); // inactive-after=0 → 필터 비활성(현행 무회귀)
+    }
+
     private static Clock fixed(Instant now) {
         return Clock.fixed(now, ZoneOffset.UTC);
     }
 
     private static DomainConfig domain(String host, Instant nextScanDueAt, boolean enabled) {
+        return domain(host, nextScanDueAt, enabled, null); // lastSeenAt 미설정(무접속 필터 무관=null→제외 안 함)
+    }
+
+    private static DomainConfig domain(String host, Instant nextScanDueAt, boolean enabled, Instant lastSeenAt) {
         DomainConfig d = new DomainConfig();
         d.setHost(host);
         d.setEnabled(enabled);
         d.setNextScanDueAt(nextScanDueAt);
+        d.setLastSeenAt(lastSeenAt);
         return d;
     }
 
     private static ApiDiscoverProperties props(int domainsPerTick, int offPeakDomainsPerTick, String offPeakZone) {
+        return props(domainsPerTick, offPeakDomainsPerTick, offPeakZone, Duration.ofDays(30)); // 기본 inactive-after=P30D
+    }
+
+    private static ApiDiscoverProperties props(int domainsPerTick, int offPeakDomainsPerTick, String offPeakZone,
+                                               Duration inactiveAfter) {
         return new ApiDiscoverProperties(
                 new ApiDiscoverProperties.Loki("http://loki.local:3200", "access_log",
                         Duration.ofSeconds(30), Duration.ofMinutes(10), 2000, 2, Duration.ofMillis(1)),
@@ -82,6 +116,6 @@ class ScanSelectorTest {
                 new ApiDiscoverProperties.Scan(Duration.ofMinutes(5), domainsPerTick, Duration.ZERO, 0, 0L, true,
                         Duration.ZERO, 0, true, Duration.ofMinutes(30), Duration.ofHours(2), Duration.ofHours(6),
                         Duration.ofHours(24), offPeakDomainsPerTick, Duration.ofHours(24), offPeakZone,
-                        Duration.ofDays(14), Duration.ofDays(1)));
+                        Duration.ofDays(14), Duration.ofDays(1), inactiveAfter));
     }
 }

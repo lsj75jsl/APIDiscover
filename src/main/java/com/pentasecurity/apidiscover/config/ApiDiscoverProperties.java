@@ -60,6 +60,9 @@ public record ApiDiscoverProperties(Loki loki, Schedule schedule, Central centra
             Duration offPeakMaxWindow,   // D off-peak per-scan 윈도우 상향(백필 가속)
             String offPeakZone,          // D off-peak 판정 zone(빈값=시스템 기본)
             Duration dormantAfter,       // F dormant 진입 age(이후 최장 주기로 강등, 삭제 아님)
-            Duration dormantInterval     // F dormant 최장 주기
+            Duration dormantInterval,    // F dormant 최장 주기
+            // ★무접속 도메인 중단(요구): lastSeenAt 이 이 기간보다 오래됐으면(=마지막 접속 > N 전) 스캔(수집+평가) 제외.
+            // 0/null=비활성(현행 무회귀). 기본 P30D. fleet 디스커버리는 계속 → 트래픽 재개 시 lastSeenAt 갱신=자동 재개.
+            Duration inactiveAfter
     ) {}
 }
