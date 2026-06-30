@@ -517,6 +517,14 @@ P1 머지(main 3b70c3e) 위 후속. P2-2+P2-3+P2-4 ★머지 완료(PR #47 / mai
 - **스키마/중앙**: P2-3 컬럼 2개 ADD(무손실)·P2-4/P2-2/P2-1=0. /apis 필드·?view·?breaking 전부 additive·매칭 내부 불변(P2-1 보류)·워커 로컬 DB 중앙 무관.
 - **실 PG 테스트**: P2-3 breaking 각 규칙·P2-4 병합/겹침/status 병합·oid 무관(rawDoc 삭제)·h2-pg 정렬(D48). P2-1 테스트 없음(보류).
 
+### D55. 스캔 신선도 운영 — 백필 발산 진단·워터마크 점프·무접속 도메인 중단·/result 판단근거 인라인 (2026-07-01)
+실배포(테스트 VM 52,536 도메인) 운영 점검에서 도출. 사용자 요청 3건 + 진단 1건.
+- **(진단) 평가 스캔 백필 발산 확정**: 수집(도메인 디스커버리)은 최신(last_seen_at=now-수분)이나, 엔드포인트 스캔은 **호스트별 워터마크 바운드 백필**이라 52k 규모에서 실시간을 못 따라잡고 격차가 ~하루 0.5일씩 **벌어짐**(scan_result.window_to 가 6/19~6/23 에 정체, 실행은 6/30). biz.revu.net 의 discovered_endpoint 가 6/19 박제 = 이 지연의 증상(수집 중단 아님, 실 트래픽은 폭주).
+- **① 워터마크 점프(채택·실행)**: 과거 백필 포기·실시간 추적 전환. `watermark.last_end`=now−30m 일괄 UPDATE. ★**가역적·DB 직접 점프는 운영 중 스케줄러와 경합** — off-peak PT24H 장시간 스캔이 점프 전 옛 값 읽고 완료되며 일부(소수)를 되돌림. 99.92% near-now 로 정렬됐고 **깔끔한 정착은 앱 재기동(다음 재배포)에서**. 교훈: 워터마크는 매 스캔 DB 직독(캐시 없음)이나 in-flight 스캔이 덮어쓰므로, 영구 점프는 재기동 필요.
+- **② `/result` 판단근거 인라인(채택, ⓒ)**: 기존 별도 `rationale[]` 배열(M5)을 제거하고, report_json 의 각 finding 에 `classification`+`basis`(SHADOW=score{apiScore·threshold·signals}, Active/Zombie=spec_match) 인라인. `ScanController.inlineBasis` 가 `EndpointIdentity.key`(method,host,path) 매칭. ★응답 형태 변경(additive 아님)=중앙/매뉴얼 반영 필요·재배포 전 라이브는 옛 형태. 사용자 의도="발견 API 마다 점수/기준/가중치"는 이미 SHADOW 에 충족, VM 은 스펙 0개라 전부 SHADOW(Active 점수는 스펙 업로드 시 후속=ⓑ 보류).
+- **무접속 도메인 중단(채택, 신규 요구)**: 마지막 접속(`last_seen_at`)이 `scan.inactive-after`(기본 P30D)보다 오래된 도메인은 ScanSelector `findDueForScan` 에서 제외 → 스캔(수집+평가) 중단. ★**스키마 변경 0**(domain_hostnames 컬럼 추가 안 함 — @ElementCollection 부적합·per-hostname granularity 불요, 결정은 per-domain). last_seen_at 재사용(디스커버리가 트래픽 볼 때 now 로 갱신=마지막 접속 프록시). **자동 재개**: fleet 디스커버리(경량·전수)는 계속 → 트래픽 재개 시 last_seen_at 갱신 → 다음 틱 자동 재스캔(self-healing·수동 불요). 비활성=inactive-after 0/null. ★**EPOCH 센티넬**: `:staleCutoff is null` 같은 nullable 비교는 실 PG 가 untyped-null($N) 타입추론 실패(h2-pg-null-ordering-trap 동류, PostgresIntegrationTest 가 검출) → 비활성 시 호출자가 `Instant.EPOCH` 전달(non-null 유지). build green 500·실 PG 가드 PASS·필터 제거 RED-확인.
+- **공통**: 구현(②·무접속)은 커밋 보류(매니저 git/PR/머지). 재배포 시 ①(워터마크 정착)·②(인라인)·무접속 중단 동시 반영. 매뉴얼(TW)=②·무접속 후속.
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.
