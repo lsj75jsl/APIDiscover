@@ -5,6 +5,41 @@
 
 ---
 
+## 2026-06-30 세션 64 — DB 스키마 명세 HTML M7 재설계·P2 현행화 (실 PG 캡처, 문서만, TW)
+
+### 한 일
+- `db-schema-spec.html` 를 M7 재설계(PR #46)·P2(PR #47) 실 배포 PG 캡처에 맞춰 현행화(8→9 테이블). `DocumentedApiRecord` 코드 교차검증.
+- **신규 §4.9 `documented_api` 카드** — 16컬럼(id·host·spec_name·method·path_template·params_json·status·last_change·last_change_breaking·last_change_detail_json·deprecated·version·source_spec_version·first/last_documented_at·changed_at), UNIQUE(host,spec_name,method,path_template)·idx(host / host,spec_name / host,status), reconcile·status=DELETED→deleted-from-spec Zombie 입력 설명. timestamp 는 PG 실측 timestamptz 표기(+Instant 매핑 주석).
+- **spec_record 갱신** — `filename`(varchar, spec_name 도출 근거) 추가, `raw_doc`(oid)=M7 P1 엔티티 매핑 제거 → '제거됨(orphan·ops DROP 대기)' 표기(<s> 취소선), '유일한 @Lob' 문구 제거. §3 타입표 @Lob byte[] 행에 '現 미사용' 표기.
+- **ER·관계·개요** — inline SVG 에 documented_api 노드+논리 FK(host) 연결선·카디널리티(1:N) 추가, ASCII fallback·개요표(9)·관계표(8건, documented_api 행)·§1 prose 동기.
+
+### 결과
+- HTMLParser OK·HTML 태그 균형 EMPTY·SVG `<g>` 12/12·테이블 카드 9개·§5 관계 8행·신규 컬럼/제약/orphan 전부 반영 검증. 자기완결(외부 의존 0). 운영 Loki 미호출(스키마 조회만). main 직접 커밋.
+- 다음 단계: 매니저 검증 대기.
+
+## 2026-06-30 세션 63 — REST API 매뉴얼 응답 예시 축약 펼치기 (사용자 요구=숨은 필드 0, 문서만, TW)
+
+### 한 일
+- `api-rest-manual.html` 의 모든 축약 마커(`…`·`{…}`·`"…":"…"`·`/* …14키 */`·`...14키`)를 라이브 실값으로 펼침. bounded 구조는 전부 노출: GET /domains 2행+헤더(51353), effectiveClassification.weights 14키, scan-status 전체, /result 중첩객체 9종 전부+findings 대표 1건(/stats), rationale 13 신호 전부(/clips·미발화 포함), /apis 14필드×4행, 분류설정 effective.weights 16필드(Weights 레코드=14+repeatMinCount+threshold)·customWeights 14키. 대용량 배열(findings 153·rationale 194)은 대표 1건 완전+"총 N건" 주석(263KB 전건 덤프 회피).
+- scan-status/result/§3 ETag 를 동일 스캔 새 캡처(829bfa4c628a7ede·discovered 162·shadow 153·totalDropped 9)로 일관화, §4 카탈로그 vs 스캔 예시도 194/153 동기. /clips rationale 전환에 맞춰 읽는법 계산식(0.4+0.3+0.34=1.04) 갱신.
+- 코드 교차검증: ApiScorer.Weights 레코드 16필드·weightsAsMap 14키·EffectiveView javadoc(threshold·repeatMinCount 포함)·ParamDiff.
+
+### 결과
+- HTMLParser OK·HTML 태그 균형 EMPTY·숨김 축약 마커 0(`…`/`{…}`/`"…":"…"`/`"..."`/`...14키` 전부 0, 남은 `13개`=해설 문구)·signals 13키·effective 16필드·구 version 잔존 0 검증. 자기완결. main 직접 커밋.
+- 다음 단계: 매니저 검증 대기.
+
+## 2026-06-30 세션 62 — REST API 매뉴얼 P2(breaking 판정 + merged 뷰) 현행화 (PR #47 머지+재배포 b60b929, 문서만, TW)
+
+### 한 일
+- `doc/manual/api-rest-manual.html` §2.4 GET /apis 절을 P2 에 맞춰 보강. ApiInventoryController·DocumentedApiView·ParamChange·MergedApiView·ParamDiff 실코드 교차검증.
+- **breaking 판정** — `?breaking=true`·`?view=merged` 파라미터 추가, 응답에 `lastChangeBreaking`·`changedParams{added,removed,modified[{name,in,fromRequired,toRequired,fromType,toType}],empty}` 가산(UPDATED 만·그 외 null). breaking 규칙표(필수추가/선택제거/optional→required/type비호환=breaking·widening integer→number 등=non) — ★ParamDiff 코드로 8규칙 전수 검증. 실데이터(catalog.yaml region 필수추가=breaking·/health version만=empty true·non-breaking).
+- **도메인 merged 뷰** — `?view=merged`(MergedApiView: method+pathTemplate 병합·status 하나라도 ACTIVE→ACTIVE·deprecated OR·version/params latest-by-sourceSpecVersion·contributingSpecNames). 실데이터(catalog+inventory /v2/products 병합 1행·params 최신 택1=union 아님).
+- **제약/TODO** — breaking type 비교 요약 한계(enum/format/nested 범위 밖·보수적 과판정) 제약 행 추가. TODO: P2-3/P2-4 완료 반영, P2-1(매칭 source 대체)=보류(D54)·P2-5(inactive prune)=잔여로 갱신.
+
+### 결과
+- HTMLParser OK·HTML 태그 균형 EMPTY·P2 신규(lastChangeBreaking·changedParams·?breaking·?view=merged·contributingSpecNames) 정합·앵커 s2-1~s2-6·실데이터(region·empty·merged 병합행) 검증. 자기완결. main 직접 커밋. TASKS P2 매뉴얼 현행화 표기.
+- 다음 단계: 매니저 검증 대기.
+
 ## 2026-06-30 세션 61 — M7 재설계 P2: 풍부 param diff+breaking + 도메인-merged 뷰 (P2-2/3/4, doc/38 / D54, 브랜치 feat/api-inventory-p2)
 
 ### 한 일
