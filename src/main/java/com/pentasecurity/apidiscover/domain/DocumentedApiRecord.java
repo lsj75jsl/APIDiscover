@@ -54,6 +54,13 @@ public class DocumentedApiRecord {
     @Enumerated(EnumType.STRING)
     private ApiChangeKind lastChange;
 
+    /** 직전 reconcile 가 UPDATED 일 때 breaking 변경 여부(doc/38 §3). ddl-auto ADD·기본 false. 그 외 lastChange 는 false. */
+    private boolean lastChangeBreaking;
+
+    /** 직전 UPDATED 의 param delta(ParamChange) 직렬화(doc/38 §3.4). nullable·UPDATED 외 null. ★@Lob 금지(oid 함정). */
+    @Column(columnDefinition = "text")
+    private String lastChangeDetailJson;
+
     /** 스펙 deprecated 표기(Zombie 입력, doc/37 §6). */
     private boolean deprecated;
 
@@ -131,6 +138,22 @@ public class DocumentedApiRecord {
 
     public void setLastChange(ApiChangeKind lastChange) {
         this.lastChange = lastChange;
+    }
+
+    public boolean isLastChangeBreaking() {
+        return lastChangeBreaking;
+    }
+
+    public void setLastChangeBreaking(boolean lastChangeBreaking) {
+        this.lastChangeBreaking = lastChangeBreaking;
+    }
+
+    public String getLastChangeDetailJson() {
+        return lastChangeDetailJson;
+    }
+
+    public void setLastChangeDetailJson(String lastChangeDetailJson) {
+        this.lastChangeDetailJson = lastChangeDetailJson;
     }
 
     public boolean isDeprecated() {
