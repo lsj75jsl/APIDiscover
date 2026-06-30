@@ -5,6 +5,18 @@
 
 ---
 
+## 2026-06-30 세션 64 — DB 스키마 명세 HTML M7 재설계·P2 현행화 (실 PG 캡처, 문서만, TW)
+
+### 한 일
+- `db-schema-spec.html` 를 M7 재설계(PR #46)·P2(PR #47) 실 배포 PG 캡처에 맞춰 현행화(8→9 테이블). `DocumentedApiRecord` 코드 교차검증.
+- **신규 §4.9 `documented_api` 카드** — 16컬럼(id·host·spec_name·method·path_template·params_json·status·last_change·last_change_breaking·last_change_detail_json·deprecated·version·source_spec_version·first/last_documented_at·changed_at), UNIQUE(host,spec_name,method,path_template)·idx(host / host,spec_name / host,status), reconcile·status=DELETED→deleted-from-spec Zombie 입력 설명. timestamp 는 PG 실측 timestamptz 표기(+Instant 매핑 주석).
+- **spec_record 갱신** — `filename`(varchar, spec_name 도출 근거) 추가, `raw_doc`(oid)=M7 P1 엔티티 매핑 제거 → '제거됨(orphan·ops DROP 대기)' 표기(<s> 취소선), '유일한 @Lob' 문구 제거. §3 타입표 @Lob byte[] 행에 '現 미사용' 표기.
+- **ER·관계·개요** — inline SVG 에 documented_api 노드+논리 FK(host) 연결선·카디널리티(1:N) 추가, ASCII fallback·개요표(9)·관계표(8건, documented_api 행)·§1 prose 동기.
+
+### 결과
+- HTMLParser OK·HTML 태그 균형 EMPTY·SVG `<g>` 12/12·테이블 카드 9개·§5 관계 8행·신규 컬럼/제약/orphan 전부 반영 검증. 자기완결(외부 의존 0). 운영 Loki 미호출(스키마 조회만). main 직접 커밋.
+- 다음 단계: 매니저 검증 대기.
+
 ## 2026-06-30 세션 63 — REST API 매뉴얼 응답 예시 축약 펼치기 (사용자 요구=숨은 필드 0, 문서만, TW)
 
 ### 한 일

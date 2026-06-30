@@ -156,6 +156,9 @@
 
 ## Done
 
+### DB 스키마 명세 HTML — M7 재설계·P2 현행화 (2026-06-30, 실 PG 캡처, 문서만) — TW
+- [x] `db-schema-spec.html` 9테이블화 — 신규 `documented_api` 카드(16컬럼·UNIQUE(host,spec_name,method,path_template)·idx host/host,spec_name/host,status·status=DELETED→Zombie 입력) + `spec_record` `filename` 추가·`raw_doc`(oid) 제거됨(orphan) 표기 + ER 다이어그램·관계표(8건)·개요표 documented_api 추가. `DocumentedApiRecord` 코드 교차검증.
+
 ### REST API 매뉴얼 응답 예시 축약 펼치기 (2026-06-30, 사용자 요청, 문서만) — TW
 - [x] `api-rest-manual.html` 의 모든 축약(`…`·`{…}`·`"…":"…"`·`...14키`·`13개`) → 라이브 실값으로 펼침(숨은 필드 0). bounded 구조(14키 weights·effective 16필드·/apis 14필드·scan-status·/result 중첩객체·13 신호) 전부 표시, 대용량 배열(findings 153·rationale 194)은 대표 1건 완전+건수 주석. scan-status/result/§3 새 캡처(829bfa4c628a7ede·162/153/9) 일관화. 코드 교차검증(Weights 레코드 16필드·weightsAsMap 14키·ParamDiff). 커밋 후속.
 

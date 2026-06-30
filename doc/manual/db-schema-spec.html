@@ -106,7 +106,7 @@
 
 <p>스키마는 <strong>Hibernate 가 자동 생성</strong>한다(<code>spring.jpa.hibernate.ddl-auto: update</code>). 별도 마이그레이션 도구(Flyway/Liquibase)는 쓰지 않으므로, 본 문서가 곧 사람이 읽는 스키마다. <code>update</code> 는 컬럼 <strong>추가</strong>만 하고 삭제·타입 변경은 하지 않는다.</p>
 
-<p>전체 구조의 핵심은 <strong><code>host</code>(도메인) 가 모든 도메인 데이터의 중심 키</strong>라는 점이다. 도메인 하나가 설정(<code>domain_config</code>)·스펙(<code>spec_record</code>)·검출 카탈로그(<code>discovered_endpoint</code>)·최신 결과(<code>scan_result</code>)·워터마크(<code>watermark</code>)·분류 override(<code>domain_classification_config</code>)로 펼쳐진다. 전역 분류 기본값(<code>classification_config</code>)만 도메인과 무관한 단일 행이다.</p>
+<p>전체 구조의 핵심은 <strong><code>host</code>(도메인) 가 모든 도메인 데이터의 중심 키</strong>라는 점이다. 도메인 하나가 설정(<code>domain_config</code>)·스펙(<code>spec_record</code>)·검출 카탈로그(<code>discovered_endpoint</code>)·문서화 API 인벤토리(<code>documented_api</code>)·최신 결과(<code>scan_result</code>)·워터마크(<code>watermark</code>)·분류 override(<code>domain_classification_config</code>)로 펼쳐진다. 전역 분류 기본값(<code>classification_config</code>)만 도메인과 무관한 단일 행이다.</p>
 
 <div class="callout warn">
   <span class="ct">★ 실제 외래키(FK) 제약은 단 하나뿐</span>
@@ -124,6 +124,7 @@
     <tr><td>6</td><td><code>discovered_endpoint</code></td><td>id</td><td>누적 검출 엔드포인트 카탈로그 (1:N)</td></tr>
     <tr><td>7</td><td><code>domain_classification_config</code></td><td>host</td><td>도메인별 분류 설정 override (1:1, 희소)</td></tr>
     <tr><td>8</td><td><code>classification_config</code></td><td>id=1</td><td>전역 분류 기본값 (단일 행)</td></tr>
+    <tr><td>9</td><td><code>documented_api</code></td><td>id</td><td>문서화 API 인벤토리 — 파라미터·상태 (1:N)</td></tr>
   </tbody>
 </table>
 
@@ -146,6 +147,7 @@
   <line x1="270" y1="366" x2="405" y2="312" stroke="#94a3b8" stroke-width="1.8"/>
   <line x1="750" y1="176" x2="595" y2="278" stroke="#94a3b8" stroke-width="1.8"/>
   <line x1="750" y1="302" x2="600" y2="300" stroke="#94a3b8" stroke-width="1.8"/>
+  <line x1="750" y1="428" x2="600" y2="320" stroke="#94a3b8" stroke-width="1.8"/>
 
   <!-- ===== 카디널리티 라벨 ===== -->
   <g font-size="12" fill="#5b6473">
@@ -154,6 +156,7 @@
     <rect x="300" y="334" width="74" height="16" fill="#fcfdff"/><text x="304" y="346">1 : 1 희소</text>
     <rect x="650" y="214" width="40" height="16" fill="#fcfdff"/><text x="654" y="226">1 : N</text>
     <rect x="650" y="292" width="40" height="16" fill="#fcfdff"/><text x="654" y="304">1 : N</text>
+    <rect x="648" y="372" width="40" height="16" fill="#fcfdff"/><text x="652" y="384">1 : N</text>
   </g>
   <g font-size="12">
     <rect x="508" y="396" width="92" height="17" fill="#fcfdff"/>
@@ -206,6 +209,11 @@
     <text x="860" y="297" text-anchor="middle" font-size="13.5" font-weight="700" fill="#14532d">discovered_endpoint</text>
     <text x="860" y="315" text-anchor="middle" font-size="11" fill="#15803d">PK id · 검출 카탈로그(누적)</text>
   </g>
+  <g>
+    <rect x="750" y="402" width="220" height="52" rx="9" fill="#e9f7ee" stroke="#9fd6b3" stroke-width="1.4"/>
+    <text x="860" y="423" text-anchor="middle" font-size="13.5" font-weight="700" fill="#14532d">documented_api</text>
+    <text x="860" y="441" text-anchor="middle" font-size="11" fill="#15803d">PK id · 문서화 API 인벤토리</text>
+  </g>
 
   <!-- 하단 실 FK 자식 -->
   <g>
@@ -235,6 +243,7 @@
    dom_class_cfg─1:1┤ (희소)
                     +──►  domain_config (PK host · 허브)  ◄─1:N─ spec_record
                     │                  │                  ◄─1:N─ discovered_endpoint
+                    │                  │                  ◄─1:N─ documented_api
                     └ 논리 FK(host)    │ 1:N · 실 FK
                                        v
                               domain_hostnames (엣지 hostname)</code></pre>
@@ -249,7 +258,7 @@
   <tbody>
     <tr><td><code>String</code> (length 미지정)</td><td>VARCHAR(255)</td><td>varchar(255)</td><td>nullable</td></tr>
     <tr><td><code>String</code> + <code>columnDefinition="text"</code> (JSON)</td><td>text</td><td>text</td><td>nullable</td></tr>
-    <tr><td><code>@Lob byte[]</code></td><td>BLOB</td><td>oid</td><td>nullable</td></tr>
+    <tr><td><code>@Lob byte[]</code> <span class="nl">(現 미사용)</span></td><td>BLOB</td><td>oid</td><td>nullable</td></tr>
     <tr><td><code>Instant</code></td><td>TIMESTAMP(6)</td><td>timestamp(6)</td><td>nullable (UTC)</td></tr>
     <tr><td><code>long</code> / <code>int</code> / <code>boolean</code> (primitive)</td><td>BIGINT / INTEGER / BOOLEAN</td><td>bigint / integer / boolean</td><td><span class="nn">NOT NULL</span></td></tr>
     <tr><td><code>Long</code> / <code>Double</code> (wrapper)</td><td>BIGINT / DOUBLE</td><td>bigint / double precision</td><td>nullable</td></tr>
@@ -263,7 +272,7 @@
 </div>
 
 <!-- ============================================================ -->
-<h2 id="s4">4. 테이블별 컬럼 명세 (8 테이블)</h2>
+<h2 id="s4">4. 테이블별 컬럼 명세 (9 테이블)</h2>
 
 <p>표기: <span class="pk">PK</span> 기본키 · <span class="nn">NN</span> NOT NULL · <span class="nl">null</span> nullable. JSON 컬럼은 모두 PG <code>text</code>(D40 실측 확정).</p>
 
@@ -355,10 +364,11 @@
   <tbody>
     <tr><td class="col">id</td><td class="t">BIGINT IDENTITY</td><td><span class="pk">PK</span></td><td>DB 자동 채번 합성 키.</td></tr>
     <tr><td class="col">host</td><td class="t">VARCHAR(255)</td><td><span class="nl">null</span></td><td>논리 FK → <code>domain_config.host</code>.</td></tr>
-    <tr><td class="col">spec_name</td><td class="t">VARCHAR(255)</td><td><span class="nl">null</span></td><td>host 내 문서 식별(멀티 스펙). null → <code>"default"</code> 로 해석.</td></tr>
+    <tr><td class="col">spec_name</td><td class="t">VARCHAR(255)</td><td><span class="nl">null</span></td><td>host 내 문서 식별(멀티 스펙). null → <code>"default"</code> 로 해석. <code>filename</code> 정규화로 도출.</td></tr>
+    <tr><td class="col">filename</td><td class="t">VARCHAR(255)</td><td><span class="nl">null</span></td><td>원본 파일명(<code>PUT /spec ?filename=</code>). <code>spec_name</code> 도출 근거. 기존행·미전달 null (M7 재설계, doc/37).</td></tr>
     <tr><td class="col">format</td><td class="t">VARCHAR(255) enum</td><td><span class="nl">null</span></td><td><code>OPENAPI</code>/<code>POSTMAN</code>/<code>CSV</code>.</td></tr>
     <tr><td class="col">spec_version</td><td class="t">BIGINT</td><td><span class="nn">NN</span></td><td>도메인별 증가 버전.</td></tr>
-    <tr><td class="col">raw_doc</td><td class="t">BLOB (PG oid)</td><td><span class="nl">null</span></td><td>원본 스펙 문서(감사·재파싱용). 유일한 <code>@Lob byte[]</code> 컬럼.</td></tr>
+    <tr><td class="col"><s>raw_doc</s></td><td class="t">oid</td><td><span class="nl">제거됨</span></td><td>★엔티티 매핑 <strong>제거됨(orphan)</strong> — M7 재설계 P1(doc/37 §7)에서 <code>SpecRecord.rawDoc</code>(<code>@Lob byte[]</code>=PG oid) 삭제(저장 전용·read 0·oid auto-commit 버그 3건의 근원). <code>ddl-auto</code> 가 컬럼을 DROP 하지 않아 ops DROP(<code>lo_unlink</code>→<code>DROP COLUMN</code>) 전까지 orphan 잔존(무해).</td></tr>
     <tr><td class="col">canonical_json</td><td class="t">text</td><td><span class="nl">null</span></td><td>Canonical 엔드포인트 집합 JSON — <strong>스펙 매칭의 진실원</strong>.</td></tr>
     <tr><td class="col">warnings_json</td><td class="t">text</td><td><span class="nl">null</span></td><td>파싱 시 recoverable 경고 <code>List&lt;String&gt;</code> 직렬화.</td></tr>
     <tr><td class="col">endpoint_count</td><td class="t">INTEGER</td><td><span class="nn">NN</span></td><td>이 스펙의 엔드포인트 수.</td></tr>
@@ -430,8 +440,37 @@
 </table>
 </div>
 
+<!-- ===== 4.9 documented_api ===== -->
+<div class="tbl-card">
+<h3>4.9 <code>documented_api</code> — 문서화 API 인벤토리 <span class="star">★</span></h3>
+<p class="meta">엔티티 <code>DocumentedApiRecord</code> · PK <code>id</code> · 업로드 스펙에서 파싱한 도메인별 API 인벤토리(파라미터·상태). 업로드마다 <code>spec_name</code> 단위로 <strong>reconcile</strong>(있으면 갱신·없으면 추가·문서에서 빠지면 <code>DELETED</code>). <code>status=DELETED</code> + 트래픽 관측 = deleted-from-spec <strong>Zombie</strong> 입력(분류기, doc/37 §6). M7 재설계 신규(PR #46·P2 PR #47).</p>
+<table>
+  <thead><tr><th>컬럼</th><th>SQL 타입</th><th>키/널</th><th>의미</th></tr></thead>
+  <tbody>
+    <tr><td class="col">id</td><td class="t">BIGINT IDENTITY</td><td><span class="pk">PK</span></td><td>DB 자동 채번.</td></tr>
+    <tr><td class="col">host</td><td class="t">VARCHAR(255) · idx</td><td><span class="nl">null</span></td><td>도메인 조회 키. 논리 FK → <code>domain_config.host</code>. unique 키 일부.</td></tr>
+    <tr><td class="col">spec_name</td><td class="t">VARCHAR(255) · idx</td><td><span class="nl">null</span><sup>1</sup></td><td>문서 식별자(<code>filename</code> 정규화·trim/소문자·기본 <code>"default"</code>). unique 키 일부.</td></tr>
+    <tr><td class="col">method</td><td class="t">VARCHAR(255)</td><td><span class="nl">null</span></td><td>HTTP 메서드. unique 키 일부.</td></tr>
+    <tr><td class="col">path_template</td><td class="t">text</td><td><span class="nl">null</span></td><td>정규화 경로 템플릿(예 <code>/v2/users/{id}</code>). unique 키 일부.</td></tr>
+    <tr><td class="col">params_json</td><td class="t">text</td><td><span class="nl">null</span></td><td>파라미터 목록 직렬화(<code>SpecParam</code>: name·in{QUERY/PATH/HEADER/COOKIE/BODY}·required·type). <strong><code>@Lob</code> 금지</strong>(oid 함정 회피).</td></tr>
+    <tr><td class="col">status</td><td class="t">VARCHAR(255) enum</td><td><span class="nl">null</span><sup>1</sup></td><td><code>ACTIVE</code> / <code>DELETED</code>(소프트마크 = 최신 문서에서 제거).</td></tr>
+    <tr><td class="col">last_change</td><td class="t">VARCHAR(255) enum</td><td><span class="nl">null</span><sup>1</sup></td><td><code>ADDED</code> / <code>UPDATED</code> / <code>UNCHANGED</code>(직전 reconcile 변화).</td></tr>
+    <tr><td class="col">last_change_breaking</td><td class="t">BOOLEAN</td><td><span class="nn">NN</span></td><td>직전 <code>UPDATED</code> 가 기존 클라이언트 호출을 깨는 변경인지(기본 false, P2-3·doc/38 §3).</td></tr>
+    <tr><td class="col">last_change_detail_json</td><td class="t">text</td><td><span class="nl">null</span></td><td>파라미터 delta(added/removed/modified) 직렬화(<code>changedParams</code> 노출용·<code>UPDATED</code> 외 null).</td></tr>
+    <tr><td class="col">deprecated</td><td class="t">BOOLEAN</td><td><span class="nn">NN</span></td><td>문서의 <code>deprecated</code> 표기(Zombie 입력).</td></tr>
+    <tr><td class="col">version</td><td class="t">VARCHAR(255)</td><td><span class="nl">null</span></td><td>API 버전 라벨(<code>info.version</code>).</td></tr>
+    <tr><td class="col">source_spec_version</td><td class="t">BIGINT</td><td><span class="nn">NN</span></td><td>이 행을 마지막으로 채운 업로드의 <code>spec_version</code>.</td></tr>
+    <tr><td class="col">first_documented_at</td><td class="t">timestamptz</td><td><span class="nl">null</span></td><td>최초 문서화 시각(트래픽 아님).</td></tr>
+    <tr><td class="col">last_documented_at</td><td class="t">timestamptz</td><td><span class="nl">null</span></td><td>최근 문서화(업로드) 시각.</td></tr>
+    <tr><td class="col">changed_at</td><td class="t">timestamptz</td><td><span class="nl">null</span></td><td>마지막 상태/내용 변경 시각.</td></tr>
+  </tbody>
+</table>
+<p class="meta"><strong>제약/인덱스:</strong> UNIQUE(<code>host</code>, <code>spec_name</code>, <code>method</code>, <code>path_template</code>) = 자연키 · INDEX(<code>host</code>) · INDEX(<code>host</code>, <code>spec_name</code>) · INDEX(<code>host</code>, <code>status</code>)[Zombie(DELETED) 조회]. 도입: <code>ddl-auto=update</code> ADD TABLE(무손실), <code>last_change_breaking</code>·<code>last_change_detail_json</code> 은 P2-3 에서 ADD COLUMN(기존행 false/null).</p>
+<p class="meta"><sup>1</sup> DB 상 nullable 이나 reconcile 이 항상 채워 실질 비-null(<code>spec_name</code>·<code>status</code>·<code>last_change</code>). timestamp 컬럼의 PG 실측 타입은 <code>timestamptz</code>(Hibernate 6 <code>Instant</code>→TIMESTAMP_UTC) — §3·다른 표의 <code>TIMESTAMP(6)</code> 와 동일 <code>Instant</code> 매핑이며 실 PG 는 모두 with time zone 이다.</p>
+</div>
+
 <!-- ============================================================ -->
-<h2 id="s5">5. 테이블 관계 요약 (7건)</h2>
+<h2 id="s5">5. 테이블 관계 요약 (8건)</h2>
 
 <p><code>host</code> 를 허브로 한 방사형 구조다. 실제 DB FK 는 <code>domain_hostnames</code> 한 곳뿐이고 나머지는 앱 레벨 논리 FK 다.</p>
 
@@ -444,7 +483,8 @@
     <tr><td>4</td><td><code>domain_config</code> ↔ <code>domain_classification_config</code></td><td>1 : 1 (희소)</td><td><code>host</code>(양쪽 PK)</td><td>논리 FK</td></tr>
     <tr><td>5</td><td><code>domain_config</code> ↔ <code>spec_record</code></td><td>1 : N</td><td><code>host</code></td><td>논리 FK</td></tr>
     <tr><td>6</td><td><code>domain_config</code> ↔ <code>discovered_endpoint</code></td><td>1 : N</td><td><code>host</code>(자식 idx)</td><td>논리 FK</td></tr>
-    <tr><td>7</td><td><code>classification_config</code></td><td>전역 단일 행</td><td>고정 PK=1</td><td>도메인 무관 · 전역 기본값(앱 병합)</td></tr>
+    <tr><td>7</td><td><code>domain_config</code> ↔ <code>documented_api</code></td><td>1 : N</td><td><code>host</code>(자식 idx)</td><td>논리 FK</td></tr>
+    <tr><td>8</td><td><code>classification_config</code></td><td>전역 단일 행</td><td>고정 PK=1</td><td>도메인 무관 · 전역 기본값(앱 병합)</td></tr>
   </tbody>
 </table>
 
