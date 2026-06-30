@@ -100,7 +100,7 @@
         <li><a href="#s2-1">도메인 인벤토리 — <code>/domains</code></a></li>
         <li><a href="#s2-2">스캔 상태 · 결과 · 즉시 스캔 — <code>/scan-status</code> · <code>/result</code> · <code>/scan</code> · <code>/scan-now</code></a></li>
         <li><a href="#s2-3">결합 디스커버리(판단 근거) — <code>/discovery</code></a></li>
-        <li><a href="#s2-4">스펙 · API 인벤토리 — <code>/spec</code> · <code>/apis</code></a></li>
+        <li><a href="#s2-4">스펙 · API 인벤토리 — <code>/spec</code> · <code>/spec/apis</code></a></li>
         <li><a href="#s2-5">분류 설정 · 가중치 편집 — <code>/classification</code></a></li>
         <li><a href="#s2-6">운영 — <code>/actuator</code></a></li>
       </ol>
@@ -130,7 +130,7 @@
     <tr><td><span class="m m-get">GET</span></td><td><code>/domains/{host}/discovery</code></td><td>결합 디스커버리 + 판단 근거</td><td>DB</td></tr>
     <tr><td><span class="m m-put">PUT</span></td><td><code>/domains/{host}/spec</code></td><td>스펙 업로드(<code>?filename</code>)</td><td>DB</td></tr>
     <tr><td><span class="m m-get">GET</span></td><td><code>/domains/{host}/spec</code></td><td>활성 스펙 목록(배열, specName별)</td><td>DB</td></tr>
-    <tr><td><span class="m m-get">GET</span></td><td><code>/domains/{host}/apis</code></td><td>문서화 API 인벤토리(파라미터·상태)</td><td>DB</td></tr>
+    <tr><td><span class="m m-get">GET</span></td><td><code>/domains/{host}/spec/apis</code></td><td>문서화 API 인벤토리(파라미터·상태)</td><td>DB</td></tr>
     <tr><td><span class="m m-get">GET</span></td><td><code>/classification</code></td><td>전역 분류 설정</td><td>DB</td></tr>
     <tr><td><span class="m m-put">PUT</span></td><td><code>/classification</code></td><td>전역 분류 설정 수정</td><td>DB</td></tr>
     <tr><td><span class="m m-patch">PATCH</span></td><td><code>/classification/weights</code></td><td>전역 가중치 부분편집(→CUSTOM)</td><td>DB</td></tr>
@@ -349,12 +349,14 @@ curl -X DELETE http://&lt;host&gt;:8080/api/v1/domains/api.weble.net   # → 204
 </div>
 
 <!-- ===== 2.4 ===== -->
-<h3 id="s2-4">2.4 스펙 · API 인벤토리 — <code>/api/v1/domains/{host}/spec</code> · <code>/apis</code></h3>
+<h3 id="s2-4">2.4 스펙 · API 인벤토리 — <code>/api/v1/domains/{host}/spec</code> · <code>/spec/apis</code></h3>
+
+<p class="legend">문서화 API 인벤토리는 <strong>스펙 리소스 아래</strong>에 둔다 — <code>GET /spec</code>=업로드된 문서 목록, <code>GET /spec/apis</code>=그 문서들에서 파싱한 API. 관측 트래픽 기반 발견(discovery) 결과(<a href="#s2-2"><code>/result</code></a>·<a href="#s2-3"><code>/discovery</code></a>)와는 구분된다.</p>
 
 <div class="ep">
   <div class="sig"><span class="m m-put">PUT</span><code>/api/v1/domains/{host}/spec</code> &nbsp;·&nbsp; <span class="m m-get">GET</span><code>/api/v1/domains/{host}/spec</code></div>
   <p><strong>PUT</strong> 은 스펙 원문(OpenAPI / Postman / CSV 바이트)을 <code>Content-Type: application/octet-stream</code> 본문으로 업로드한다. <code>?filename</code> 은 곧 <strong>문서 식별자(<code>specName</code>)로 도출</strong>된다 — 정규화(trim·소문자), 미전달/빈 = <code>"default"</code>. 서로 다른 filename = 별개 문서, 같은 filename 재업로드 = 그 문서의 새 버전이다.</p>
-  <p>★업로드 시 파싱된 API 목록·파라미터가 <strong>영속 API 인벤토리(<code>documented_api</code>)</strong>에 <code>specName</code> 단위로 <strong>reconcile</strong> 된다 — 이미 있으면 파라미터·deprecated·version 변경 시 갱신(<code>UPDATED</code>), 신규면 추가(<code>ADDED</code>), 그 문서에서 빠지면 삭제 표시(<code>status=DELETED</code>, 행 보존). <strong>★다른 filename 문서는 건드리지 않는다(union)</strong>. 인벤토리 조회는 아래 <code>GET /apis</code>.</p>
+  <p>★업로드 시 파싱된 API 목록·파라미터가 <strong>영속 API 인벤토리(<code>documented_api</code>)</strong>에 <code>specName</code> 단위로 <strong>reconcile</strong> 된다 — 이미 있으면 파라미터·deprecated·version 변경 시 갱신(<code>UPDATED</code>), 신규면 추가(<code>ADDED</code>), 그 문서에서 빠지면 삭제 표시(<code>status=DELETED</code>, 행 보존). <strong>★다른 filename 문서는 건드리지 않는다(union)</strong>. 인벤토리 조회는 아래 <code>GET /spec/apis</code>.</p>
   <p><strong>GET</strong> 은 활성 스펙 문서 <strong>목록(배열)</strong>을 반환하며, 스펙이 없으면 <code>404</code> 가 아니라 <strong>빈 배열 <code>[]</code>(200)</strong>이다. 각 문서는 <code>specName</code>·<code>filename</code>·<code>uploadedAt</code> 등을 포함한다.</p>
   <pre><code># 등록 후 업로드 — filename 이 specName 으로 도출됨
 curl -X POST http://&lt;host&gt;:8080/api/v1/domains -H 'Content-Type: application/json' -d '{"host":"spec-demo.example.com"}'   # → 201
@@ -379,10 +381,10 @@ curl http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/spec   # → [] (200)
 </div>
 
 <div class="ep">
-  <div class="sig"><span class="m m-get">GET</span><code>/api/v1/domains/{host}/apis</code></div>
+  <div class="sig"><span class="m m-get">GET</span><code>/api/v1/domains/{host}/spec/apis</code></div>
   <p>도메인의 <strong>문서화된 API 인벤토리</strong>(파라미터·상태)다. 스펙 업로드마다 <strong>reconcile 로 영속·갱신</strong>되며(조회 시점 계산이 아니다), 문서에서 제거된 API 도 행을 보존(soft-delete)한다.</p>
   <p>파라미터: <code>?specName</code>(특정 문서, 정규화) · <code>?status=ACTIVE|DELETED</code>(그 외 값 → 400) · <code>?method</code> · <code>?breaking=true</code>(breaking UPDATED 만, 아래) · <code>?view=merged</code>(도메인 병합 뷰, 아래). host 정규화 null → 400.</p>
-  <pre><code>curl http://&lt;host&gt;:8080/api/v1/domains/inv-demo.example.com/apis</code></pre>
+  <pre><code>curl http://&lt;host&gt;:8080/api/v1/domains/inv-demo.example.com/spec/apis</code></pre>
   <pre><code>[
   { "specName":"inv-a.yaml", "method":"GET", "pathTemplate":"/v2/users/{id}",
     "status":"ACTIVE", "lastChange":"UPDATED", "deprecated":false, "version":"2.0.0",
@@ -455,7 +457,7 @@ curl http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/spec   # → [] (200)
 
   <h4>★ 도메인 merged 뷰 — <code>?view=merged</code></h4>
   <p>기본 목록은 문서(<code>specName</code>)별 행이다. <code>?view=merged</code> 는 도메인 전체 API 표면을 <strong>문서 구분 없이 <code>(method, pathTemplate)</code> 단위로 병합</strong>한다(<code>?specName</code>·<code>?breaking</code> 미적용). 병합 규칙: 기여 문서 중 하나라도 ACTIVE 면 <strong>ACTIVE</strong>(전부 DELETED 면 DELETED) · <code>deprecated</code> 는 OR · <code>version</code>/<code>params</code>/<code>sourceSpecVersion</code> 은 ACTIVE pool 의 <strong>최신(<code>sourceSpecVersion</code> 최대)</strong> 문서 값(겹치면 union 이 아니라 최신 택1) · <code>contributingSpecNames</code> 는 기여 문서 목록. per-document 의 <code>specName</code>·<code>lastChange</code>·<code>changedParams</code>·타임스탬프는 병합 뷰에 없다.</p>
-  <pre><code>curl 'http://&lt;host&gt;:8080/api/v1/domains/manual-demo.example.com/apis?view=merged'</code></pre>
+  <pre><code>curl 'http://&lt;host&gt;:8080/api/v1/domains/manual-demo.example.com/spec/apis?view=merged'</code></pre>
   <pre><code>[
   { "method":"GET", "pathTemplate":"/v2/health", "status":"ACTIVE", "deprecated":false,
     "version":"2.0.0", "params":[], "sourceSpecVersion":3,
@@ -592,7 +594,7 @@ curl -i -H 'If-None-Match: "829bfa4c628a7ede"' \
   <li><code>POST /scan</code> 비동기 큐잉(현재 코드 TODO 주석: 동기 트리거).</li>
   <li><code>/discovery</code> 대량 호출용 응답 캐시(ETag) — 현재 plain GET.</li>
   <li>dropped 엔드포인트 per-item 근거 노출(현재 집계만).</li>
-  <li>API 인벤토리 <strong>P2 잔여</strong> — 오래된 DELETED 버전 <strong>inactive prune</strong>(P2-5) · 기존 스펙 param 백필(재업로드). 매칭 source 대체(P2-1)는 <strong>보류</strong>(위험 대비 가치 음수 · 문서 기반 좀비 탐지는 P1 에 이미 존재, DECISIONS D54). <span class="legend">(영속 인벤토리·파라미터·<code>GET /apis</code>·DELETED→Zombie = P1 완료, breaking 판정·도메인 merged 뷰 = P2-3/P2-4 완료, <code>rawDoc</code> 컬럼 삭제로 oid 함정 해소.)</span></li>
+  <li>API 인벤토리 <strong>P2 잔여</strong> — 오래된 DELETED 버전 <strong>inactive prune</strong>(P2-5) · 기존 스펙 param 백필(재업로드). 매칭 source 대체(P2-1)는 <strong>보류</strong>(위험 대비 가치 음수 · 문서 기반 좀비 탐지는 P1 에 이미 존재, DECISIONS D54). <span class="legend">(영속 인벤토리·파라미터·<code>GET /spec/apis</code>·DELETED→Zombie = P1 완료, breaking 판정·도메인 merged 뷰 = P2-3/P2-4 완료, <code>rawDoc</code> 컬럼 삭제로 oid 함정 해소.)</span></li>
   <li>rate limiting / API 버저닝 정책.</li>
   <li>(선택) 정크 도메인(IP·0패딩 IP) 디스커버리 필터.</li>
 </ul>

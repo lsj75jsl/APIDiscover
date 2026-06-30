@@ -156,6 +156,9 @@
 
 ## Done
 
+### REST API 매뉴얼 경로 rename 반영 — GET /apis → /spec/apis (2026-06-30, PR #48 7480a8c, 문서만) — TW
+- [x] `api-rest-manual.html` 의 도메인 API 인벤토리 경로 `/apis` → `/spec/apis` 9곳 갱신(TOC·개요표·§2.4 제목/시그니처·curl 2건·본문·TODO) + 스펙 리소스 구분 설명(/spec=문서 목록·/spec/apis=문서의 API·discovery 와 구분) 보강. 로직/응답/쿼리 무변경. 구 `/apis` 경로 잔존 0 검증. `ApiInventoryController` 라우트 교차검증.
+
 ### DB 스키마 명세 HTML — M7 재설계·P2 현행화 (2026-06-30, 실 PG 캡처, 문서만) — TW
 - [x] `db-schema-spec.html` 9테이블화 — 신규 `documented_api` 카드(16컬럼·UNIQUE(host,spec_name,method,path_template)·idx host/host,spec_name/host,status·status=DELETED→Zombie 입력) + `spec_record` `filename` 추가·`raw_doc`(oid) 제거됨(orphan) 표기 + ER 다이어그램·관계표(8건)·개요표 documented_api 추가. `DocumentedApiRecord` 코드 교차검증.
 

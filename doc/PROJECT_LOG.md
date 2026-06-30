@@ -5,6 +5,17 @@
 
 ---
 
+## 2026-06-30 세션 65 — REST API 매뉴얼 경로 rename 반영 (GET /apis → /spec/apis, PR #48 7480a8c, 문서만, TW)
+
+### 한 일
+- `api-rest-manual.html` 의 도메인 API 인벤토리 경로를 `/api/v1/domains/{host}/apis` → `/api/v1/domains/{host}/spec/apis` 로 전수 갱신(9곳: TOC s2-4·개요표·§2.4 제목·시그니처·curl 평문·curl ?view=merged·본문 2곳·TODO legend). `ApiInventoryController` 라우트(@RequestMapping `/spec/apis`) 코드 교차검증.
+- 스펙 리소스 그룹 구분 설명 1줄 보강 — `GET /spec`=업로드 문서 목록·`GET /spec/apis`=문서의 API, 관측 발견(`/result`·`/discovery`)과 구분.
+- ★로직·응답 본문·필드·필터(?view=merged·?breaking·?status·?specName)·예시 데이터 무변경(경로 문자열만).
+
+### 결과
+- HTMLParser OK·HTML 태그 균형 EMPTY·앵커 s2-4 정상·★구 `/apis` 경로 잔존 0(`(?<!/spec)/apis`=0)·`/spec/apis` 9곳 검증. 자기완결. 운영 Loki 미호출. main 직접 커밋.
+- 다음 단계: 매니저 검증 대기.
+
 ## 2026-06-30 세션 64 — DB 스키마 명세 HTML M7 재설계·P2 현행화 (실 PG 캡처, 문서만, TW)
 
 ### 한 일
