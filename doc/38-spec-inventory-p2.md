@@ -123,7 +123,7 @@ merged 뷰의 병합 규칙은 `SpecCanonicalizer.merge`(매칭 source)와 **의
 
 ## 7. 단계 / 묶음
 
-> **구현 상태(2026-06-30)**: P2-2+P2-3+P2-4 구현 완료(브랜치 `feat/api-inventory-p2`, build green 496·실패0·skip2·PostgresIntegrationTest 30/30·커밋 보류·머지 시 Done, DECISIONS D54). breaking·merged status 실 PG RED-확인. **P2-1=보류(미터치)**·**P2-5=범위 밖(TODO)**. P2-2 매뉴얼 동기=TW 후속.
+> **구현 상태(2026-06-30)**: P2-2+P2-3+P2-4 ★머지 완료(PR #47 / main `b60b929`, build green 497·PostgresIntegrationTest 31/31, DECISIONS D54). 재배포·라이브 스모크(breaking·merged 정상)·Loki 수집 계속 확인. breaking·merged status·merged version 출처(P3-1 reviewer 지목→ACTIVE pool 통일) 실 PG RED-확인. **P2-1=보류(미터치)**·**P2-5=범위 밖(TODO)**. P2-2 매뉴얼 동기=TW 후속.
 
 - **이 PR(P2 묶음) = P2-2 + P2-3 + P2-4**. dev 체크리스트 → TASKS subitem(D26·부모 P 버킷).
   - P2-2: 매뉴얼/doc 노트(재업로드 백필). 코드 0.
