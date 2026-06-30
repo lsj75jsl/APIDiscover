@@ -2,7 +2,9 @@
 package com.pentasecurity.apidiscover.api;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.pentasecurity.apidiscover.api.dto.DomainDtos.ScanStatusView;
 import com.pentasecurity.apidiscover.api.dto.DomainDtos.SpecMetaView;
@@ -14,9 +16,13 @@ import com.pentasecurity.apidiscover.domain.ScanResult;
 import com.pentasecurity.apidiscover.domain.ScanResultRepository;
 import com.pentasecurity.apidiscover.ingest.LogWindow;
 import com.pentasecurity.apidiscover.model.CombinedDiscovery;
+import com.pentasecurity.apidiscover.model.EndpointIdentity;
+import com.pentasecurity.apidiscover.model.EndpointRationale;
 import com.pentasecurity.apidiscover.spec.SpecStore;
 import com.pentasecurity.apidiscover.util.DomainNames;
 import java.time.Duration;
+import java.util.HashMap;
+import java.util.Map;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -64,10 +70,11 @@ public class ScanController {
 
     /**
      * 결과 — 조건부 GET. If-None-Match 가 현재 version 과 같으면 304(doc/07 §3.3).
-     * <p>★200 응답엔 serve-time 판단근거 {@code rationale} 가산(doc/35 M5) — report_json 파싱→주입→재직렬화.
-     * report_json <b>기존 필드 불변</b>(중앙 additive-safe)·ETag={@code r.version} 유지(rationale 는 ETag 입력 아님).
-     * ★caveat: report_json findings=스캔시점 vs rationale=현재 재계산(현재 effective 기준) → 다를 수 있고, 304 캐시 body 의
-     * rationale 는 갱신 안 됨(ETag=report 만 추적). 의도된 트레이드오프(doc/34·35 M5).
+     * <p>★200 응답엔 serve-time 판단근거를 <b>각 finding 에 인라인</b>(doc/35 M5, ⓒ) — finding 마다 {@code classification}·
+     * {@code basis}(SHADOW=점수게이트 apiScore/threshold/signals, Active/Zombie=spec_match) 가산. 별도 top-level
+     * {@code rationale[]} 는 두지 않는다(인라인 대체). report_json <b>기존 필드 불변</b>·ETag={@code r.version} 유지(basis 는 ETag 입력 아님).
+     * ★caveat: report_json findings=스캔시점 vs basis=현재 재계산(현재 effective 기준) → 다를 수 있고, 매칭 없는 finding 은 미가산.
+     * 304 캐시 body 의 basis 는 갱신 안 됨(ETag=report 만 추적). 의도된 트레이드오프(doc/34·35 M5).
      */
     @GetMapping("/result")
     public ResponseEntity<String> result(
@@ -84,18 +91,44 @@ public class ScanController {
         return ResponseEntity.ok()
                 .eTag(etag)
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(withRationale(r.getReportJson(), host));
+                .body(inlineBasis(r.getReportJson(), host));
     }
 
-    /** report_json 에 serve-time rationale 가산(/discovery 와 동일 메커니즘, doc/35 M5). 기존 필드 미터치(가산만). */
-    private String withRationale(String reportJson, String host) {
+    /**
+     * report_json 의 각 finding 에 serve-time 판단근거(classification·basis)를 인라인(doc/35 M5, ⓒ).
+     * forHost rationale 를 {@link EndpointIdentity#key} 로 인덱싱 → 같은 (method,host,pathTemplate) finding 에만 가산.
+     * 기존 finding 필드 미터치(가산만), 매칭 없으면 미가산. 별도 top-level {@code rationale[]} 는 두지 않는다.
+     */
+    private String inlineBasis(String reportJson, String host) {
         try {
             ObjectNode node = (ObjectNode) objectMapper.readTree(reportJson);
-            node.set("rationale", objectMapper.valueToTree(combinedDiscoveryService.forHost(host).rationale()));
+            Map<String, EndpointRationale> byKey = new HashMap<>();
+            for (EndpointRationale er : combinedDiscoveryService.forHost(host).rationale()) {
+                byKey.put(EndpointIdentity.key(er.method(), er.host(), er.pathTemplate()), er);
+            }
+            if (node.get("findings") instanceof ArrayNode findings) {
+                for (JsonNode fn : findings) {
+                    if (!(fn instanceof ObjectNode f)) {
+                        continue;
+                    }
+                    EndpointRationale er = byKey.get(EndpointIdentity.key(
+                            asText(f, "method"), asText(f, "host"), asText(f, "pathTemplate")));
+                    if (er != null) {
+                        f.put("classification", er.classification().name());
+                        f.set("basis", objectMapper.valueToTree(er.basis()));
+                    }
+                }
+            }
             return objectMapper.writeValueAsString(node);
         } catch (JsonProcessingException e) {
-            throw new IllegalStateException("failed to inject rationale into report for host=" + host, e);
+            throw new IllegalStateException("failed to inline basis into report for host=" + host, e);
         }
+    }
+
+    /** finding ObjectNode 의 문자열 필드 추출(부재/null → null) — identity 키 매칭 안전. */
+    private static String asText(ObjectNode n, String field) {
+        JsonNode v = n.get(field);
+        return (v == null || v.isNull()) ? null : v.asText();
     }
 
     /** 온디맨드 재검사 트리거(비동기 202) — 스케줄러 runScan 트리거. 즉시 결과가 필요하면 {@code /scan-now}(동기) 사용. */
