@@ -5,6 +5,22 @@
 
 ---
 
+## 2026-07-01 세션 66 — 실배포 운영 점검: 백필 발산 진단·워터마크 점프·무접속 중단·/result 인라인 (D55)
+
+### 한 일
+- **운영 진단(사용자: biz.revu.net 6/19 정체 확인 요청)** — DB 직접 조회(podman psql, 테스트 VM PG). 수집(도메인 디스커버리)은 정상·최신(오늘 29,586 도메인·last_seen max=조회 12분 전), biz.revu.net 도 12분 전 수집·실 트래픽 폭주(엣지 6만+ 라인/30분). 하지만 **엔드포인트 스캔(평가)이 워터마크 바운드 백필로 ~8일 뒤처지고 매일 ~0.5일씩 발산**(scan_result.window_to 6/19~6/23 정체·discovered_endpoint 6/19 박제). biz.revu.net "6/19 마지막"은 이 지연의 증상이지 수집 중단 아님.
+- **① 워터마크 점프(실행)** — 전 52,513 워터마크 `last_end`=now−30m UPDATE(과거 백필 포기·실시간 전환). 99.92% near-now 정렬. ★단 운영 중 스케줄러의 off-peak PT24H in-flight 스캔이 옛 값 읽고 완료되며 소수(~41) 되돌림 → **깔끔한 정착은 앱 재기동(다음 재배포)**. (워터마크 매 스캔 DB 직독이나 in-flight 가 덮어씀.)
+- **② `/result` 판단근거 인라인(ⓒ, 구현)** — `ScanController.inlineBasis`: 별도 `rationale[]` 제거, report_json 각 finding 에 `classification`+`basis`(SHADOW=score{apiScore·threshold·signals}·Active/Zombie=spec_match) `EndpointIdentity.key` 매칭 인라인. 기존 finding 필드·ETag 불변·매칭 없으면 미가산. 응답 형태 변경(중앙/매뉴얼 반영 필요). 사용자 요청(점수·기준·가중치)은 이미 SHADOW basis 로 충족(VM 스펙 0=전부 SHADOW), Active 점수=ⓑ 보류.
+- **무접속 도메인 중단(신규 요구, 구현)** — `scan.inactive-after`(기본 P30D) 신설 + `ScanSelector.findDueForScan` 가 `last_seen_at < now−inactive-after` 도메인 제외(스캔=수집+평가 중단). ★스키마 변경 0(last_seen_at 재사용·domain_hostnames 컬럼 미추가=확정 D55). 자동 재개(디스커버리 갱신→다음 틱). EPOCH 센티넬(PG untyped-null 회피).
+
+### 결과
+- `./gradlew build`(podman) BUILD SUCCESSFUL. **500 테스트·실패0·에러0·skip2(-Dloki.live)**. PostgresIntegrationTest 32/32. 무접속 필터 RED-확인(필터 제거 시 stale 테스트 red→복원 green). ② 인라인 단위+실 PG 테스트 갱신·통과.
+- ★커밋 보류(매니저 git/PR/머지). 재배포 시 ①(워터마크 정착)·②(인라인)·무접속 중단 동시 반영. 매뉴얼(TW)=②·무접속 후속.
+- 문서: DECISIONS D55·TASKS·이 로그.
+
+### 다음 단계
+- 매니저: 코드 리뷰·커밋·PR·머지·재배포. 재배포가 ①의 워터마크 정착을 완성(in-flight 경합 해소). 무접속 중단은 재배포 후 라이브에서 stale 도메인 스캔 제외 확인.
+
 ## 2026-06-30 세션 65 — REST API 매뉴얼 경로 rename 반영 (GET /apis → /spec/apis, PR #48 7480a8c, 문서만, TW)
 
 ### 한 일

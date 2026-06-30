@@ -5,6 +5,7 @@ import com.pentasecurity.apidiscover.config.ApiDiscoverProperties;
 import com.pentasecurity.apidiscover.domain.DomainConfig;
 import com.pentasecurity.apidiscover.domain.DomainConfigRepository;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import org.springframework.data.domain.PageRequest;
@@ -17,6 +18,10 @@ import org.springframework.stereotype.Component;
  *
  * <p>off-peak(D)면 K 를 {@code off-peak-domains-per-tick} 로 상향(due 술어는 불변 — 백필 우선순위는 due 정렬이 이미 보장).
  * tiering-enabled=false 면 nextScanDueAt 가 항상 now(=즉시 due)라 이 선택은 PR1 의 LRS 와 동치(롤백 스위치).
+ *
+ * <p>★무접속 중단(요구): {@code scan.inactive-after}(기본 P30D)보다 마지막 접속({@code lastSeenAt})이 오래된 도메인은
+ * 선택에서 제외 → 스캔(수집+평가)을 안 한다. fleet 디스커버리(경량·전수)는 계속 돌아 트래픽 재개 시 {@code lastSeenAt} 이
+ * 갱신되면 자연히 다시 due 대상이 됨(self-healing, 수동 재활성화 불요). {@code inactive-after}=0/null=비활성(현행).
  */
 @Component
 public class ScanSelector {
@@ -31,13 +36,23 @@ public class ScanSelector {
         this.clock = clock;
     }
 
-    /** 이번 틱 처리 대상(due 도래 상위 K, off-peak 시 K 상향). */
+    /** 이번 틱 처리 대상(due 도래 상위 K, off-peak 시 K 상향, 무접속 도메인 제외). */
     public List<DomainConfig> selectForTick() {
         Instant now = Instant.now(clock);
         boolean offPeak = OffPeakWindow.isOffPeak(now, props.schedule().offPeakWindow(),
                 OffPeakWindow.zone(props.scan().offPeakZone()));
         int k = Math.max(1, offPeak ? props.scan().offPeakDomainsPerTick() : props.scan().domainsPerTick());
         Pageable page = PageRequest.of(0, k); // ORDER BY 는 findDueForScan @Query 가 보유(nulls first 결정적, P1)
-        return repo.findDueForScan(now, page);
+        return repo.findDueForScan(now, staleCutoff(now), page);
+    }
+
+    /**
+     * 무접속 중단 컷오프(요구): 마지막 접속(lastSeenAt)이 이 시점보다 이전이면 스캔 제외 = now − inactive-after.
+     * inactive-after 0/null = 비활성 → {@code Instant.EPOCH}(1970) 반환 = 모든 실 lastSeenAt 이 이후라 제외 0(현행 무회귀).
+     * ★null 이 아닌 EPOCH 를 쓰는 이유: 쿼리에 nullable 비교를 두면 실 PG 가 untyped-null 타입추론 실패(non-null 만 전달).
+     */
+    private Instant staleCutoff(Instant now) {
+        Duration inactiveAfter = props.scan().inactiveAfter();
+        return (inactiveAfter == null || inactiveAfter.isZero()) ? Instant.EPOCH : now.minus(inactiveAfter);
     }
 }

@@ -71,12 +71,15 @@ class ScanControllerTest {
         assertThat(controller.status(HOST).latestSpec()).isNull(); // 스펙 없음=null(무회귀)
     }
 
-    // --- M5: GET /result serve-time rationale 가산 ---
+    // --- M5: GET /result serve-time 판단근거를 각 finding 에 인라인(ⓒ) ---
 
     @Test
-    void resultInjectsRationalePreservingReportFieldsAndEtag() throws Exception {
+    void resultInlinesBasisIntoMatchingFindingsPreservingReportFieldsAndEtag() throws Exception {
         ScanResult r = scan();
-        r.setReportJson("{\"host\":\"api.example.com\",\"findings\":[]}");
+        // findings: 매칭(/v2/users/{id}) 1건 + 비매칭(/other) 1건 — 매칭만 basis 인라인
+        r.setReportJson("{\"host\":\"api.example.com\",\"findings\":["
+                + "{\"host\":\"api.example.com\",\"method\":\"GET\",\"pathTemplate\":\"/v2/users/{id}\",\"confidence\":1.0},"
+                + "{\"host\":\"api.example.com\",\"method\":\"GET\",\"pathTemplate\":\"/other\",\"confidence\":0.6}]}");
         r.setVersion("v9");
         when(scanRepo.findById(HOST)).thenReturn(Optional.of(r));
         when(combined.forHost(HOST)).thenReturn(combinedWith(List.of(new EndpointRationale(
@@ -89,9 +92,13 @@ class ScanControllerTest {
         assertThat(resp.getHeaders().getETag()).isEqualTo("\"v9\""); // ETag=report version 유지
         JsonNode body = objectMapper.readTree(resp.getBody());
         assertThat(body.get("host").asText()).isEqualTo("api.example.com"); // report_json 기존 필드 불변
-        assertThat(body.has("findings")).isTrue();
-        assertThat(body.get("rationale").get(0).get("classification").asText()).isEqualTo("ACTIVE"); // 가산
-        assertThat(body.get("rationale").get(0).get("basis").get("type").asText()).isEqualTo("spec_match");
+        JsonNode matched = body.get("findings").get(0);
+        assertThat(matched.get("confidence").asDouble()).isEqualTo(1.0);        // 기존 finding 필드 불변
+        assertThat(matched.get("classification").asText()).isEqualTo("ACTIVE"); // ⓒ 인라인
+        assertThat(matched.get("basis").get("type").asText()).isEqualTo("spec_match");
+        JsonNode unmatched = body.get("findings").get(1);
+        assertThat(unmatched.has("basis")).isFalse();                           // 매칭 없으면 미가산
+        assertThat(body.has("rationale")).isFalse();                            // 별도 배열 제거(인라인 대체)
     }
 
     @Test

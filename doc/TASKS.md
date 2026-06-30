@@ -41,7 +41,8 @@
 > (현재 비어 있음 — OPTIONS preflight·cross-scan recency severity 완료, Done 참조)
 
 #### 리포트/출력 (01/12/14 문서)
-> (현재 비어 있음 — low_confidence+warnings·Active/Zombie params·total_dropped·API 판단근거 노출 완료, Done 참조)
+> (low_confidence+warnings·Active/Zombie params·total_dropped·API 판단근거 노출 완료, Done 참조)
+- [x] **`/result` 판단근거 finding 인라인 (ⓒ)** **(구현 완료 — build green 500·커밋 보류·머지 시 Done. D55, 사용자 요청)** — 별도 top-level `rationale[]` 제거, report_json 각 finding 에 `classification`+`basis`(SHADOW=score{apiScore·threshold·signals}·Active/Zombie=spec_match) `EndpointIdentity.key`(method,host,path) 매칭 인라인. 기존 finding 필드·ETag 불변·매칭 없으면 미가산. ★응답 형태 변경(additive 아님)=중앙/매뉴얼(TW) 반영 필요. ⓑ(Active 휴리스틱 점수)=스펙 업로드 시 후속 보류.
 
 #### 스펙 파서 / Spec Store (03 문서)
 > (현재 비어 있음 — 검출/업로드 데이터 모델 통합 + 멀티 스펙 병합 완료, Done 참조)
@@ -51,6 +52,8 @@
 > (현재 비어 있음 — 매칭 회귀테스트·F1/F2·@Lob→text 실검증·Testcontainers·엔티티 캡슐화 완료, Done 참조. Docker 의존 항목은 host podman 으로 해소.)
 
 ### P3. 운영/인프라 (자체 운영)
+- [x] **무접속 도메인 스캔 중단 (마지막 접속 > 30일)** **(구현 완료 — build green 500·실 PG 가드 PASS·필터 제거 RED-확인·커밋 보류·머지 시 Done. D55, 사용자 요청)** — `scan.inactive-after`(application.yml 기본 `P30D`·0/null=비활성) 신설 + `ScanSelector.findDueForScan` 가 `last_seen_at < now−inactive-after` 도메인 제외 → 스캔(수집+평가) 중단. ★스키마 변경 0(last_seen_at 재사용·domain_hostnames 컬럼 미추가). 자동 재개=fleet 디스커버리 계속→트래픽 재개 시 last_seen_at 갱신→다음 틱 자동 재스캔(self-healing). ★EPOCH 센티넬(`:staleCutoff is null` nullable 비교=실 PG untyped-null 실패 → 비활성 시 `Instant.EPOCH` 전달). 테스트: ScanSelectorTest(stale 제외·null 포함·inactive-after=0 비활성)·PostgresIntegrationTest(실 PG stale 제외·EPOCH 무필터).
+- [ ] **★스캔 백필 발산 — 워터마크 점프 영구 정착(재배포 의존)** **(① 실행 완료·정착 미완)** — 52k 도메인 워터마크 바운드 백필이 실시간 못 따라잡고 발산(~8일·+0.5일/일). 워터마크 전체 now−30m 일괄 점프 실행(99.92% near-now)으로 실시간 전환했으나, **운영 중 스케줄러 in-flight 스캔이 옛 값 덮어씀 → 깔끔한 정착은 앱 재기동(다음 재배포)에서**. 무접속 중단과 함께 active 도메인만 실시간 추적 = 지속가능. (재배포 후 워터마크 분포 near-now 유지 확인 필요.)
 - [x] **(배포·검증 완료)** 테스트서버(192.168.8.197, podman) 실배포 — 기동·**무제한 Loki 수집**·**스캔 정책(PR1.1) 다도메인 분산**·CLI(`-domain -ls`·export/scan) 전부 실검증(PR #24~#28 + 2cab6a5, D44/D46/D47, doc/manual). VM 가동 중(정책-bounded 수집). 세부:
   - [x] `max-domains-per-run` 무제한 결정·반영(PR #25) + 정책 이미지 VM 재배포(2026-06-26, a792f107). 무제한 수집 동작 확인(domain_config 352, 캡 없음).
   - [x] **★PR1.1 — 스캔 per-domain 폭주 수정(실배포 발견)** **(완료 — PR #27, D46, 실배포 재검증: scanTick 다도메인 분산·기아 해소)**: max-window PT6H 백필이 단일 busy 도메인(www.takigen.co.jp)에서 1500+ 쿼리 → LokiBudget 독점 + 단일 @Scheduled 스레드 점유 → 다른 도메인·디스커버리 기아, discovered_endpoint=0. (부하 자체는 throttle·budget 으로 묶임=429 0, 문제는 진척0+기아.) 근본: 스캔=라인 페이지네이션, `budget.hasBudget()` 가 도메인 사이에서만 체크(runScan 내부 무한) + 단일 스케줄러 스레드(pool=1).

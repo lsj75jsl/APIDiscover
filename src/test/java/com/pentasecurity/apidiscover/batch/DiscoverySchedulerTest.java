@@ -122,6 +122,6 @@ class DiscoverySchedulerTest {
                 new ApiDiscoverProperties.Scan(Duration.ofMinutes(5), 100, PEAK_MAX_WINDOW, 0, 0L, true,
                         Duration.ZERO, 0, tiering, Duration.ofMinutes(30), DEFAULT_INTERVAL, Duration.ofHours(6),
                         Duration.ofHours(24), 500, OFF_PEAK_MAX_WINDOW, "UTC",
-                        Duration.ofDays(14), Duration.ofDays(1)));
+                        Duration.ofDays(14), Duration.ofDays(1), Duration.ZERO));
     }
 }
