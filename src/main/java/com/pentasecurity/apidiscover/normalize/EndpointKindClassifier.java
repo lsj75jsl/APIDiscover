@@ -20,7 +20,12 @@ public class EndpointKindClassifier {
     private static final Set<String> API_TYPES = Set.of("xhr", "fetch", "json", "api", "ajax");
     private static final String[] STATIC_EXT = {
             ".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico",
-            ".woff", ".woff2", ".ttf", ".eot", ".map"};
+            ".webp", ".avif", ".bmp", ".tiff", ".woff", ".woff2", ".ttf", ".eot", ".otf", ".map"};
+    // 정적 리소스 서빙으로 보이는 파일명 토큰(D55 후속) — 동적 확장자(.php 등)로 이미지/CSS 등을 서빙하는
+    // 경우(img.php·resize_image.php·view_css.php) API 오탐 감점용. ★모호 토큰(photo·view·file·get)은 제외(실 API 가능).
+    private static final String[] STATIC_NAME_TOKENS = {
+            "img", "image", "thumb", "thumbnail", "resize", "icon", "logo",
+            "banner", "sprite", "avatar", "favicon", "css", "download", "attachment"};
     /** 정적 자식 ≥2 의 부모 = 페이지 확정 (referer 보조 임계, doc/20 §3). */
     private static final long MIN_CHILD_HITS = 2;
     private static final double REFERER_WEB_PAGE_CONFIDENCE = 0.6;
@@ -89,6 +94,28 @@ public class EndpointKindClassifier {
         String p = path.toLowerCase();
         for (String ext : STATIC_EXT) {
             if (p.endsWith(ext)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 마지막 세그먼트(파일명)가 정적 리소스 서빙으로 보이는지(D55 후속, 사용자 요구) — ApiScorer 가 큰 감점에 사용.
+     * 조건: 확장자(.) 있는 파일 + {@link #STATIC_NAME_TOKENS} 포함. ★확장자 없는 경로(예: {@code /api/images} 컬렉션)는
+     * 제외(REST 리소스일 수 있음). {@code .php} 등 동적 확장자라도 파일명이 정적 리소스면 감점(veto 아님 — 실 API 가능성 보존).
+     */
+    public static boolean hasStaticResourceName(String path) {
+        if (path == null) {
+            return false;
+        }
+        int slash = path.lastIndexOf('/');
+        String seg = (slash >= 0 ? path.substring(slash + 1) : path).toLowerCase();
+        if (seg.indexOf('.') < 0) {
+            return false; // 확장자 없음 = 특정 파일 아님(컬렉션/리소스) → 제외
+        }
+        for (String token : STATIC_NAME_TOKENS) {
+            if (seg.contains(token)) {
                 return true;
             }
         }

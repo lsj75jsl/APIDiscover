@@ -41,6 +41,29 @@ class EndpointKindClassifierTest {
     }
 
     @Test
+    void newStaticExtensionsAreStatic() {
+        // D55 확장: webp/avif/bmp/tiff/otf 추가
+        assertThat(EndpointKindClassifier.isStaticPath("/img/hero.webp")).isTrue();
+        assertThat(EndpointKindClassifier.isStaticPath("/img/x.avif")).isTrue();
+        assertThat(EndpointKindClassifier.isStaticPath("/fonts/x.otf")).isTrue();
+        assertThat(EndpointKindClassifier.isStaticPath("/api/orders")).isFalse(); // 비-정적 무회귀
+    }
+
+    @Test
+    void hasStaticResourceNameMatchesDynamicExtServingStatic() {
+        // D55: 동적 확장자(.php)로 정적 리소스 서빙 → 파일명 토큰 매치(감점 대상)
+        assertThat(EndpointKindClassifier.hasStaticResourceName("/api/blogwidget/img.php")).isTrue();
+        assertThat(EndpointKindClassifier.hasStaticResourceName("/resize_image.php")).isTrue();
+        assertThat(EndpointKindClassifier.hasStaticResourceName("/view_css.php")).isTrue();
+        // ★확장자 없는 컬렉션 경로는 제외(REST 리소스 가능)
+        assertThat(EndpointKindClassifier.hasStaticResourceName("/api/images")).isFalse();
+        // ★정적 토큰 없는 동적 파일은 미해당(.php=실 API 보존)
+        assertThat(EndpointKindClassifier.hasStaticResourceName("/api/blogwidget/list.php")).isFalse();
+        // ★모호 토큰(photo) 제외 — 실 API 가능성
+        assertThat(EndpointKindClassifier.hasStaticResourceName("/add_favorite_photo.php")).isFalse();
+    }
+
+    @Test
     void allApiTypesMapToApiCandidate() {
         // doc/21 Tier0: API_TYPES 5값 무변경 확정 — 매핑 잠금(샘플링 실관측 0이나 관례 집합 유지)
         for (String t : new String[] {"xhr", "fetch", "json", "api", "ajax"}) {

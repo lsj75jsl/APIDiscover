@@ -525,6 +525,12 @@ P1 머지(main 3b70c3e) 위 후속. P2-2+P2-3+P2-4 ★머지 완료(PR #47 / mai
 - **무접속 도메인 중단(채택, 신규 요구)**: 마지막 접속(`last_seen_at`)이 `scan.inactive-after`(기본 P30D)보다 오래된 도메인은 ScanSelector `findDueForScan` 에서 제외 → 스캔(수집+평가) 중단. ★**스키마 변경 0**(domain_hostnames 컬럼 추가 안 함 — @ElementCollection 부적합·per-hostname granularity 불요, 결정은 per-domain). last_seen_at 재사용(디스커버리가 트래픽 볼 때 now 로 갱신=마지막 접속 프록시). **자동 재개**: fleet 디스커버리(경량·전수)는 계속 → 트래픽 재개 시 last_seen_at 갱신 → 다음 틱 자동 재스캔(self-healing·수동 불요). 비활성=inactive-after 0/null. ★**EPOCH 센티넬**: `:staleCutoff is null` 같은 nullable 비교는 실 PG 가 untyped-null($N) 타입추론 실패(h2-pg-null-ordering-trap 동류, PostgresIntegrationTest 가 검출) → 비활성 시 호출자가 `Instant.EPOCH` 전달(non-null 유지). build green 500·실 PG 가드 PASS·필터 제거 RED-확인.
 - **공통**: 구현(②·무접속)은 커밋 보류(매니저 git/PR/머지). 재배포 시 ①(워터마크 정착)·②(인라인)·무접속 중단 동시 반영. 매뉴얼(TW)=②·무접속 후속.
 
+### D56. 정적 파일 API 오탐 수정 — 하드 veto + 정적 리소스 파일명 감점 (2026-07-01, D55 후속, 사용자 확정)
+사용자 보고: `/api/.../img.php` 류가 API(Shadow)로 오판정. 원인 = 경로 PREFIX 의 `api` 디렉터리가 apiSegment(+0.55) 발화 → 정작 리소스는 정적 서빙 스크립트인데 임계 통과(WEB_PAGE 는 점수 미감점). 사용자 확정: ①정적파일=비-API 보장, ②.php 는 정적 확장자 미포함.
+- **#1 정적 확장자 하드 veto**: `ApiScorer.evaluate` 에 `endpointKind==STATIC`(정적확장자 isStaticPath 또는 $type=library) → `Gate.DROP_STATIC`(exclude·operator apiHint 다음, 점수/web-form 앞). 점수·api 키워드 무관 무조건 비-API. ★감점만으론 보장 불가(clamp[0,1] 라 양수합 큰 경우 −0.6 으로 못 누름)이라 veto 채택. `STATIC_EXT` 확대(webp/avif/bmp/tiff/otf). `DroppedNonApi` +staticFile 카운트(total 자동 전파).
+- **#2 정적 리소스 파일명 감점**: `EndpointKindClassifier.hasStaticResourceName`(마지막 세그먼트=확장자 있는 파일 + 토큰[img·image·thumb·thumbnail·resize·icon·logo·banner·sprite·avatar·favicon·css·download·attachment]) → `staticAssetPenalty`(-0.6) 발화조건에 OR 추가. img.php(WEB_PAGE) 가 0.79→0.19 로 탈락. ★veto 아닌 감점 = .php 는 실 API 가능(login.php·list.php)이라 보존. ★모호 토큰(photo·view·file·get) 제외(과탐 방지)·확장자 없는 컬렉션(/api/images) 제외(REST 가능). 새 Weights 필드 불요(기존 staticAssetPenalty 재사용).
+- **검증**: build green 504·실 PG OK·신규 테스트 RED-확인(veto·감점 무력화 시 2건 red→복원). 응답 additive(DroppedNonApi.staticFile 가산·중앙 무파괴). 가중치 실데이터 보정은 라벨(스펙) 부재로 보류(D55).
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.

@@ -52,6 +52,29 @@ class ApiScorerTest {
         assertThat(middle.score(d, false)).isLessThan(0.70);
     }
 
+    // --- 정적 파일 하드 veto + 정적 리소스 파일명 감점 (D55, 사용자 요구) ---
+
+    @Test
+    void staticFileIsHardVetoedRegardlessOfApiKeywordOrScore() {
+        // /api/v2/app.js : api_seg + version + api host + cors → 고득점이지만 STATIC → 무조건 DROP_STATIC
+        var d = de("api.example.com", "GET", "/api/v2/app.js", EndpointKind.STATIC, 100, true, true);
+        assertThat(middle.evaluate(d, true, ApiHintMatcher.NONE)).isEqualTo(ApiScorer.Gate.DROP_STATIC);
+        assertThat(middle.isApiCandidate(d, true)).isFalse(); // api 키워드·강신호 있어도 비-API
+    }
+
+    @Test
+    void staticResourceFilenamePenalisesImgPhpButNotRealApi() {
+        // /api/blogwidget/img.php (WEB_PAGE): api_seg 0.55 + query 0.12 + repeat 0.12 = 0.79 이지만
+        // 파일명 'img' → staticAssetPenalty -0.60 → 0.19 < 0.70 → 비-API (img.php 오탐 해소)
+        var img = de("www.example.com", "GET", "/api/blogwidget/img.php", EndpointKind.WEB_PAGE, 100, true, false);
+        assertThat(middle.score(img, false)).isLessThan(0.70);
+        assertThat(middle.isApiCandidate(img, false)).isFalse();
+
+        // 대조: 같은 모양이나 정적 파일명 아님(.php=실 API 가능) → 감점 없어 API 후보 = 감점이 결정적
+        var api = de("www.example.com", "GET", "/api/blogwidget/list.php", EndpointKind.WEB_PAGE, 100, true, false);
+        assertThat(middle.isApiCandidate(api, false)).isTrue();
+    }
+
     @Test
     void apiSegmentWithWriteMethodIsCandidate() {
         var d = de("www.example.com", "POST", "/api/orders", EndpointKind.UNKNOWN, 100, false, false);

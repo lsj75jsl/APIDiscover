@@ -6,6 +6,7 @@ import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
 import com.pentasecurity.apidiscover.model.EndpointKind;
 import com.pentasecurity.apidiscover.model.ScoreBreakdown;
 import com.pentasecurity.apidiscover.model.SignalContribution;
+import com.pentasecurity.apidiscover.normalize.EndpointKindClassifier;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -25,8 +26,8 @@ public class ApiScorer {
 
     public enum Profile { HIGH, MIDDLE, LOW }
 
-    /** 게이트 판정 결과 (doc/09 §2.2). DROP 사유 분리 → non_api dropped 메트릭 버킷팅(후속). */
-    public enum Gate { ADMIT, DROP_EXCLUDED, DROP_WEB_FORM, DROP_LOW_SCORE }
+    /** 게이트 판정 결과 (doc/09 §2.2). DROP 사유 분리 → non_api dropped 메트릭 버킷팅. DROP_STATIC=정적 파일 하드 veto(D55). */
+    public enum Gate { ADMIT, DROP_EXCLUDED, DROP_WEB_FORM, DROP_LOW_SCORE, DROP_STATIC }
 
     /** 신호별 가중치 + 임계값 (doc/08 §4 보정값, doc/09 §6 pathHint 추가, doc/17 §3 responseTypeApi 추가). */
     public record Weights(
@@ -173,6 +174,11 @@ public class ApiScorer {
         if (hints.apiHinted(d.pathTemplate())) {
             return Gate.ADMIT;
         }
+        // 2.5 ★정적 파일 하드 veto (D55, 사용자 요구): 정적 확장자(.css/.js/.png…) 또는 $type=library → STATIC.
+        //     점수·api 키워드(apiSegment) 무관 무조건 비-API. operator 명시 api 힌트(2)만 예외(의도적 선언 존중).
+        if (d.endpointKind() == EndpointKind.STATIC) {
+            return Gate.DROP_STATIC;
+        }
         // 3. web-form 억제 (doc/09 §5): WEB_PAGE + write_method, 단 강신호(host_api·cors) 없을 때만
         if (!hints.includeWebForms()
                 && d.endpointKind() == EndpointKind.WEB_PAGE
@@ -229,7 +235,11 @@ public class ApiScorer {
         sigs.add(sig("nonBrowserUa", w.nonBrowserUa(), d.nonBrowserUa()));
         sigs.add(sig("repeatBonus", w.repeatBonus(),
                 d.metrics() != null && d.metrics().hits() >= w.repeatMinCount()));
-        sigs.add(sig("staticAssetPenalty", w.staticAssetPenalty(), d.endpointKind() == EndpointKind.STATIC));
+        // 정적 자산 감점: $type/확장자 STATIC(게이트에서 이미 veto) 또는 정적 리소스 파일명(img.php 등, D55 후속) → 큰 감점.
+        // ★img.php 류는 WEB_PAGE 라 veto(STATIC)엔 안 걸리지만 이 감점으로 점수 게이트에서 탈락(apiSegment 가산 상쇄).
+        sigs.add(sig("staticAssetPenalty", w.staticAssetPenalty(),
+                d.endpointKind() == EndpointKind.STATIC
+                        || EndpointKindClassifier.hasStaticResourceName(d.pathTemplate())));
         // 응답타입 API 신호(doc/17 §2): dominant $type ∈ {xhr,fetch,json,api,ajax} → API_CANDIDATE 만 양성 가산.
         // WEB_PAGE/UNKNOWN/$type 부재 무가산·무감점, STATIC 과 상호배타(kind 단일값 → 동시 발화 불가).
         sigs.add(sig("responseTypeApi", w.responseTypeApi(), d.endpointKind() == EndpointKind.API_CANDIDATE));
