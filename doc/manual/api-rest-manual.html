@@ -360,23 +360,27 @@ curl http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/spec   # → [] (200)
 <div class="ep">
   <div class="sig"><span class="m m-get">GET</span><code>/api/v1/domains/{host}/apis</code></div>
   <p>도메인의 <strong>문서화된 API 인벤토리</strong>(파라미터·상태)다. 스펙 업로드마다 <strong>reconcile 로 영속·갱신</strong>되며(조회 시점 계산이 아니다), 문서에서 제거된 API 도 행을 보존(soft-delete)한다.</p>
-  <p>파라미터: <code>?specName</code>(특정 문서, 정규화) · <code>?status=ACTIVE|DELETED</code>(그 외 값 → 400) · <code>?method</code>. host 정규화 null → 400.</p>
+  <p>파라미터: <code>?specName</code>(특정 문서, 정규화) · <code>?status=ACTIVE|DELETED</code>(그 외 값 → 400) · <code>?method</code> · <code>?breaking=true</code>(breaking UPDATED 만, 아래) · <code>?view=merged</code>(도메인 병합 뷰, 아래). host 정규화 null → 400.</p>
   <pre><code>curl http://&lt;host&gt;:8080/api/v1/domains/inv-demo.example.com/apis</code></pre>
   <pre><code>[
   { "specName":"inv-a.yaml", "method":"GET", "pathTemplate":"/v2/users/{id}",
     "status":"ACTIVE", "lastChange":"UPDATED", "deprecated":false, "version":"2.0.0",
     "params":[ {"name":"id","in":"PATH","required":true,"type":"integer"},
                {"name":"expand","in":"QUERY","required":false,"type":"string"} ],
-    "sourceSpecVersion":3, "firstDocumentedAt":"…", "lastDocumentedAt":"…", "changedAt":"…" },
+    "sourceSpecVersion":3, "firstDocumentedAt":"…", "lastDocumentedAt":"…", "changedAt":"…",
+    "lastChangeBreaking":false,
+    "changedParams":{ "added":[{"name":"expand","in":"QUERY","required":false,"type":"string"}],
+                      "removed":[], "modified":[], "empty":false } },
   { "specName":"inv-a.yaml", "method":"GET", "pathTemplate":"/v2/products",
-    "status":"ACTIVE", "lastChange":"ADDED", "params":[], "…":"…" },
+    "status":"ACTIVE", "lastChange":"ADDED", "params":[], "lastChangeBreaking":false, "changedParams":null, "…":"…" },
   { "specName":"inv-a.yaml", "method":"GET", "pathTemplate":"/v2/orders",
     "status":"DELETED", "lastChange":"ADDED",
-    "params":[ {"name":"status","in":"QUERY","required":false,"type":"string"} ], "…":"…" },
+    "params":[ {"name":"status","in":"QUERY","required":false,"type":"string"} ],
+    "lastChangeBreaking":false, "changedParams":null, "…":"…" },
   { "specName":"inv-b.yaml", "method":"GET", "pathTemplate":"/v2/health",
-    "status":"ACTIVE", "lastChange":"ADDED", "params":[], "…":"…" }
+    "status":"ACTIVE", "lastChange":"ADDED", "params":[], "lastChangeBreaking":false, "changedParams":null, "…":"…" }
 ]</code></pre>
-  <p class="legend">예: <code>inv-a.yaml</code> 재업로드(v2)에서 <code>/users/{id}</code>=UPDATED(<code>expand</code> 파라미터 추가)·<code>/products</code>=ADDED·<code>/orders</code>=DELETED. <code>inv-b.yaml</code> 의 <code>/health</code> 는 <strong>영향 없음</strong>(★문서별 격리·union). 필드: <code>specName</code>·<code>method</code>·<code>pathTemplate</code>·<code>params[{name, in(QUERY/PATH/HEADER/COOKIE/BODY), required, type}]</code>·<code>status</code>·<code>lastChange</code>·<code>deprecated</code>·<code>version</code>·<code>sourceSpecVersion</code>·<code>firstDocumentedAt</code>·<code>lastDocumentedAt</code>·<code>changedAt</code>.</p>
+  <p class="legend">예: <code>inv-a.yaml</code> 재업로드(v2)에서 <code>/users/{id}</code>=UPDATED(<code>expand</code> 선택 파라미터 추가 → non-breaking)·<code>/products</code>=ADDED·<code>/orders</code>=DELETED. <code>inv-b.yaml</code> 의 <code>/health</code> 는 <strong>영향 없음</strong>(★문서별 격리·union). 필드: <code>specName</code>·<code>method</code>·<code>pathTemplate</code>·<code>params[{name, in(QUERY/PATH/HEADER/COOKIE/BODY), required, type}]</code>·<code>status</code>·<code>lastChange</code>·<code>deprecated</code>·<code>version</code>·<code>sourceSpecVersion</code>·<code>firstDocumentedAt</code>·<code>lastDocumentedAt</code>·<code>changedAt</code>·<code>lastChangeBreaking</code>·<code>changedParams</code>(UPDATED 만, 그 외 <code>null</code>).</p>
 
   <h4><code>status</code> vs <code>lastChange</code></h4>
   <table>
@@ -389,6 +393,53 @@ curl http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/spec   # → [] (200)
       <tr><td><code>UNCHANGED</code></td><td>직전 reconcile 대비 무변경.</td></tr>
     </tbody>
   </table>
+
+  <h4>★ breaking 판정 — <code>lastChangeBreaking</code> · <code>changedParams</code> (<code>?breaking=true</code>)</h4>
+  <p>UPDATED 행에는 그 변경이 <strong>기존 클라이언트 호출을 깨는가</strong>(<code>lastChangeBreaking</code>)와 <strong>무엇이 바뀌었나</strong>(<code>changedParams</code>)가 함께 온다. 요청 계약 기준이며 <strong>보수적</strong>이다(모호하면 <code>true</code>). <code>changedParams</code> 는 <code>{ added[], removed[], modified[{name, in, fromRequired, toRequired, fromType, toType}], empty }</code> 형태이고, <strong>UPDATED 가 아닌 행(ADDED/UNCHANGED/DELETED)에서는 <code>null</code></strong> 이다. <code>?breaking=true</code> 로 breaking UPDATED 만 추린다.</p>
+  <table>
+    <thead><tr><th>변경</th><th>판정</th><th>변경</th><th>판정</th></tr></thead>
+    <tbody>
+      <tr><td>필수 param 추가</td><td><strong>breaking</strong></td><td>선택 param 추가</td><td>non-breaking</td></tr>
+      <tr><td>선택 param 제거</td><td><strong>breaking</strong></td><td>필수 param 제거</td><td>non-breaking</td></tr>
+      <tr><td>optional → required</td><td><strong>breaking</strong></td><td>required → optional</td><td>non-breaking</td></tr>
+      <tr><td>type 비호환</td><td><strong>breaking</strong></td><td>type widening(<code>integer→number</code>)</td><td>non-breaking</td></tr>
+    </tbody>
+  </table>
+  <pre><code># ?breaking=true → 필수 param(region) 추가 = breaking UPDATED 1건 (catalog.yaml v1→v2)
+{ "specName":"catalog.yaml", "method":"GET", "pathTemplate":"/v2/products",
+  "status":"ACTIVE", "lastChange":"UPDATED", "version":"2.0.0",
+  "params":[ {"name":"category","in":"QUERY","required":false,"type":"string"},
+             {"name":"region","in":"QUERY","required":true,"type":"string"} ],
+  "sourceSpecVersion":3, "lastChangeBreaking":true,
+  "changedParams":{ "added":[{"name":"region","in":"QUERY","required":true,"type":"string"}],
+                    "removed":[], "modified":[], "empty":false } }</code></pre>
+  <div class="callout note">
+    <span class="ct">UPDATED 가 param 변경이 아닐 때</span>
+    <code>UPDATED</code> 는 파라미터 외 <code>deprecated</code>·<code>version</code> 변경으로도 발생한다. 그 경우 <code>changedParams.empty=true</code>·<code>lastChangeBreaking=false</code>(파라미터는 무변경)다.
+  </div>
+  <pre><code># version 만 바뀐 UPDATED — param 무변경
+{ "specName":"catalog.yaml", "method":"GET", "pathTemplate":"/v2/health",
+  "lastChange":"UPDATED", "version":"2.0.0", "params":[],
+  "lastChangeBreaking":false,
+  "changedParams":{ "added":[], "removed":[], "modified":[], "empty":true } }</code></pre>
+
+  <h4>★ 도메인 merged 뷰 — <code>?view=merged</code></h4>
+  <p>기본 목록은 문서(<code>specName</code>)별 행이다. <code>?view=merged</code> 는 도메인 전체 API 표면을 <strong>문서 구분 없이 <code>(method, pathTemplate)</code> 단위로 병합</strong>한다(<code>?specName</code>·<code>?breaking</code> 미적용). 병합 규칙: 기여 문서 중 하나라도 ACTIVE 면 <strong>ACTIVE</strong>(전부 DELETED 면 DELETED) · <code>deprecated</code> 는 OR · <code>version</code>/<code>params</code>/<code>sourceSpecVersion</code> 은 ACTIVE pool 의 <strong>최신(<code>sourceSpecVersion</code> 최대)</strong> 문서 값(겹치면 union 이 아니라 최신 택1) · <code>contributingSpecNames</code> 는 기여 문서 목록. per-document 의 <code>specName</code>·<code>lastChange</code>·<code>changedParams</code>·타임스탬프는 병합 뷰에 없다.</p>
+  <pre><code>curl 'http://&lt;host&gt;:8080/api/v1/domains/manual-demo.example.com/apis?view=merged'</code></pre>
+  <pre><code>[
+  { "method":"GET", "pathTemplate":"/v2/health", "status":"ACTIVE", "deprecated":false,
+    "version":"2.0.0", "params":[], "sourceSpecVersion":3,
+    "contributingSpecNames":["catalog.yaml"] },
+  { "method":"GET", "pathTemplate":"/v2/products", "status":"ACTIVE", "deprecated":false,
+    "version":"2.0.0",
+    "params":[ {"name":"category","in":"QUERY","required":false,"type":"string"},
+               {"name":"region","in":"QUERY","required":true,"type":"string"} ],
+    "sourceSpecVersion":3, "contributingSpecNames":["catalog.yaml","inventory.yaml"] },
+  { "method":"GET", "pathTemplate":"/v2/stock", "status":"ACTIVE", "deprecated":false,
+    "version":"1.0.0", "params":[ {"name":"sku","in":"QUERY","required":true,"type":"string"} ],
+    "sourceSpecVersion":2, "contributingSpecNames":["inventory.yaml"] }
+]</code></pre>
+  <p class="legend"><code>/v2/products</code> 는 <code>catalog.yaml</code>·<code>inventory.yaml</code> 두 문서가 정의해 1행으로 병합됐고(<code>contributingSpecNames</code> 2개), 겹치는 <code>params</code> 는 <strong>최신 문서(<code>sourceSpecVersion</code> 큰 쪽 = catalog v2)</strong> 값을 택했다(union 아님).</p>
 
   <div class="callout danger">
     <span class="ct">★ DELETED → Zombie 탐지</span>
@@ -492,6 +543,7 @@ curl -i -H 'If-None-Match: "1913dd805b705e7a"' \
     <tr><td><strong>결과 보관</strong></td><td><code>/result</code> 리포트는 도메인당 <strong>최신 1건만</strong> 보관(덮어쓰기)</td><td>과거 이력 없음.</td></tr>
     <tr><td><strong>Loki 부하</strong></td><td><code>POST /scan</code>(비동기)·<code>POST /scan-now</code>(동기) 만 운영 Loki 호출</td><td>남발 금지(부하보호). <code>scan-now</code> 는 동기라 busy 도메인에서 응답 지연 — <code>window</code> 작게. 나머지는 DB-only.</td></tr>
     <tr><td><strong>dropped</strong></td><td>비-API 로 drop 된 엔드포인트는 findings·rationale 에 <strong>없음</strong></td><td>집계 <code>droppedNonApi</code> 만 제공.</td></tr>
+    <tr><td><strong>breaking 판정</strong></td><td>type 비교가 <strong>요약 수준</strong>(호환 허용표 = <code>integer→number</code> 등 최소)</td><td>enum 값집합·format·nested object 깊이 비교는 범위 밖 → 일부 호환 변경을 보수적으로 <strong>breaking 과판정</strong>할 수 있다(후속 정밀화).</td></tr>
     <tr><td><strong>기타</strong></td><td>API 버저닝(<code>/v1</code> 외)·rate limit·HATEOAS 미제공</td><td>—</td></tr>
   </tbody>
 </table>
@@ -504,7 +556,7 @@ curl -i -H 'If-None-Match: "1913dd805b705e7a"' \
   <li><code>POST /scan</code> 비동기 큐잉(현재 코드 TODO 주석: 동기 트리거).</li>
   <li><code>/discovery</code> 대량 호출용 응답 캐시(ETag) — 현재 plain GET.</li>
   <li>dropped 엔드포인트 per-item 근거 노출(현재 집계만).</li>
-  <li>API 인벤토리 <strong>P2 후속</strong> — 인벤토리로 매칭 source 대체 · 기존 스펙 param 백필(재업로드) · 풍부한 param diff · 도메인 merged 뷰 · 오래된 DELETED inactive prune. <span class="legend">(영속 인벤토리 + 파라미터 + <code>GET /apis</code> + DELETED→Zombie = M7 재설계 P1 완료, <code>rawDoc</code> 컬럼 삭제로 oid 함정 해소.)</span></li>
+  <li>API 인벤토리 <strong>P2 잔여</strong> — 오래된 DELETED 버전 <strong>inactive prune</strong>(P2-5) · 기존 스펙 param 백필(재업로드). 매칭 source 대체(P2-1)는 <strong>보류</strong>(위험 대비 가치 음수 · 문서 기반 좀비 탐지는 P1 에 이미 존재, DECISIONS D54). <span class="legend">(영속 인벤토리·파라미터·<code>GET /apis</code>·DELETED→Zombie = P1 완료, breaking 판정·도메인 merged 뷰 = P2-3/P2-4 완료, <code>rawDoc</code> 컬럼 삭제로 oid 함정 해소.)</span></li>
   <li>rate limiting / API 버저닝 정책.</li>
   <li>(선택) 정크 도메인(IP·0패딩 IP) 디스커버리 필터.</li>
 </ul>

@@ -5,6 +5,18 @@
 
 ---
 
+## 2026-06-30 세션 62 — REST API 매뉴얼 P2(breaking 판정 + merged 뷰) 현행화 (PR #47 머지+재배포 b60b929, 문서만, TW)
+
+### 한 일
+- `doc/manual/api-rest-manual.html` §2.4 GET /apis 절을 P2 에 맞춰 보강. ApiInventoryController·DocumentedApiView·ParamChange·MergedApiView·ParamDiff 실코드 교차검증.
+- **breaking 판정** — `?breaking=true`·`?view=merged` 파라미터 추가, 응답에 `lastChangeBreaking`·`changedParams{added,removed,modified[{name,in,fromRequired,toRequired,fromType,toType}],empty}` 가산(UPDATED 만·그 외 null). breaking 규칙표(필수추가/선택제거/optional→required/type비호환=breaking·widening integer→number 등=non) — ★ParamDiff 코드로 8규칙 전수 검증. 실데이터(catalog.yaml region 필수추가=breaking·/health version만=empty true·non-breaking).
+- **도메인 merged 뷰** — `?view=merged`(MergedApiView: method+pathTemplate 병합·status 하나라도 ACTIVE→ACTIVE·deprecated OR·version/params latest-by-sourceSpecVersion·contributingSpecNames). 실데이터(catalog+inventory /v2/products 병합 1행·params 최신 택1=union 아님).
+- **제약/TODO** — breaking type 비교 요약 한계(enum/format/nested 범위 밖·보수적 과판정) 제약 행 추가. TODO: P2-3/P2-4 완료 반영, P2-1(매칭 source 대체)=보류(D54)·P2-5(inactive prune)=잔여로 갱신.
+
+### 결과
+- HTMLParser OK·HTML 태그 균형 EMPTY·P2 신규(lastChangeBreaking·changedParams·?breaking·?view=merged·contributingSpecNames) 정합·앵커 s2-1~s2-6·실데이터(region·empty·merged 병합행) 검증. 자기완결. main 직접 커밋. TASKS P2 매뉴얼 현행화 표기.
+- 다음 단계: 매니저 검증 대기.
+
 ## 2026-06-30 세션 61 — M7 재설계 P2: 풍부 param diff+breaking + 도메인-merged 뷰 (P2-2/3/4, doc/38 / D54, 브랜치 feat/api-inventory-p2)
 
 ### 한 일
