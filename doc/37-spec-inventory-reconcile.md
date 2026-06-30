@@ -254,10 +254,12 @@ rawDoc **코드 제거 = P1**(스펙 서브시스템 전면 개편과 함께·pr
 9. 실 PG 테스트(§9 ①~⑨).
 10. 매뉴얼(TW) — `/apis`·status 의미·deprecated vs DELETED Zombie·/spec/changes 제거.
 
-**P2 (후속)**.
-- 인벤토리로 매칭 source 대체(loadActiveCanonical 통합·scan-path 리팩터).
-- 기존 spec param 백필 = **재업로드**(go-forward, §7.3 — (a) 채택 시 코드 작업 0·운영자 행위) / (b) 채택 시 bytea 백필.
-- 풍부한 param diff(type 상세·breaking 판정)·도메인-merged 뷰·inactive prune.
+**P2 (후속) — ★상세 설계 = doc/38 / DECISIONS D54**.
+- **P2-1 인벤토리로 매칭 source 대체** — ★**보류 권고**(doc/38 §1). 동작보존=가시가치 0·SEPARATE 발산·status 오버로드 지뢰·백필 갭 → 핵심 분류 직격 위험. `loadActiveCanonical` 유지·인벤토리는 보완.
+- **P2-2 백필 = 재업로드**(go-forward, §7.3·doc/38 §2) — (a) 채택으로 코드 0(문서 노트). (b) bytea 기각.
+- **P2-3 풍부 param diff + breaking 판정**(doc/38 §3) — `applyUpdate` 에서 delta+breaking 계산·저장(신규 컬럼 2개 가산)·`/apis` 노출. 제품가치 최고.
+- **P2-4 도메인-merged 뷰**(doc/38 §4) — `?view=merged`(method+path dedupe·status/deprecated/version/params 병합 규칙).
+- **묶음 = P2-2+P2-3+P2-4 1 PR**(P2-1 보류·P2-5 inactive prune 범위 밖·TODO).
 
 ## 11. 무회귀 / 리스크 (정직)
 

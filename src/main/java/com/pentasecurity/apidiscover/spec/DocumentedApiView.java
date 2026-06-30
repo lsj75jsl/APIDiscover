@@ -7,7 +7,10 @@ import com.pentasecurity.apidiscover.model.SpecParam;
 import java.time.Instant;
 import java.util.List;
 
-/** {@code firstDocumentedAt}/{@code lastDocumentedAt}=스펙 문서에 존재한 시각(트래픽 아님, doc/37 §1). */
+/**
+ * {@code firstDocumentedAt}/{@code lastDocumentedAt}=스펙 문서에 존재한 시각(트래픽 아님, doc/37 §1).
+ * {@code lastChangeBreaking}/{@code changedParams}=UPDATED 행의 breaking 여부·param delta(doc/38 §3, 그 외 false/null).
+ */
 public record DocumentedApiView(
         String specName,
         String method,
@@ -20,5 +23,7 @@ public record DocumentedApiView(
         long sourceSpecVersion,
         Instant firstDocumentedAt,
         Instant lastDocumentedAt,
-        Instant changedAt) {
+        Instant changedAt,
+        boolean lastChangeBreaking,
+        ParamChange changedParams) {
 }

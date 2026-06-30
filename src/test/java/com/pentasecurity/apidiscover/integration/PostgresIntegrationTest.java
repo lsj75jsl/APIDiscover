@@ -544,6 +544,124 @@ class PostgresIntegrationTest {
                 .andExpect(jsonPath("$.findings[?(@.pathTemplate=='/legacy/{id}')].confidence").value(hasItem(0.8)));
     }
 
+    // --- P2-3 풍부한 param diff + breaking 판정 (doc/38 §3·§6) ---
+
+    @Test
+    void paramDiffBreakingRulesPersistedAndExposedOnRealPg() throws Exception {
+        // 한 문서의 v1→v2 재업로드로 6 규칙 + 호환 widening 을 동시 검증. lastChangeBreaking + changedParams 영속·노출.
+        String host = "inv-breaking.example.com";
+        registerDomain(host);
+        putSpec(host, "b.csv", csv(
+                "GET,/req-add,false,v1,",
+                "GET,/opt-add,false,v1,",
+                "GET,/opt-rm,false,v1,q:query:false:string",
+                "GET,/opt2req,false,v1,q:query:false:string",
+                "GET,/req2opt,false,v1,q:query:true:string",
+                "GET,/typechg,false,v1,q:query:false:string",
+                "GET,/widen,false,v1,q:query:false:integer"));
+        putSpec(host, "b.csv", csv(
+                "GET,/req-add,false,v1,x:query:true:string",      // required 추가=breaking
+                "GET,/opt-add,false,v1,x:query:false:string",     // optional 추가=non
+                "GET,/opt-rm,false,v1,",                          // optional 제거=breaking
+                "GET,/opt2req,false,v1,q:query:true:string",      // optional→required=breaking
+                "GET,/req2opt,false,v1,q:query:false:string",     // required→optional=non
+                "GET,/typechg,false,v1,q:query:false:integer",    // type 비호환(string→integer)=breaking
+                "GET,/widen,false,v1,q:query:false:number"));     // type 호환(integer→number)=non
+
+        var r = mvc.perform(get("/api/v1/domains/{host}/apis", host).param("specName", "b.csv"))
+                .andExpect(status().isOk());
+        r.andExpect(jsonPath("$[?(@.pathTemplate=='/req-add')].lastChangeBreaking").value(hasItem(true)));
+        r.andExpect(jsonPath("$[?(@.pathTemplate=='/opt-add')].lastChangeBreaking").value(hasItem(false)));
+        r.andExpect(jsonPath("$[?(@.pathTemplate=='/opt-rm')].lastChangeBreaking").value(hasItem(true)));
+        r.andExpect(jsonPath("$[?(@.pathTemplate=='/opt2req')].lastChangeBreaking").value(hasItem(true)));
+        r.andExpect(jsonPath("$[?(@.pathTemplate=='/req2opt')].lastChangeBreaking").value(hasItem(false)));
+        r.andExpect(jsonPath("$[?(@.pathTemplate=='/typechg')].lastChangeBreaking").value(hasItem(true)));
+        r.andExpect(jsonPath("$[?(@.pathTemplate=='/widen')].lastChangeBreaking").value(hasItem(false)));
+        // changedParams 영속·노출(대표): added/removed/modified
+        r.andExpect(jsonPath("$[?(@.pathTemplate=='/req-add')].changedParams.added[*].name").value(hasItem("x")));
+        r.andExpect(jsonPath("$[?(@.pathTemplate=='/opt-rm')].changedParams.removed[*].name").value(hasItem("q")));
+        r.andExpect(jsonPath("$[?(@.pathTemplate=='/typechg')].changedParams.modified[*].toType").value(hasItem("integer")));
+        r.andExpect(jsonPath("$[?(@.pathTemplate=='/widen')].changedParams.modified[*].fromType").value(hasItem("integer")));
+
+        // ?breaking=true → breaking UPDATED 만(req-add·opt-rm·opt2req·typechg=4)
+        mvc.perform(get("/api/v1/domains/{host}/apis", host).param("specName", "b.csv").param("breaking", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(4))
+                .andExpect(jsonPath("$[*].lastChangeBreaking", everyItem(org.hamcrest.Matchers.is(true))));
+    }
+
+    // --- P2-4 도메인-merged 뷰 (doc/38 §4·§6) ---
+
+    @Test
+    void mergedViewMergesOverlapWithLatestWinsRulesOnRealPg() throws Exception {
+        // docA·docB 가 같은 (method,path) 정의 → merged 1행: status ACTIVE·deprecated OR·version/params latest(sourceSpecVersion)·contributing 2.
+        String host = "inv-merged.example.com";
+        registerDomain(host);
+        putSpec(host, "a.csv", csv(
+                "GET,/shared,false,v1,q:query:false:string",
+                "GET,/a-only,false,v1,"));
+        putSpec(host, "b.csv", csv(
+                "GET,/shared,true,v2,q:query:false:integer",       // deprecated·version v2·param integer (sourceSpecVersion 더 큼)
+                "GET,/b-only,false,v2,"));
+
+        mvc.perform(get("/api/v1/domains/{host}/apis", host).param("view", "merged"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(3))                                   // /shared 1행(병합)+/a-only+/b-only
+                .andExpect(jsonPath("$[?(@.pathTemplate=='/shared')].status").value(hasItem("ACTIVE")))
+                .andExpect(jsonPath("$[?(@.pathTemplate=='/shared')].deprecated").value(hasItem(true)))   // OR
+                .andExpect(jsonPath("$[?(@.pathTemplate=='/shared')].version").value(hasItem("v2")))       // latest-wins
+                .andExpect(jsonPath("$[?(@.pathTemplate=='/shared')].params[*].type").value(hasItem("integer"))) // latest-active params
+                .andExpect(jsonPath("$[?(@.pathTemplate=='/shared')].contributingSpecNames.length()").value(hasItem(2)));
+        // 비-merged(현행 기본)와 공존 — per-document 행(specName 보유, /shared 는 문서별 2행)
+        mvc.perform(get("/api/v1/domains/{host}/apis", host))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(4))                                   // a.csv 2 + b.csv 2
+                .andExpect(jsonPath("$[?(@.pathTemplate=='/shared')].specName")
+                        .value(org.hamcrest.Matchers.containsInAnyOrder("a.csv", "b.csv")));
+    }
+
+    @Test
+    void mergedViewStatusCombosOnRealPg() throws Exception {
+        // 전부 DELETED→DELETED, 혼합(한쪽 ACTIVE)→ACTIVE.
+        String host = "inv-merged-status.example.com";
+        registerDomain(host);
+        putSpec(host, "c.csv", csv("GET,/alldel,false,v1,", "GET,/mixed,false,v1,"));
+        putSpec(host, "d.csv", csv("GET,/mixed,false,v1,", "GET,/d-only,false,v1,"));
+        // c.csv 재업로드(둘 다 제거) → c 의 /alldel·/mixed = DELETED
+        putSpec(host, "c.csv", csv("GET,/placeholder,false,v1,"));
+
+        mvc.perform(get("/api/v1/domains/{host}/apis", host).param("view", "merged"))
+                .andExpect(status().isOk())
+                // /alldel: c 전용·DELETED → 전부 DELETED → DELETED
+                .andExpect(jsonPath("$[?(@.pathTemplate=='/alldel')].status").value(hasItem("DELETED")))
+                // /mixed: c=DELETED·d=ACTIVE → 혼합 → ACTIVE
+                .andExpect(jsonPath("$[?(@.pathTemplate=='/mixed')].status").value(hasItem("ACTIVE")))
+                .andExpect(jsonPath("$[?(@.pathTemplate=='/mixed')].contributingSpecNames.length()").value(hasItem(2)));
+        // status 필터(병합 후) — DELETED 만
+        mvc.perform(get("/api/v1/domains/{host}/apis", host).param("view", "merged").param("status", "DELETED"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[*].pathTemplate").value(hasItem("/alldel")))
+                .andExpect(jsonPath("$[*].status", everyItem(org.hamcrest.Matchers.is("DELETED"))));
+    }
+
+    @Test
+    void mergedViewVersionFromActivePoolNotDeletedRowOnRealPg() throws Exception {
+        // ★P3-1 엣지: docA 가 /shared 를 ACTIVE 로 유지(version 1.0.0)·docB 가 나중 업로드서 /shared 제거(그 DELETED 행 sourceSpecVersion 최대).
+        // merged 대표값은 ACTIVE pool 기준 — version=1.0.0(삭제 문서 2.0.0 아님). 수정 전(latestAll) 이면 2.0.0 으로 RED.
+        String host = "inv-merged-ver.example.com";
+        registerDomain(host);
+        putSpec(host, "a.csv", csv("GET,/shared,false,1.0.0,"));                 // sourceSpecVersion 1·ACTIVE 유지
+        putSpec(host, "b.csv", csv("GET,/shared,false,2.0.0,", "GET,/b-keep,false,2.0.0,")); // sourceSpecVersion 2
+        putSpec(host, "b.csv", csv("GET,/b-keep,false,2.0.0,"));                 // /shared 제거 → b.csv /shared DELETED(sourceSpecVersion 2)
+
+        mvc.perform(get("/api/v1/domains/{host}/apis", host).param("view", "merged"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.pathTemplate=='/shared')].status").value(hasItem("ACTIVE")))
+                .andExpect(jsonPath("$[?(@.pathTemplate=='/shared')].version").value(hasItem("1.0.0")))      // ★ACTIVE 문서값(삭제 문서 2.0.0 아님)
+                .andExpect(jsonPath("$[?(@.pathTemplate=='/shared')].sourceSpecVersion").value(hasItem(1)))   // ACTIVE pool 기준(삭제 행 2 아님)
+                .andExpect(jsonPath("$[?(@.pathTemplate=='/shared')].contributingSpecNames.length()").value(hasItem(2)));
+    }
+
     private void putSpec(String host, String filename, byte[] content) throws Exception {
         mvc.perform(put("/api/v1/domains/{host}/spec", host).param("filename", filename)
                         .contentType(MediaType.APPLICATION_OCTET_STREAM).content(content))

@@ -5,6 +5,22 @@
 
 ---
 
+## 2026-06-30 세션 61 — M7 재설계 P2: 풍부 param diff+breaking + 도메인-merged 뷰 (P2-2/3/4, doc/38 / D54, 브랜치 feat/api-inventory-p2)
+
+### 한 일
+- **P2-2 백필(코드 0)**: rawDoc 삭제(P1)로 백필=운영자 재업로드(reconcile 이 param 채움). doc/38 §2 노트·TASKS [x]. dev 코드 없음·매뉴얼 동기=TW 후속.
+- **P2-3 풍부 param diff + breaking**: 신규 `spec/ParamDiff`(old vs new 를 (name,in) 키로 added/removed/modified 분류 + breaking 판정 규칙표) + `spec/ParamChange`(added/removed/modified, nested ParamModification{name,in,fromRequired,toRequired,fromType,toType}). breaking 규칙(요청계약·보수): required 추가·optional 제거·optional→required·type 비호환=breaking / optional 추가·required 제거·required→optional·type widening(허용표 `integer→number`)=non-breaking. `ApiInventoryService.applyUpdate` 가 ★setParamsJson 전(old 가용)에 `ParamDiff.diff` 계산 → 신규 컬럼 `last_change_breaking`(boolean)·`last_change_detail_json`(text·ParamChange 직렬화) 저장(UPDATED 외 false/null clear·사후 재계산 불가). `DocumentedApiRecord` +2 컬럼(ddl-auto ADD·무손실·기존행 false/null). `DocumentedApiView` +`lastChangeBreaking`/`changedParams`(readChange). `?breaking=true` 필터.
+- **P2-4 도메인-merged 뷰**: `spec/MergedApiView`(method·pathTemplate·status·deprecated·version·params·sourceSpecVersion·contributingSpecNames) + `ApiInventoryService.listMerged`(compute-on-read·(method,path) 그룹 병합: status any-ACTIVE→ACTIVE·all-DELETED→DELETED, deprecated OR, version/params latest-by-sourceSpecVersion[params 는 ACTIVE 우선], contributingSpecNames sorted distinct, path/method 결정적 정렬). `ApiInventoryController` `?view=merged`(기본=per-document 무회귀)·반환 `List<?>`.
+- **실 PG 테스트(podman)**: `paramDiffBreakingRulesPersistedAndExposedOnRealPg`(6 규칙+widening, changedParams added/removed/modified 영속, ?breaking 필터 4건)·`mergedViewMergesOverlapWithLatestWinsRulesOnRealPg`(/shared 병합 1행·deprecated OR·version latest·params latest-active·contributing 2·비-merged 공존)·`mergedViewStatusCombosOnRealPg`(all-DELETED→DELETED·mixed→ACTIVE·status 필터). 전부 MockMvc 실 HTTP(auto-commit).
+
+### 결과
+- `./gradlew build`(podman) **BUILD SUCCESSFUL**. 전체 **496**(+3) 실패0 errors0 skip2(-Dloki.live). PostgresIntegrationTest **30/30 PASS(skip 0)**. 운영 Loki 미호출. 스키마=`documented_api` +2 컬럼(ddl-auto ADD·무손실). P2-4=compute-on-read(스키마 0).
+- ★실 PG RED-확인(매니저 표준): breaking(`ParamDiff` 강제 false&&)·merged status(강제 ACTIVE) 각각 RED→복원→GREEN. 임시편집 잔존 0.
+- ★P2-1(매칭 source 대체)=보류·미터치(분류 경로 불변). P2-5(prune)=범위 밖.
+- 문서: doc/38 §7 구현상태·DECISIONS D54(채택·구현)·TASKS P2-2/3/4 [x]·이 로그. 커밋 보류(매니저 git/PR/머지). 매뉴얼(/apis breaking·merged)=TW 후속.
+- ★P3-1 보완(reviewer): merged 대표값(version/sourceSpecVersion/method/path)을 latestAll(group 전체 최대·DELETED 행 포함) → ★latestPool(ACTIVE 기준·전부 DELETED 면 group 폴백)로 통일. 엣지(ACTIVE 문서 유지 + 타 문서 나중 삭제로 DELETED sourceSpecVersion 최대) version 발산 해소·doc/38 §4.2 정합. 회귀 `mergedViewVersionFromActivePoolNotDeletedRowOnRealPg`(RED-원복 확인). build 497·PG 31.
+- 다음 단계: 매니저 리뷰·머지(재배포 시 +2 컬럼 자동 생성).
+
 ## 2026-06-29 세션 60 — REST API 매뉴얼 M7 재설계(영속 API 인벤토리) 반영 (PR #46 머지+재배포 3b70c3e, 문서만, TW)
 
 ### 한 일
