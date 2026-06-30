@@ -38,7 +38,8 @@
 ### P1. 자체 분석 기능 (먼저)
 
 #### 분류 (04/16 문서)
-> (현재 비어 있음 — OPTIONS preflight·cross-scan recency severity 완료, Done 참조)
+> (OPTIONS preflight·cross-scan recency severity 완료, Done 참조)
+- [x] **정적 파일 API 오탐 수정 — 하드 veto + 정적 리소스 파일명 감점** **(구현 완료 — build green 504·실 PG OK·RED-확인·커밋 보류·머지 시 Done. D56, 사용자 요청)** — ① 정적 확장자(.css/.js/.png/.webp… isStaticPath 또는 $type=library=STATIC) → `Gate.DROP_STATIC` 하드 veto(점수·api키워드 무관 비-API). `DroppedNonApi` +staticFile. ② 정적 리소스 파일명 토큰(img/image/thumb/resize/css/download… `hasStaticResourceName`) → `staticAssetPenalty`(-0.6) 발화 → img.php(WEB_PAGE) 오탐 탈락. ★.php 는 정적 확장자 미포함(veto 아님·감점만, 실 API 보존)·모호 토큰 제외. 매뉴얼(TW)=후속.
 
 #### 리포트/출력 (01/12/14 문서)
 > (low_confidence+warnings·Active/Zombie params·total_dropped·API 판단근거 노출 완료, Done 참조)
