@@ -227,7 +227,7 @@ class ClassifierTest {
         ClassificationResult res = classifier.classifyWithMetrics(
                 discovered, spec, matcher, new ApiScorer(), hints);
 
-        assertThat(res.dropped()).isEqualTo(new DroppedNonApi(1, 1, 1));
+        assertThat(res.dropped()).isEqualTo(new DroppedNonApi(1, 1, 1, 0));
         assertThat(res.dropped().total()).isEqualTo(3);
         assertThat(byClass(res.findings(), Classification.SHADOW))
                 .extracting(Finding::pathTemplate).containsExactly("/api/orders"); // ADMIT 만 Shadow
