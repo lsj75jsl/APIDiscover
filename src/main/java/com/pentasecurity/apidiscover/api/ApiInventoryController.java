@@ -1,4 +1,4 @@
-// 도메인 API 인벤토리 조회 — GET /api/v1/domains/{host}/apis (doc/37 §4)
+// 업로드 스펙 문서의 API 인벤토리 조회 — GET /api/v1/domains/{host}/spec/apis (doc/37 §4)
 package com.pentasecurity.apidiscover.api;
 
 import com.pentasecurity.apidiscover.domain.ApiStatus;
@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 @RestController
-@RequestMapping("/api/v1/domains/{host}/apis")
+@RequestMapping("/api/v1/domains/{host}/spec/apis")
 public class ApiInventoryController {
 
     private final ApiInventoryService inventory;

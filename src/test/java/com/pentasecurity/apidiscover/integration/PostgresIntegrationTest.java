@@ -453,7 +453,7 @@ class PostgresIntegrationTest {
                 .andExpect(status().isOk());
 
         // 재업로드가 reconcile → 신규 엔드포인트(/v2/orders/{id}) ADDED 로 인벤토리 반영
-        mvc.perform(get("/api/v1/domains/{host}/apis", host).param("specName", "users.yaml"))
+        mvc.perform(get("/api/v1/domains/{host}/spec/apis", host).param("specName", "users.yaml"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[?(@.pathTemplate=='/v2/orders/{id}')].lastChange").value(hasItem("ADDED")));
     }
@@ -469,7 +469,7 @@ class PostgresIntegrationTest {
                 "GET,/a/{id},false,v1,id:path:true:integer;q:query:false:string",
                 "POST,/a,false,v1,name:body:true:object"));
         // ① A 의 API ACTIVE/ADDED + params 보존
-        mvc.perform(get("/api/v1/domains/{host}/apis", host).param("specName", "a.csv"))
+        mvc.perform(get("/api/v1/domains/{host}/spec/apis", host).param("specName", "a.csv"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2))
                 .andExpect(jsonPath("$[?(@.pathTemplate=='/a/{id}')].status").value(hasItem("ACTIVE")))
@@ -477,7 +477,7 @@ class PostgresIntegrationTest {
                 .andExpect(jsonPath("$[?(@.pathTemplate=='/a/{id}')].params[?(@.name=='id')].in").value(hasItem("PATH")));
         // ② 다른 specName 문서 B 업로드 → union
         putSpec(host, "b.csv", csv("GET,/b,false,v1,"));
-        mvc.perform(get("/api/v1/domains/{host}/apis", host))
+        mvc.perform(get("/api/v1/domains/{host}/spec/apis", host))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(3))                       // A2 + B1
                 .andExpect(jsonPath("$[0].specName").value("a.csv"))              // ⑥ 결정적 정렬(specName asc)
@@ -500,7 +500,7 @@ class PostgresIntegrationTest {
                 "GET,/x/{id},false,v1,q:query:false:integer",
                 "GET,/new,false,v1,",
                 "GET,/same,false,v1,k:query:false:string"));
-        mvc.perform(get("/api/v1/domains/{host}/apis", host).param("specName", "s.csv"))
+        mvc.perform(get("/api/v1/domains/{host}/spec/apis", host).param("specName", "s.csv"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[?(@.pathTemplate=='/x/{id}')].lastChange").value(hasItem("UPDATED")))
                 .andExpect(jsonPath("$[?(@.pathTemplate=='/x/{id}')].params[?(@.name=='q')].type").value(hasItem("integer")))
@@ -516,7 +516,7 @@ class PostgresIntegrationTest {
         registerDomain(host);
         putSpec(host, "z.csv", csv("GET,/legacy/{id},false,v1,"));     // v1: /legacy/{id} 문서화
         putSpec(host, "z.csv", csv("GET,/other,false,v1,"));            // v2: /legacy/{id} 제거 → DELETED
-        mvc.perform(get("/api/v1/domains/{host}/apis", host).param("status", "DELETED"))
+        mvc.perform(get("/api/v1/domains/{host}/spec/apis", host).param("status", "DELETED"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[?(@.pathTemplate=='/legacy/{id}')].status").value(hasItem("DELETED")));
 
@@ -568,7 +568,7 @@ class PostgresIntegrationTest {
                 "GET,/typechg,false,v1,q:query:false:integer",    // type 비호환(string→integer)=breaking
                 "GET,/widen,false,v1,q:query:false:number"));     // type 호환(integer→number)=non
 
-        var r = mvc.perform(get("/api/v1/domains/{host}/apis", host).param("specName", "b.csv"))
+        var r = mvc.perform(get("/api/v1/domains/{host}/spec/apis", host).param("specName", "b.csv"))
                 .andExpect(status().isOk());
         r.andExpect(jsonPath("$[?(@.pathTemplate=='/req-add')].lastChangeBreaking").value(hasItem(true)));
         r.andExpect(jsonPath("$[?(@.pathTemplate=='/opt-add')].lastChangeBreaking").value(hasItem(false)));
@@ -584,7 +584,7 @@ class PostgresIntegrationTest {
         r.andExpect(jsonPath("$[?(@.pathTemplate=='/widen')].changedParams.modified[*].fromType").value(hasItem("integer")));
 
         // ?breaking=true → breaking UPDATED 만(req-add·opt-rm·opt2req·typechg=4)
-        mvc.perform(get("/api/v1/domains/{host}/apis", host).param("specName", "b.csv").param("breaking", "true"))
+        mvc.perform(get("/api/v1/domains/{host}/spec/apis", host).param("specName", "b.csv").param("breaking", "true"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(4))
                 .andExpect(jsonPath("$[*].lastChangeBreaking", everyItem(org.hamcrest.Matchers.is(true))));
@@ -604,7 +604,7 @@ class PostgresIntegrationTest {
                 "GET,/shared,true,v2,q:query:false:integer",       // deprecated·version v2·param integer (sourceSpecVersion 더 큼)
                 "GET,/b-only,false,v2,"));
 
-        mvc.perform(get("/api/v1/domains/{host}/apis", host).param("view", "merged"))
+        mvc.perform(get("/api/v1/domains/{host}/spec/apis", host).param("view", "merged"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(3))                                   // /shared 1행(병합)+/a-only+/b-only
                 .andExpect(jsonPath("$[?(@.pathTemplate=='/shared')].status").value(hasItem("ACTIVE")))
@@ -613,7 +613,7 @@ class PostgresIntegrationTest {
                 .andExpect(jsonPath("$[?(@.pathTemplate=='/shared')].params[*].type").value(hasItem("integer"))) // latest-active params
                 .andExpect(jsonPath("$[?(@.pathTemplate=='/shared')].contributingSpecNames.length()").value(hasItem(2)));
         // 비-merged(현행 기본)와 공존 — per-document 행(specName 보유, /shared 는 문서별 2행)
-        mvc.perform(get("/api/v1/domains/{host}/apis", host))
+        mvc.perform(get("/api/v1/domains/{host}/spec/apis", host))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(4))                                   // a.csv 2 + b.csv 2
                 .andExpect(jsonPath("$[?(@.pathTemplate=='/shared')].specName")
@@ -630,7 +630,7 @@ class PostgresIntegrationTest {
         // c.csv 재업로드(둘 다 제거) → c 의 /alldel·/mixed = DELETED
         putSpec(host, "c.csv", csv("GET,/placeholder,false,v1,"));
 
-        mvc.perform(get("/api/v1/domains/{host}/apis", host).param("view", "merged"))
+        mvc.perform(get("/api/v1/domains/{host}/spec/apis", host).param("view", "merged"))
                 .andExpect(status().isOk())
                 // /alldel: c 전용·DELETED → 전부 DELETED → DELETED
                 .andExpect(jsonPath("$[?(@.pathTemplate=='/alldel')].status").value(hasItem("DELETED")))
@@ -638,7 +638,7 @@ class PostgresIntegrationTest {
                 .andExpect(jsonPath("$[?(@.pathTemplate=='/mixed')].status").value(hasItem("ACTIVE")))
                 .andExpect(jsonPath("$[?(@.pathTemplate=='/mixed')].contributingSpecNames.length()").value(hasItem(2)));
         // status 필터(병합 후) — DELETED 만
-        mvc.perform(get("/api/v1/domains/{host}/apis", host).param("view", "merged").param("status", "DELETED"))
+        mvc.perform(get("/api/v1/domains/{host}/spec/apis", host).param("view", "merged").param("status", "DELETED"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[*].pathTemplate").value(hasItem("/alldel")))
                 .andExpect(jsonPath("$[*].status", everyItem(org.hamcrest.Matchers.is("DELETED"))));
@@ -654,7 +654,7 @@ class PostgresIntegrationTest {
         putSpec(host, "b.csv", csv("GET,/shared,false,2.0.0,", "GET,/b-keep,false,2.0.0,")); // sourceSpecVersion 2
         putSpec(host, "b.csv", csv("GET,/b-keep,false,2.0.0,"));                 // /shared 제거 → b.csv /shared DELETED(sourceSpecVersion 2)
 
-        mvc.perform(get("/api/v1/domains/{host}/apis", host).param("view", "merged"))
+        mvc.perform(get("/api/v1/domains/{host}/spec/apis", host).param("view", "merged"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[?(@.pathTemplate=='/shared')].status").value(hasItem("ACTIVE")))
                 .andExpect(jsonPath("$[?(@.pathTemplate=='/shared')].version").value(hasItem("1.0.0")))      // ★ACTIVE 문서값(삭제 문서 2.0.0 아님)
