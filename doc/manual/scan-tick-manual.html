@@ -1,0 +1,355 @@
+<!-- 운영자용 스캔 틱 동작 매뉴얼: domains-per-tick / off-peak-domains-per-tick 의 직관적 동작 방식 + 관련 코드 위치 + 설정 변경법 (doc/33 §1 B, §4 D) -->
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>APIDiscover 스캔 틱 동작 매뉴얼 — domains-per-tick · off-peak-domains-per-tick</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+  :root{
+    --bg:#ffffff; --fg:#1f2430; --muted:#5b6473; --line:#e3e7ee;
+    --accent:#2563eb; --accent-soft:#eff4ff; --code-bg:#f6f8fa;
+    --green:#15803d; --green-soft:#e9f7ee; --amber:#b45309; --amber-soft:#fdf3e2;
+    --red:#b91c1c; --red-soft:#fdeceb; --purple:#6d28d9; --purple-soft:#f3eefe;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{background:var(--bg); color:var(--fg); margin:0;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Apple SD Gothic Neo","Noto Sans KR",Roboto,"Malgun Gothic",sans-serif;
+    line-height:1.7; font-size:16px;}
+  .wrap{max-width:1080px; margin:0 auto; padding:0 24px 96px;}
+  header.hero{background:linear-gradient(135deg,#0f3a2e 0%,#15803d 55%,#22a35a 100%);
+    color:#fff; padding:46px 24px; margin-bottom:8px;}
+  header.hero .inner{max-width:1080px; margin:0 auto;}
+  header.hero h1{margin:0 0 8px; font-size:29px; letter-spacing:-0.5px;}
+  header.hero p{margin:4px 0; opacity:.93; font-size:15px;}
+  header.hero .tags{margin-top:14px;}
+  header.hero .tag{display:inline-block; background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.28);
+    padding:3px 10px; border-radius:20px; font-size:12.5px; margin:3px 6px 3px 0;}
+  h2{font-size:23px; margin:50px 0 14px; padding-bottom:8px; border-bottom:2px solid var(--accent); letter-spacing:-0.3px;}
+  h3{font-size:18px; margin:30px 0 10px; color:#10204a;}
+  h4{font-size:15.5px; margin:20px 0 8px; color:#243049;}
+  p{margin:10px 0;}
+  a{color:var(--accent); text-decoration:none;} a:hover{text-decoration:underline;}
+  code{font-family:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace; font-size:13.5px;
+    background:var(--code-bg); padding:1.5px 5px; border-radius:4px; color:#b3185d;}
+  pre{background:var(--code-bg); border:1px solid var(--line); border-radius:10px; padding:14px 16px;
+    overflow-x:auto; font-size:12.8px; line-height:1.55;}
+  pre code{background:none; padding:0; color:#1f2430; white-space:pre;}
+  table{border-collapse:collapse; width:100%; margin:16px 0; font-size:14px; display:block; overflow-x:auto;}
+  th,td{border:1px solid var(--line); padding:8px 11px; text-align:left; vertical-align:top;}
+  th{background:var(--accent-soft); color:#10204a; font-weight:600; white-space:nowrap;}
+  tr:nth-child(even) td{background:#fbfcfe;}
+  .toc{background:#fafbfd; border:1px solid var(--line); border-radius:12px; padding:18px 24px; margin:24px 0;}
+  .toc h2{border:none; margin:0 0 10px; font-size:18px;}
+  .toc ol{margin:0; padding-left:20px;} .toc li{margin:4px 0;}
+  .toc ol ol{padding-left:18px; color:var(--muted);}
+  .callout{border-radius:10px; padding:13px 18px; margin:18px 0; border:1px solid;}
+  .callout .ct{font-weight:700; margin-bottom:3px; display:block;}
+  .note{background:var(--accent-soft); border-color:#cfe0ff;}
+  .ok{background:var(--green-soft); border-color:#c4e8d1;}
+  .warn{background:var(--amber-soft); border-color:#f3dcb3;}
+  .danger{background:var(--red-soft); border-color:#f4cdc9;}
+  .formula{background:#0f172a; color:#e7eefc; border-radius:10px; padding:14px 18px; margin:16px 0;
+    font-family:"SFMono-Regular",Consolas,monospace; font-size:14px; overflow-x:auto; line-height:1.85;}
+  .formula .hl{color:#7dd3fc;} .formula .op{color:#fca5a5;}
+  .mermaid{background:#fbfcff; border:1px solid var(--line); border-radius:12px; padding:18px; margin:18px 0; text-align:center; overflow-x:auto;}
+  .badge{display:inline-block; padding:2px 9px; border-radius:13px; font-size:11.5px; font-weight:700; vertical-align:middle;}
+  .b-now{background:var(--green-soft); color:var(--green);}
+  .b-plan{background:var(--amber-soft); color:var(--amber);}
+  .b-key{background:#eef2f7; color:#334; font-family:monospace; font-size:12px; font-weight:600;}
+  .legend{font-size:13px; color:var(--muted); margin-top:4px;}
+  .flow{display:flex; flex-wrap:wrap; align-items:stretch; gap:0; margin:18px 0; justify-content:center;}
+  .flow .node{background:#fff; border:1.5px solid var(--accent); border-radius:10px; padding:10px 14px;
+    font-size:13px; min-width:150px; text-align:center; box-shadow:0 1px 3px rgba(0,0,0,.05);}
+  .flow .node small{display:block; color:var(--muted); font-size:11.5px; margin-top:2px;}
+  .flow .arrow{display:flex; align-items:center; color:var(--accent); font-size:22px; padding:0 8px;}
+  .flow .node.alt{border-color:var(--green);}
+  .flow .node.lite{border-color:var(--muted); border-style:dashed;}
+  .loopbox{border:1.5px dashed var(--green); border-radius:12px; padding:8px 14px 14px; margin:18px 0; background:#f7fdf9;}
+  .loopbox .lt{font-weight:700; color:var(--green); font-size:13px; margin:6px 0;}
+  .kv{display:grid; grid-template-columns:max-content 1fr; gap:4px 14px; font-size:13.5px; margin:8px 0;}
+  .kv .k{font-family:monospace; color:#10204a;}
+  hr{border:none; border-top:1px solid var(--line); margin:38px 0;}
+  .footer{margin-top:56px; padding-top:20px; border-top:1px solid var(--line); color:var(--muted); font-size:13px;}
+</style>
+</head>
+<body>
+<header class="hero">
+  <div class="inner">
+    <h1>APIDiscover 스캔 틱 동작 매뉴얼</h1>
+    <p>운영자(엔지니어)용 — 주기 스캔이 도메인을 <strong>조금씩 나눠 처리</strong>하는 방식과, 그 처리량을 정하는 두 노브 <code>domains-per-tick</code> · <code>off-peak-domains-per-tick</code> 의 직관적 이해.</p>
+    <p>관련 코드 위치 · 설정값 변경 방법 포함 · 대상 운영 Loki <code>192.168.8.100:3200</code> · 근거 설계 doc/33 §1 B · §4 D</p>
+    <div class="tags">
+      <span class="tag">틱(tick) 처리 모델</span>
+      <span class="tag">domains-per-tick</span>
+      <span class="tag">off-peak 상향</span>
+      <span class="tag">관련 코드 · 설정 변경법</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<div class="callout note" style="margin-top:20px;">
+  <span class="ct">이 문서의 범위</span>
+  주기 스캔의 "한 번에 다 훑지 않고 조금씩 나눠 처리"하는 <b>틱 모델</b>과, 한 틱에 몇 개를 처리할지 정하는 <code>domains-per-tick</code>(평시) · <code>off-peak-domains-per-tick</code>(새벽 저부하 시간대)를 설명한다. 부하 전체 정책(A watermark · E 전역 레이트 가드 등)은 <a href="collection-ops-manual.html">수집 운영 매뉴얼</a>을 참조. 본 문서 수치는 실제 배포값(<code>adc.yaml</code> env override) 기준이며, 기본값(<code>application.yml</code>)과 구분해 표기한다.
+</div>
+
+<nav class="toc">
+  <h2>목차</h2>
+  <ol>
+    <li><a href="#s1">큰 그림 — 왜 "틱" 방식인가</a></li>
+    <li><a href="#s2">한 틱이 실제로 하는 일</a></li>
+    <li><a href="#s3">domains-per-tick = 평상시 한 틱의 몫</a></li>
+    <li><a href="#s4">off-peak-domains-per-tick = 밤에만 몫을 키우는 다이얼</a></li>
+    <li><a href="#s5">하루 타임라인으로 보면</a></li>
+    <li><a href="#s6">실제로는 이론치보다 적게 돕니다</a></li>
+    <li><a href="#s7">첫 스캔은 얼마나 과거까지 보는가 — initial-backfill</a></li>
+    <li><a href="#s8">관련 코드 정보 (file:line)</a></li>
+    <li><a href="#s9">설정값 변경 방법</a></li>
+  </ol>
+</nav>
+
+<h2 id="s1">1. 큰 그림 — 왜 "틱" 방식인가</h2>
+<p>도메인이 53,718개입니다. 이걸 한 번에 다 스캔하면 Loki 에 순간적으로 수만 건 쿼리가 몰려 <strong>운영 Loki 가 죽습니다.</strong> 그래서 "한 번에 다 훑기"를 버리고, <strong>짧은 주기마다 조금씩 나눠 처리</strong>하는 방식을 씁니다. 이 "조금씩"의 주기가 <strong>tick</strong>, 한 틱에서 처리할 도메인 개수가 <strong>domains-per-tick</strong> 입니다.</p>
+
+<div class="callout ok">
+  <span class="ct">은행 창구 비유</span>
+  대기번호표를 뽑은 손님(도메인)이 53,718명 있고, 창구는 <b>3분마다 한 번(tick)</b> 열려서 <b>번호 순으로 앞에서 300명(domains-per-tick)</b> 만 부릅니다. 나머지는 다음 회차로 이월됩니다.
+</div>
+
+<h2 id="s2">2. 한 틱이 실제로 하는 일 <span class="b-key">DiscoveryScheduler.scanTick</span></h2>
+<p>3분마다 이 루프가 돕니다.</p>
+<pre><code>1. 지금이 off-peak 시간대인가? 판정   (밤 01~06시 Asia/Seoul 인가)
+2. K 결정 = off-peak면 500, 평시면 300   ← 여기가 domains-per-tick / off-peak-domains-per-tick
+3. "가장 오래 안 본 순"으로 딱 K개 도메인을 큐에서 꺼냄  (ScanSelector)
+4. 꺼낸 K개를 하나씩:
+     - Loki 쿼리 예산 남았나? 없으면 즉시 중단, 나머지는 다음 틱으로  (LokiBudget)
+     - 이 도메인의 "다음 차례 시각"을 미래로 밀어둠 (재선택 방지·기아 방지)
+     - 실제 Loki 조회 + API 평가 실행</code></pre>
+
+<p>핵심 두 가지입니다.</p>
+<ul>
+  <li><strong>"번호 순"</strong> = <code>nextScanDueAt asc nulls first</code> 정렬. 가장 오래 스캔 안 된(=가장 밀린) 도메인이 맨 앞. 아직 한 번도 안 본 도메인(null)이 최우선. 그래서 <strong>먼저 밀린 게 먼저 처리(FIFO), 굶는 도메인 없음.</strong></li>
+  <li><strong>한 틱에 딱 K개</strong> = <code>PageRequest.of(0, k)</code> (ScanSelector.java:44-45). 큐에 5만 개가 밀려 있어도 이번 틱엔 앞에서 K개만 가져옵니다.</li>
+</ul>
+
+<h2 id="s3">3. domains-per-tick = 평상시 한 틱의 몫</h2>
+<ul>
+  <li>현재 <strong>300</strong>. tick 이 3분이니 시간당 20틱 → 이론상 <strong>20 × 300 = 6,000 도메인/시간</strong> 을 처리하는 속도.</li>
+  <li>이 값이 <strong>처리 속도의 메인 다이얼</strong>입니다. 올리면 순회가 빨라지지만 Loki 쿼리도 비례해 늘어 부하↑. 내리면 부하↓·순회 느려짐.</li>
+</ul>
+
+<h2 id="s4">4. off-peak-domains-per-tick = 밤에만 몫을 키우는 다이얼</h2>
+<p><strong>off-peak = 트래픽이 적은 새벽 시간대</strong>(현재 <code>01:00–06:00</code>, <code>Asia/Seoul</code>)를 말합니다. 이 시간엔 운영 Loki 자체도 한가하므로, <strong>밀린 도메인을 더 빨리 따라잡으라고(backfill) 한 틱의 몫을 키웁니다.</strong></p>
+<ul>
+  <li>평시(주간): 틱당 <strong>300</strong> (domains-per-tick).</li>
+  <li>off-peak(새벽 01~06시): 틱당 <strong>500</strong> (off-peak-domains-per-tick).</li>
+</ul>
+<p>코드로는 딱 한 줄 삼항입니다 (ScanSelector.java:44).</p>
+<pre><code>int k = offPeak ? props.scan().offPeakDomainsPerTick()   // 새벽 500
+                : props.scan().domainsPerTick();          // 평시 300</code></pre>
+<p>즉 <strong>"누구를 뽑느냐(밀린 순)"는 밤낮 동일하고, "몇 개 뽑느냐(K)"만 밤에 커집니다.</strong> 부하 여유가 있는 시간에 몰아서 백로그를 태우는 전략입니다. (참고. 밤엔 K 뿐 아니라 도메인당 조회 윈도우도 <code>off-peak-max-window</code> PT24H 로 넓혀 더 긴 기간을 한 번에 따라잡습니다 — DiscoveryScheduler.java:52.)</p>
+
+<h2 id="s5">5. 하루 타임라인으로 보면</h2>
+<p>평시엔 틱마다 300개(20틱/hr → ~6,000/hr 상한), 새벽 off-peak(01–06시)엔 틱마다 500개로 올라가고 조회 윈도우도 PT24H 로 넓어집니다.</p>
+<div class="mermaid">
+gantt
+    title 하루 스캔 처리량 (틱당 K)
+    dateFormat HH:mm
+    axisFormat %H:%M
+    section 평시 300개/틱
+    00–01시 :done, p1, 00:00, 1h
+    06–24시 :done, p2, 06:00, 18h
+    section off-peak 500개/틱 (윈도우 24h)
+    01–06시 :crit, o1, 01:00, 5h
+</div>
+
+<h2 id="s6">6. 실제로는 이론치보다 적게 돕니다</h2>
+<p>두 개의 상한이 더 있어서, 300×20=6,000/hr 이론치가 그대로 안 나옵니다.</p>
+<ul>
+  <li><strong>max-queries-per-hour(16000)</strong> — 틱 도중 이 쿼리 예산이 바닥나면 <code>budget.hasBudget()==false</code> 로 그 틱을 조기 종료하고 나머지는 이월(DiscoveryScheduler.java:55-58).</li>
+  <li>이미 최근에 본 도메인은 <code>nextScanDueAt</code> 가 미래라 큐 뒤로 가서 이번 틱 대상에서 빠짐.</li>
+</ul>
+<p>그래서 앞서 실측이 ~1,930 도메인/hr 이었습니다.</p>
+
+<div class="callout note">
+  <span class="ct">정리</span>
+  <strong>domains-per-tick = 평상시 3분마다 처리할 도메인 수, off-peak-domains-per-tick = 새벽 저부하 시간대에 대신 쓰는 더 큰 수</strong>입니다. 둘 다 "속도 다이얼"이고, 뽑는 순서(가장 밀린 순)는 바꾸지 않습니다.
+</div>
+
+<hr>
+
+<h2 id="s7">7. 첫 스캔은 얼마나 과거까지 보는가 — initial-backfill</h2>
+<p>여기서 "언제부터 언제까지" 시간 구간을 정하는 규칙이 하나 더 있습니다. 자동 주기 스캔은 도메인을 <strong>처음 스캔할 때 <code>now − initial-backfill(기본 7일)</code> 지점부터 시작</strong>합니다. 로그가 아무리 오래 쌓여 있어도, <strong>그보다 과거는 아예 읽지 않습니다.</strong></p>
+<p>도메인마다 "어디까지 읽었나"를 기록하는 커서(<code>watermark</code>)가 있습니다. 시간 구간은 이렇게 정해집니다 (<code>DiscoveryJobService.windowFor:484-498</code>).</p>
+<div class="mermaid">
+flowchart LR
+    N["now"] -->|"− ingest-lag (10분)"| E["end<br/>조회 종료점"]
+    W["watermark<br/>지난 스캔이 끝낸 지점"] --> S["start<br/>조회 시작점"]
+    W -. "워터마크 없으면 (첫 스캔)" .-> B["end − initial-backfill (7일)"]
+    B --> S
+    S --> WIN["조회 구간<br/>#91;start, end#41;<br/>start ≥ end 이면 스캔 안 함"]
+    E --> WIN
+</div>
+<p>워터마크는 스캔이 끝나면 소비한 지점으로 <strong>앞으로만(현재 방향) 전진</strong>합니다. 뒤로는 절대 안 갑니다.</p>
+
+<h4>예시 — 10년치 로그가 있는 도메인을 오늘(2026-07-01) 처음 스캔</h4>
+<div class="mermaid">
+flowchart LR
+    A["10년 과거 로그<br/>2016 ~ 2026-06-24<br/>❌ 영원히 안 읽음"]:::skip
+    B["첫 스캔 구간<br/>2026-06-24 ~ 07-01<br/>✅ 7일 = initial-backfill"]:::read
+    C["이후 워터마크<br/>현재 쪽으로 전진<br/>➡️ max-window씩"]:::next
+    A --> B --> C
+    classDef skip fill:#fdeceb,stroke:#b91c1c,color:#1f2430;
+    classDef read fill:#e9f7ee,stroke:#15803d,color:#1f2430;
+    classDef next fill:#eff4ff,stroke:#2563eb,color:#1f2430;
+</div>
+<ul>
+  <li>첫 스캔 구간 ≈ <code>[2026-06-24, 2026-07-01)</code> — 7일치.</li>
+  <li>그 이전 <strong>~10년 전체는 스캔 대상에서 빠지고</strong>, 워터마크 시작점 뒤라 이후에도 다시 안 읽습니다.</li>
+  <li>이후 워터마크가 <code>max-window</code>(평시 30분/새벽 24h)씩 현재 쪽으로 전진하며 최신을 따라잡습니다.</li>
+</ul>
+
+<div class="callout warn">
+  <span class="ct">initial-backfill 은 "얼마나 과거까지 볼지"의 유일한 손잡이</span>
+  <ul style="margin:6px 0 0;">
+    <li>기본 <code>P7D</code> → 첫 스캔은 7일 과거까지만.</li>
+    <li>더 깊게 보려면 <b>첫 스캔 전에</b> <code>initial-backfill</code> 을 키워야 합니다(예 <code>P30D</code>).</li>
+    <li>★<b>소급 적용 안 됨</b> — 이미 스캔된 도메인은 워터마크가 잡혀 있어 이 값을 바꿔도 과거로 되돌아가지 않습니다.</li>
+    <li>온디맨드(수동) 스캔으로 과거를 보려 해도 그 윈도우는 <code>max-window</code> 상한에 걸려 멀리 못 갑니다(<code>onDemandWindow:181-189</code>).</li>
+    <li>운영 Loki 자체 보존기간도 보통 10년이 아니므로, 시작점을 과거로 당겨도 Loki 에 남아있는 기간까지만 조회됩니다.</li>
+  </ul>
+</div>
+<p class="legend">워터마크 증분·per-scan 윈도우 상한(A)의 전체 정책은 <a href="collection-ops-manual.html#s3-3">수집 운영 매뉴얼 §3.3</a> 참조.</p>
+
+<hr>
+
+<h2 id="s8">8. 관련 코드 정보 (file:line)</h2>
+<p>위 동작이 실제로 구현된 위치입니다. 소스 기준.</p>
+<table>
+  <thead><tr><th>역할</th><th>파일 : 라인</th><th>내용</th></tr></thead>
+  <tbody>
+    <tr><td>틱 루프 진입</td><td><code>DiscoveryScheduler.java:46-47</code></td><td><code>@Scheduled(fixedDelayString = "${apidiscover.scan.tick-interval}")</code> — tick-interval 마다 <code>scanTick()</code> 실행.</td></tr>
+    <tr><td>off-peak 판정</td><td><code>DiscoveryScheduler.java:50-51</code></td><td><code>OffPeakWindow.isOffPeak(now, offPeakWindow, zone)</code> — 현재 시각이 새벽 저부하 창인지.</td></tr>
+    <tr><td>조회 윈도우 상향</td><td><code>DiscoveryScheduler.java:52</code></td><td>off-peak면 <code>offPeakMaxWindow</code>(PT24H), 평시면 <code>maxWindow</code>(PT30M).</td></tr>
+    <tr><td>예산 소진 시 이월</td><td><code>DiscoveryScheduler.java:55-58</code></td><td><code>if (!budget.hasBudget()) break;</code> — Loki 쿼리 캡 소진 → 틱 조기 종료, 다음 틱 이월.</td></tr>
+    <tr><td>스케줄 커서 전진</td><td><code>DiscoveryScheduler.java:62-63</code></td><td><code>touchScanSchedule(host, now, now.plus(interval))</code> — attempt 마다(skip 포함) <code>nextScanDueAt</code> 를 미래로 → 재선택 방지·기아 방지.</td></tr>
+    <tr><td><b>K(틱당 개수) 결정</b></td><td><code>ScanSelector.java:44</code></td><td><code>int k = offPeak ? offPeakDomainsPerTick() : domainsPerTick();</code> — off-peak 500 / 평시 300.</td></tr>
+    <tr><td>상위 K 선택</td><td><code>ScanSelector.java:45-46</code></td><td><code>PageRequest.of(0, k)</code> + <code>findDueForScan(now, staleCutoff, page)</code> — 밀린 순 상위 K.</td></tr>
+    <tr><td>밀린 순 정렬 · due 술어</td><td><code>DomainConfigRepository.findDueForScan</code></td><td><code>where enabled=true and nextScanDueAt(null 즉시 due or &lt;= now) order by nextScanDueAt asc nulls first</code>.</td></tr>
+    <tr><td>쿼리 예산 캡 로드</td><td><code>LokiBudget.java:33-34</code></td><td>생성자에서 <code>props.scan().maxQueriesPerHour()</code> 를 <b>기동 시 1회</b> 읽어 final 필드로 보유(런타임 변경 불가 — §9 참조).</td></tr>
+    <tr><td>조회 시간 구간 산정</td><td><code>DiscoveryJobService.windowFor:484-498</code></td><td><code>[watermark(없으면 end−initial-backfill), now−ingest-lag)</code> + max-window 절단. 첫 스캔 시작점(§7)이 여기서 결정.</td></tr>
+    <tr><td>워터마크 전진</td><td><code>DiscoveryJobService.advanceWatermark:500-505</code></td><td>스캔 성공 후 소비 끝점으로 커서 전진(앞으로만) → 다음 스캔이 이어감.</td></tr>
+  </tbody>
+</table>
+
+<h4>관련 설정 키 (application.yml <code>apidiscover.scan.*</code> · <code>apidiscover.schedule.*</code>)</h4>
+<table>
+  <thead><tr><th>설정 키</th><th>기본값<br>(application.yml)</th><th>배포값<br>(adc.yaml env)</th><th>의미</th></tr></thead>
+  <tbody>
+    <tr><td><code>tick-interval</code></td><td>PT5M</td><td><b>PT3M</b></td><td>틱 주기. 짧을수록 시간당 틱 수↑ → 처리량↑·부하↑.</td></tr>
+    <tr><td><code>domains-per-tick</code></td><td>100</td><td><b>300</b></td><td>평시 한 틱에 처리할 도메인 수(K).</td></tr>
+    <tr><td><code>off-peak-domains-per-tick</code></td><td>500</td><td>500</td><td>off-peak(새벽)에 대신 쓰는 더 큰 K.</td></tr>
+    <tr><td><code>off-peak-max-window</code></td><td>PT24H</td><td>PT24H</td><td>off-peak 도메인당 조회 윈도우 상향(백필).</td></tr>
+    <tr><td><code>off-peak-zone</code></td><td>"" (시스템 기본)</td><td><b>Asia/Seoul</b></td><td>off-peak 시각대(01–06시) 판정 기준 타임존.</td></tr>
+    <tr><td><code>max-queries-per-hour</code></td><td>3000</td><td><b>16000</b></td><td>전역 시간당 Loki 쿼리 하드캡(0=무제한).</td></tr>
+    <tr><td><code>max-window</code></td><td>PT30M</td><td>PT30M</td><td>평시 도메인당 조회 윈도우 상한.</td></tr>
+    <tr><td><code>schedule.initial-backfill</code></td><td>P7D</td><td>P7D</td><td><b>첫 스캔이 과거로 얼마나 거슬러 갈지</b>(워터마크 없는 도메인의 시작점). 그 이전 로그는 안 읽음(§7). 소급 적용 없음.</td></tr>
+    <tr><td><code>schedule.ingest-lag</code></td><td>PT10M</td><td>PT10M</td><td>조회 종료점 보정(<code>end=now−lag</code>) — 아직 완전히 수집 안 된 최신 로그 제외.</td></tr>
+  </tbody>
+</table>
+<p class="legend">off-peak 시각대(<code>01:00–06:00</code>)는 <code>schedule.off-peak-window</code> 를 재사용한다(application.yml). 배포값 열이 굵게 표시된 항목은 <code>adc.yaml</code> env 로 기본값을 덮어쓴 것.</p>
+
+<hr>
+
+<h2 id="s9">9. 설정값 변경 방법</h2>
+
+<div class="callout warn">
+  <span class="ct">핵심 — 런타임 REST API 없음, 소스 하드코딩도 아님</span>
+  이 노브들(<code>domains-per-tick</code>·<code>off-peak-domains-per-tick</code>·<code>tick-interval</code>·<code>max-queries-per-hour</code> 등)은 <b>Spring 외부 설정</b>이다. 값 자체는 <code>application.yml</code> 에 있고 <code>adc.yaml</code> env 로 덮어쓴다. <b>재빌드는 불요</b>지만, 살아있는 상태에서 API 로 바꿀 수는 없고 <b>pod 재시작(<code>podman play kube</code>)으로만 반영</b>된다. (예: <code>LokiBudget</code> 은 생성자에서 값을 1회만 읽는다 — LokiBudget.java:33-34.)
+</div>
+
+<h3>9.1 env 이름 규칙 (property → 환경변수)</h3>
+<p>Spring relaxed binding 규칙으로, <code>apidiscover.scan.domains-per-tick</code> ↔ <code>APIDISCOVER_SCAN_DOMAINSPERTICK</code> 처럼 매핑된다(점·하이픈 제거, 대문자).</p>
+<div class="kv">
+  <span class="k">apidiscover.scan.tick-interval</span><span>APIDISCOVER_SCAN_TICKINTERVAL</span>
+  <span class="k">apidiscover.scan.domains-per-tick</span><span>APIDISCOVER_SCAN_DOMAINSPERTICK</span>
+  <span class="k">apidiscover.scan.off-peak-domains-per-tick</span><span>APIDISCOVER_SCAN_OFFPEAKDOMAINSPERTICK</span>
+  <span class="k">apidiscover.scan.off-peak-zone</span><span>APIDISCOVER_SCAN_OFFPEAKZONE</span>
+  <span class="k">apidiscover.scan.max-queries-per-hour</span><span>APIDISCOVER_SCAN_MAXQUERIESPERHOUR</span>
+  <span class="k">apidiscover.schedule.initial-backfill</span><span>APIDISCOVER_SCHEDULE_INITIALBACKFILL</span>
+  <span class="k">apidiscover.schedule.ingest-lag</span><span>APIDISCOVER_SCHEDULE_INGESTLAG</span>
+</div>
+
+<h3>9.2 방법 A — 배포 VM 에서 env 만 바꿔 재적용 (권장 · 재빌드 불요)</h3>
+<p>이미지는 그대로 두고 <code>adc.yaml</code> 의 env 값만 고쳐 pod 를 재시작한다. 예로 평시 처리량을 300→200 으로 낮추려면.</p>
+<pre><code># 1) 로컬 adc.yaml 편집 — 해당 env value 수정
+#    - name: APIDISCOVER_SCAN_DOMAINSPERTICK
+#      value: "200"          # 300 → 200
+
+# 2) VM 으로 복사
+scp adc.yaml root@192.168.8.197:/root/adc.yaml
+
+# 3) pod 재시작 (이미지 불변, 설정만 재적용)
+ssh root@192.168.8.197 '
+  podman pod stop adc &&
+  podman pod rm adc &&
+  podman play kube /root/adc.yaml
+'
+
+# 4) 기동·반영 확인
+ssh root@192.168.8.197 '
+  curl -s http://localhost:8080/actuator/health;
+  curl -s http://localhost:8080/actuator/configprops | grep -o "\"domainsPerTick\":[0-9]*"
+'</code></pre>
+<div class="callout note">
+  <span class="ct">확인 팁</span>
+  현재 적용된 값은 <code>configprops</code> 액추에이터로 확인한다(내부 노출: adc.yaml 의 <code>MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE</code> 에 <code>configprops</code> 포함). <code>max-queries-per-hour</code> 실소비는 <code>/actuator/metrics/loki.queries</code>(누적 카운터)로 관찰.
+</div>
+
+<h3>9.3 방법 B — 기본값 자체를 바꾸기 (재빌드 필요)</h3>
+<p>모든 환경의 기본값을 바꾸려면 <code>src/main/resources/application.yml</code> 의 <code>scan:</code> 블록을 수정하고 이미지를 재빌드한다. 배포에 env override 가 있으면 <b>env 가 우선</b>하므로 배포값도 함께 확인할 것.</p>
+<pre><code># src/main/resources/application.yml
+scan:
+  domains-per-tick: 100          # 기본값 수정
+  off-peak-domains-per-tick: 500
+  tick-interval: "PT5M"
+  max-queries-per-hour: 3000
+
+# 재빌드
+JAVA_HOME=/usr/lib/jvm/java-21-openjdk ./gradlew build</code></pre>
+
+<h3>9.4 값 조정 지침 — 부하 vs 순회 속도</h3>
+<table>
+  <thead><tr><th>목표</th><th>조정</th><th>효과</th></tr></thead>
+  <tbody>
+    <tr><td>순회를 빠르게(24h 내 전체)</td><td><code>domains-per-tick</code> ↑ (또는 <code>tick-interval</code> ↓)</td><td>시간당 스캔 도메인↑. 병목은 쿼리캡이 아니라 이 값이므로 <b>순회 속도의 주 레버</b>. Loki 부하도 비례 증가.</td></tr>
+    <tr><td>Loki 부하 낮추기</td><td><code>domains-per-tick</code> ↓</td><td>시간당 쿼리↓. <code>max-queries-per-hour</code> 캡보다 더 직접적인 레버(캡은 천장일 뿐, 실소비는 이 값이 만든다).</td></tr>
+    <tr><td>부하 스파이크만 상한</td><td><code>max-queries-per-hour</code> 를 실소비 약간 위로</td><td>실소비(~10,600/hr)를 살짝 웃도는 선(예 10,000~11,000)이면 순회는 사실상 불변, 폭주만 차단.</td></tr>
+    <tr><td>새벽에만 몰아 처리</td><td><code>off-peak-domains-per-tick</code> ↑</td><td>저부하 시간대 백로그 소진 가속. 주간 부하는 불변.</td></tr>
+    <tr><td>과거를 더 깊게 스캔</td><td><code>schedule.initial-backfill</code> ↑ (첫 스캔 전에)</td><td>첫 스캔 시작점을 과거로 당김(예 P7D→P30D). ★이미 스캔된 도메인엔 소급 안 됨 · Loki 보존기간 내에서만.</td></tr>
+  </tbody>
+</table>
+
+<div class="footer">
+  APIDiscover 스캔 틱 동작 매뉴얼 · 근거 doc/33 §1 B(틱 예산·라운드로빈) · §4 D(off-peak) · 코드 <code>DiscoveryScheduler</code> / <code>ScanSelector</code> / <code>LokiBudget</code> / <code>DomainConfigRepository</code> · 배포값 <code>adc.yaml</code> · 기본값 <code>src/main/resources/application.yml</code>
+</div>
+
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'default',
+    themeVariables: {
+      background: '#ffffff', primaryColor: '#eff4ff', primaryBorderColor: '#2563eb',
+      primaryTextColor: '#1f2430', lineColor: '#5b6473', fontSize: '14px'
+    },
+    flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' }
+  });
+</script>
+</body>
+</html>
