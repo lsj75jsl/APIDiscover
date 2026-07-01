@@ -4,7 +4,10 @@ package com.pentasecurity.apidiscover.integration;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.not;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -802,13 +805,13 @@ class PostgresIntegrationTest {
         return d;
     }
 
-    /** 즉시 due(nextScanDueAt=null) + 마지막 접속(lastSeenAt) 지정 — 무접속 제외 테스트용. */
-    private DomainConfig seen(String host, Instant lastSeenAt) {
+    /** 즉시 due(nextScanDueAt=null) + 실 access log 최신시각(lastAccessLogAt) 지정 — 무접속 제외 테스트용(D56). */
+    private DomainConfig seen(String host, Instant lastAccessLogAt) {
         DomainConfig d = new DomainConfig();
         d.setHost(host);
         d.setEnabled(true);
         d.setNextScanDueAt(null);
-        d.setLastSeenAt(lastSeenAt);
+        d.setLastAccessLogAt(lastAccessLogAt);
         return d;
     }
 
@@ -835,6 +838,40 @@ class PostgresIntegrationTest {
         dc.setCreatedAt(Instant.EPOCH);
         dc.setUpdatedAt(Instant.EPOCH);
         domainRepo.save(dc);
+    }
+
+    // --- ★D56: 정적 분류 규칙 DB 외부화 — 목록/추가/삭제/reload (실 PG) ---
+
+    @Test
+    void staticClassifyRulesCrudAndReloadOnRealPg() throws Exception {
+        // 기동 시 기본값 seed — 확장자/토큰 목록 조회(link 기본 토큰·css 확장자 포함)
+        mvc.perform(get("/api/v1/config/static-classify"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.extensions", hasItem(".css")))
+                .andExpect(jsonPath("$.nameTokens", hasItem("link")));
+
+        // 신규 토큰 추가 → 201 + 즉시 재적용(목록 반영)
+        mvc.perform(post("/api/v1/config/static-classify")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"kind\":\"NAME_TOKEN\",\"value\":\"zzztoken\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.nameTokens", hasItem("zzztoken")));
+
+        // 삭제 → 204, 목록에서 제거(자기정리)
+        mvc.perform(delete("/api/v1/config/static-classify/NAME_TOKEN/zzztoken"))
+                .andExpect(status().isNoContent());
+        mvc.perform(get("/api/v1/config/static-classify"))
+                .andExpect(jsonPath("$.nameTokens", not(hasItem("zzztoken"))));
+
+        // 잘못된 kind → 400
+        mvc.perform(post("/api/v1/config/static-classify")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"kind\":\"BOGUS\",\"value\":\"x\"}"))
+                .andExpect(status().isBadRequest());
+
+        // reload → 200(외부 DB 수정 반영용)
+        mvc.perform(post("/api/v1/config/static-classify/reload"))
+                .andExpect(status().isOk());
     }
 
     /** ~60KB 의사 JSON 문자열 — varchar 길이 한계 초과 + LOB 경로 강제. */

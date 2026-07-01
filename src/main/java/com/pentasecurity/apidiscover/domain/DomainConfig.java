@@ -53,6 +53,13 @@ public class DomainConfig {
     /** 자동 디스커버리 최근 관측(집계 윈도우 끝). staleness 가시화용·삭제 트리거 아님(doc/30 §5). ddl-auto 가산. */
     private Instant lastSeenAt;
 
+    /**
+     * ★실제 access log 최신 시각(time_iso8601, D56 후속). 스캔이 Loki 에서 관측한 최신 로그시각(max discovered_endpoint.last_seen).
+     * 무접속 자동스캔 제외 게이트(ScanSelector)의 기준 — {@code last_seen_at}(discovery 관측시각)이 아닌 실 로그시각.
+     * 스캔 시에만 증가(never decrease). null=미스캔(제외 안 함). ddl-auto 가산.
+     */
+    private Instant lastAccessLogAt;
+
     /** 스캔 라운드로빈 커서(doc/33 §1 B) — least-recently-scanned asc nulls-first. attempt 마다 전진(skip 포함). ddl-auto. */
     private Instant lastScanAttemptAt;
 
@@ -124,6 +131,14 @@ public class DomainConfig {
 
     public void setLastSeenAt(Instant lastSeenAt) {
         this.lastSeenAt = lastSeenAt;
+    }
+
+    public Instant getLastAccessLogAt() {
+        return lastAccessLogAt;
+    }
+
+    public void setLastAccessLogAt(Instant lastAccessLogAt) {
+        this.lastAccessLogAt = lastAccessLogAt;
     }
 
     public Instant getLastScanAttemptAt() {

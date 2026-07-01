@@ -87,15 +87,15 @@ class ScanSelectorTest {
     }
 
     private static DomainConfig domain(String host, Instant nextScanDueAt, boolean enabled) {
-        return domain(host, nextScanDueAt, enabled, null); // lastSeenAt 미설정(무접속 필터 무관=null→제외 안 함)
+        return domain(host, nextScanDueAt, enabled, null); // lastAccessLogAt 미설정(무접속 필터 무관=null→제외 안 함)
     }
 
-    private static DomainConfig domain(String host, Instant nextScanDueAt, boolean enabled, Instant lastSeenAt) {
+    private static DomainConfig domain(String host, Instant nextScanDueAt, boolean enabled, Instant lastAccessLogAt) {
         DomainConfig d = new DomainConfig();
         d.setHost(host);
         d.setEnabled(enabled);
         d.setNextScanDueAt(nextScanDueAt);
-        d.setLastSeenAt(lastSeenAt);
+        d.setLastAccessLogAt(lastAccessLogAt); // ★게이트 기준 = 실 access log 시각(D56)
         return d;
     }
 

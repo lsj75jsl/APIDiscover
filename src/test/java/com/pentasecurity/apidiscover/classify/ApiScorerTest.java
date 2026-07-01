@@ -12,15 +12,24 @@ import com.pentasecurity.apidiscover.model.MatcherConfig;
 import com.pentasecurity.apidiscover.model.ParamCandidates;
 import com.pentasecurity.apidiscover.model.SignalContribution;
 import com.pentasecurity.apidiscover.model.TemplateSource;
+import com.pentasecurity.apidiscover.normalize.EndpointKindClassifier;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class ApiScorerTest {
 
     private final ApiScorer middle = new ApiScorer(); // MIDDLE
+
+    // ★정적 리소스 파일명 토큰(activeNameTokens)은 volatile 정적 상태 — Spring 컨텍스트 테스트가 바꿀 수 있어 기본값 리셋(D56).
+    @BeforeEach
+    void resetStaticRules() {
+        EndpointKindClassifier.applyRules(
+                EndpointKindClassifier.DEFAULT_STATIC_EXT, EndpointKindClassifier.DEFAULT_NAME_TOKENS);
+    }
 
     private static DiscoveredEndpoint de(String host, String method, String tmpl,
                                          EndpointKind kind, long hits, boolean query, boolean sdk) {
