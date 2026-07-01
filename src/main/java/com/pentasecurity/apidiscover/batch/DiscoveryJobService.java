@@ -262,6 +262,18 @@ public class DiscoveryJobService {
         ScanResult result = persist(host, report);
         // 검출 SoT 누적 upsert(firstSeen min/lastSeen max/스냅샷) + cap·retention prune (doc/26 §2).
         upsertDiscovered(host, priorDiscovered, discovered, matcher, window);
+        // ★실 access log 최신 시각(time_iso8601) 갱신(D56) — 관측 로그의 최신 시각으로 last_access_log_at 전진(never decrease).
+        // 무접속 자동스캔 제외(ScanSelector) 기준. 관측 로그 없으면(빈 스캔) 미갱신(dead 도메인은 값이 오래된 채 유지 → 제외됨).
+        Instant maxLogTime = null;
+        for (DiscoveredEndpoint d : discovered) {
+            Instant ls = (d.metrics() != null) ? d.metrics().lastSeen() : null;
+            if (ls != null && (maxLogTime == null || ls.isAfter(maxLogTime))) {
+                maxLogTime = ls;
+            }
+        }
+        if (maxLogTime != null) {
+            domainRepo.touchLastAccessLogAt(host, maxLogTime);
+        }
         return result;
     }
 

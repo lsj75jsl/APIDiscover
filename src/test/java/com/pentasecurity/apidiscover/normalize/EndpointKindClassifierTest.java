@@ -8,11 +8,20 @@ import com.pentasecurity.apidiscover.model.RefererSignal;
 import com.pentasecurity.apidiscover.model.SignalStatus;
 import com.pentasecurity.apidiscover.normalize.EndpointKindClassifier.KindResult;
 import java.util.Map;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class EndpointKindClassifierTest {
 
     private final EndpointKindClassifier classifier = new EndpointKindClassifier();
+
+    // ★정적 규칙(activeExt/activeNameTokens)은 volatile 정적 상태 — Spring 컨텍스트 테스트(StaticClassifyRules)가
+    // 바꿔놓을 수 있어, 각 단위테스트 전 기본값으로 리셋해 결정성 보장(D56).
+    @BeforeEach
+    void resetToDefaults() {
+        EndpointKindClassifier.applyRules(
+                EndpointKindClassifier.DEFAULT_STATIC_EXT, EndpointKindClassifier.DEFAULT_NAME_TOKENS);
+    }
 
     @Test
     void documentTypeIsWebPage() {
