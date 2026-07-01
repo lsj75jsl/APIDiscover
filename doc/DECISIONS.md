@@ -531,6 +531,12 @@ P1 머지(main 3b70c3e) 위 후속. P2-2+P2-3+P2-4 ★머지 완료(PR #47 / mai
 - **#2 정적 리소스 파일명 감점**: `EndpointKindClassifier.hasStaticResourceName`(마지막 세그먼트=확장자 있는 파일 + 토큰[img·image·thumb·thumbnail·resize·icon·logo·banner·sprite·avatar·favicon·css·download·attachment]) → `staticAssetPenalty`(-0.6) 발화조건에 OR 추가. img.php(WEB_PAGE) 가 0.79→0.19 로 탈락. ★veto 아닌 감점 = .php 는 실 API 가능(login.php·list.php)이라 보존. ★모호 토큰(photo·view·file·get) 제외(과탐 방지)·확장자 없는 컬렉션(/api/images) 제외(REST 가능). 새 Weights 필드 불요(기존 staticAssetPenalty 재사용).
 - **검증**: build green 504·실 PG OK·신규 테스트 RED-확인(veto·감점 무력화 시 2건 red→복원). 응답 additive(DroppedNonApi.staticFile 가산·중앙 무파괴). 가중치 실데이터 보정은 라벨(스펙) 부재로 보류(D55).
 
+### D57. 무접속 자동스캔 제외를 Loki 실로그 기준으로 + 정적분류 규칙 DB 외부화·reload (2026-07-01, 사용자 확정)
+D55 무접속 중단(inactive-after)의 기준 정정 + D56 정적 토큰/확장자 외부화. 사용자 지적으로 재설계.
+- **① 무접속 기준 = 실 access log(time_iso8601), not last_seen_at**: `last_seen_at`(discovery 관측시각)이 아니라 **Loki 실 로그시각** 기준으로 자동스캔 제외. ★per-domain Loki 쿼리(53k)는 부하 폭증이라 불가 → **스캔이 이미 읽는 로그의 최신 시각(`max discovered_endpoint.last_seen`=time_iso8601)을 `domain_config.last_access_log_at` 에 저장**(analyze 에서 `touchLastAccessLogAt`, never-decrease), ScanSelector 게이트를 이 값으로(추가 쿼리 0). scan-now(명시)는 ScanSelector 미경유=항상 스캔, 자동스캔만 제외. 임계=`inactive-after` 기본 **30일**(3개월은 예시). 미스캔(null)=제외 안 함. ★의미: 신규 로그가 Loki 에 안 들어오는 dead 도메인만 자동제외 → 활성 도메인만 자동스캔=순회 단축. 시스템 가동 <30일이라 현재 제외 0(30일 경과 후 작동).
+- **②③ 정적 확장자·토큰 DB 외부화 + reload**(사용자: 소스 하드코드 → 관리자 편집·reload): 신규 `static_classify_rule`(kind{EXTENSION,NAME_TOKEN}·value·unique·ddl-auto) + `StaticClassifyRuleRepository` + `StaticClassifyRules`(빈 테이블 시 기본값 seed·DB→`EndpointKindClassifier.applyRules` 적용·add/remove 시 즉시 재적용) + REST `/api/v1/config/static-classify`(GET 목록·POST 추가·DELETE 삭제·POST /reload). EndpointKindClassifier 의 하드코드 배열 → `volatile Set`(런타임 교체) + 기본값 상수. ★ApiScorer 가 `new` 생성돼 빈 주입 불가 → 정적 volatile + `applyRules` 정적 메서드(단위테스트는 @BeforeEach 로 기본값 리셋해 정적상태 오염 방지).
+- **검증**: build green **505**·실 PG OK(무접속 게이트 lastAccessLogAt·규칙 CRUD/reload)·게이트 RED-확인. 스키마=ADD TABLE static_classify_rule + domain_config.last_access_log_at 컬럼(ddl-auto·무손실). 매뉴얼(TW)=후속.
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.
