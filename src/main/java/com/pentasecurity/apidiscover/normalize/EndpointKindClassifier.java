@@ -21,11 +21,12 @@ public class EndpointKindClassifier {
     private static final String[] STATIC_EXT = {
             ".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico",
             ".webp", ".avif", ".bmp", ".tiff", ".woff", ".woff2", ".ttf", ".eot", ".otf", ".map"};
-    // 정적 리소스 서빙으로 보이는 파일명 토큰(D55 후속) — 동적 확장자(.php 등)로 이미지/CSS 등을 서빙하는
-    // 경우(img.php·resize_image.php·view_css.php) API 오탐 감점용. ★모호 토큰(photo·view·file·get)은 제외(실 API 가능).
+    // 정적 리소스 서빙으로 보이는 파일명 토큰(D55/D56 후속) — 동적 확장자(.php 등)로 이미지/CSS/링크위젯 등을 서빙하는
+    // 경우(img.php·resize_image.php·view_css.php·link.php) API 오탐 감점용. ★모호 토큰(photo·view·file·get)은 제외(실 API 가능).
+    // ★"link"(사용자 요청 추가): substring 매치라 unlink/linkedin/hyperlink 도 매치될 수 있음(과탐 주의). 감점(-0.6)이라 강신호 API 는 생존 가능.
     private static final String[] STATIC_NAME_TOKENS = {
             "img", "image", "thumb", "thumbnail", "resize", "icon", "logo",
-            "banner", "sprite", "avatar", "favicon", "css", "download", "attachment"};
+            "banner", "sprite", "avatar", "favicon", "css", "link", "download", "attachment"};
     /** 정적 자식 ≥2 의 부모 = 페이지 확정 (referer 보조 임계, doc/20 §3). */
     private static final long MIN_CHILD_HITS = 2;
     private static final double REFERER_WEB_PAGE_CONFIDENCE = 0.6;

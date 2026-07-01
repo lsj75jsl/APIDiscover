@@ -55,6 +55,7 @@ class EndpointKindClassifierTest {
         assertThat(EndpointKindClassifier.hasStaticResourceName("/api/blogwidget/img.php")).isTrue();
         assertThat(EndpointKindClassifier.hasStaticResourceName("/resize_image.php")).isTrue();
         assertThat(EndpointKindClassifier.hasStaticResourceName("/view_css.php")).isTrue();
+        assertThat(EndpointKindClassifier.hasStaticResourceName("/api/blogwidget/link.php")).isTrue(); // D56 후속: link 토큰
         // ★확장자 없는 컬렉션 경로는 제외(REST 리소스 가능)
         assertThat(EndpointKindClassifier.hasStaticResourceName("/api/images")).isFalse();
         // ★정적 토큰 없는 동적 파일은 미해당(.php=실 API 보존)
