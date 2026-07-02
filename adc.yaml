@@ -57,6 +57,8 @@ spec:
           value: "PT1M"
         - name: APIDISCOVER_SCAN_DOMAINSPERTICK        # scan.domains-per-tick 500 (주간=off-peak 동일). 틱당 처리량↑, 대부분 cheap skip, 실조회는 캡3000/h 보호
           value: "500"
+        - name: APIDISCOVER_DISCOVERY_EXCLUDEDHOSTNAMES  # D62 대상 제외 엣지(사용자 확정 AAJ 23개) — 등록·lastSeen·스캔 조회 제외. fleet -37%(전용 20,880 별도 비활성화)
+          value: "AAJ11,AAJ12,AAJ13,AAJ14,AAJ21,AAJ22,AAJ23,AAJ24,AAJ31,AAJ32,AAJ33,AAJ34,AAJ41,AAJ42,AAJ43,AAJ44,AAJ51,AAJ52,AAJ53,AAJ54,AAJ61,AAJ62,AAJ63"
         - name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE   # 설정값 검증용 configprops 노출(내부)
           value: "health,info,metrics,configprops"
       volumeMounts:

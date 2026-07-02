@@ -67,6 +67,7 @@ apidiscover:
     initial-delay: "PT2M"          # 스캔 스케줄과 stagger
     max-domains-per-run: 0         # 0=무제한(전수 등록), >0=카운트 desc 상위 N 캡
     host-pattern: "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$"
+    excluded-hostnames: []         # D62 대상 제외 엣지(hostname 라벨) — 등록·lastSeen 갱신·스캔 조회 모두 제외. 빈=없음
   central:
     base-url: "https://central.internal"
   normalization:                 # 고카디널리티 방지 (doc/13)

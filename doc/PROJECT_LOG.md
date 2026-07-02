@@ -25,6 +25,8 @@
 - **★근본 한계 발견**: PT1M·500 로도 drift 안 잡힘(평균지연 340→353분). 원인=delta skip 이 워터마크를 `maxWindow(30분)`씩만 전진 → 4h 밀린 도메인은 8 touch 필요, 56k 수렴엔 ~112k touch/h 필요(처리율 부족). tick/domains-per-tick 만으론 catch-up 불가.
 - **D61 skip→now-lag 즉시전진(사용자 확정)**: runScan skip 시 워터마크를 window.to(=+30분) 대신 `now−ingest_lag` 로 즉시 전진. skip 조건이 구간 무트래픽 보장 → 상한 없이 now 까지 안전. **빈 도메인 1 touch caught-up** → drift 해소. build green 508·RED-확인(window.to 원복 시 red).
 
+- **하이브리드 개선 착수(사용자 설계 제안 검토→확정)**: 사용자 5분-스텝 설계 검토 — 80% 는 기존(D59~D61)과 동치, 신규 가치=push 작업목록·도메인 배칭. 시뮬레이션(활성 11.5k/10분·엣지 434·매핑 90k): 도메인별 쿼리 불가(~380k/h), 배칭 필수·5분 주기는 엣지 수(406)가 바닥이라 10분 주기 또는 엣지 간 배칭 필요. **D62 Phase 1 = AAJ 23개 엣지 제외**(fleet 37%↓·활성 5%↓, AHJ11 비활성은 P3D 자동 처리로 미제외). excluded-hostnames 설정+discovery/scan 필터+데이터 정리. build green 510·RED-확인 2건.
+
 ### 다음 단계
 - D61 재배포 후: 워터마크 평균지연이 빠르게 떨어지는지(빈 도메인 caught-up), 실 Loki 조회 캡 이하·타임아웃 0 유지 확인. 점프 불요(skip 이 자연 catch-up). 매뉴얼(TW)=후속(외부 로그·감속·부하 튜닝·무접속 last_seen_at·delta-driven·now-lag 반영).
 

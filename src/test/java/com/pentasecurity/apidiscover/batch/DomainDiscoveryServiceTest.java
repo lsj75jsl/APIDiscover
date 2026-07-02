@@ -50,6 +50,24 @@ class DomainDiscoveryServiceTest {
         assertThat(api.getSpecMergeStrategy()).isEqualTo(SpecMergeStrategy.MERGE); // 기본값
     }
 
+    // --- D62: 제외 엣지 관측은 없는 것으로 취급 ---
+
+    @Test
+    void excludedEdgeSamplesAreDroppedEntirely() {
+        when(loki.queryInstant(any(), any())).thenReturn(List.of(
+                sample("only-excluded.example.com", "AAJ11", 100),  // 제외 엣지에서만 관측 → 미등록
+                sample("mixed.example.com", "AAJ11", 50),           // 혼합: 제외 엣지 관측은 drop
+                sample("mixed.example.com", "AHJ11", 30)));         //       비제외 엣지 관측만 반영
+
+        DomainDiscoveryService.DiscoveryResult r =
+                serviceWithExcluded(List.of("AAJ11", "AAJ12")).discover(NOW);
+
+        assertThat(r.inserted()).isEqualTo(1); // mixed 만 등록
+        assertThat(db.stream().map(DomainConfig::getHost)).doesNotContain("only-excluded.example.com");
+        DomainConfig mixed = find("mixed.example.com");
+        assertThat(mixed.getHostnames()).containsExactly("AHJ11"); // 제외 엣지 매핑 미등록
+    }
+
     // --- FQDN 거름: 변조/비FQDN Host 자동등록 차단 ---
 
     @Test
@@ -219,6 +237,11 @@ class DomainDiscoveryServiceTest {
         return new DomainDiscoveryService(loki, repo, new DomainUpserter(repo), props(cap));
     }
 
+    /** D62: 제외 엣지 목록을 지정한 서비스. */
+    private DomainDiscoveryService serviceWithExcluded(List<String> excludedHostnames) {
+        return new DomainDiscoveryService(loki, repo, new DomainUpserter(repo), props(200, excludedHostnames));
+    }
+
     /** host=도메인·real_host="-"(폴백 불필요) 편의 — 기존 테스트의 "도메인=host" 의미 유지. */
     private static MetricSample sample(String host, String hostname, double count) {
         return labeled(host, "-", hostname, count);
@@ -249,6 +272,10 @@ class DomainDiscoveryServiceTest {
     }
 
     private static ApiDiscoverProperties props(int maxDomains) {
+        return props(maxDomains, List.of());
+    }
+
+    private static ApiDiscoverProperties props(int maxDomains, List<String> excludedHostnames) {
         return new ApiDiscoverProperties(
                 new ApiDiscoverProperties.Loki("http://loki.local:3200", "access_log",
                         Duration.ofSeconds(30), Duration.ofMinutes(10), 2000, 2, Duration.ofMillis(1)),
@@ -256,7 +283,7 @@ class DomainDiscoveryServiceTest {
                         Duration.ofDays(7), "01:00-06:00"),
                 new ApiDiscoverProperties.Central("https://central.internal"),
                 new ApiDiscoverProperties.Discovery(true, Duration.ofMinutes(10), Duration.ofMinutes(12),
-                        Duration.ofHours(1), Duration.ofMinutes(2), maxDomains, FQDN),
+                        Duration.ofHours(1), Duration.ofMinutes(2), maxDomains, FQDN, excludedHostnames),
                 new ApiDiscoverProperties.Scan(Duration.ofMinutes(5), 100, Duration.ZERO, 0, 0L, true, Duration.ZERO, 0, false, Duration.ofMinutes(30), Duration.ofHours(2), Duration.ofHours(6), Duration.ofHours(24), 500, Duration.ofHours(24), "", Duration.ofDays(14), Duration.ofDays(1), Duration.ZERO));
     }
 }

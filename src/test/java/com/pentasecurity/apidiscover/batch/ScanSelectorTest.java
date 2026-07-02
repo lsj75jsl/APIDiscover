@@ -112,7 +112,7 @@ class ScanSelectorTest {
                         Duration.ofDays(7), "01:00-06:00"),
                 new ApiDiscoverProperties.Central("https://central.internal"),
                 new ApiDiscoverProperties.Discovery(true, Duration.ofMinutes(10), Duration.ofMinutes(12),
-                        Duration.ofHours(1), Duration.ofMinutes(2), 0, "^x$"),
+                        Duration.ofHours(1), Duration.ofMinutes(2), 0, "^x$", java.util.List.of()),
                 new ApiDiscoverProperties.Scan(Duration.ofMinutes(5), domainsPerTick, Duration.ZERO, 0, 0L, true,
                         Duration.ZERO, 0, true, Duration.ofMinutes(30), Duration.ofHours(2), Duration.ofHours(6),
                         Duration.ofHours(24), offPeakDomainsPerTick, Duration.ofHours(24), offPeakZone,
