@@ -53,6 +53,10 @@ spec:
           value: "PT30M"
         - name: APIDISCOVER_SCAN_SLICEWINDOW           # scan.slice-window PT10M→PT30M (부분전진 슬라이스=유효 청크 캡, chunk 와 동반 상향)
           value: "PT30M"
+        - name: APIDISCOVER_SCAN_TICKINTERVAL          # scan.tick-interval PT5M→PT2M (틱 주기 단축 — 워터마크 더 자주 전진. delta-driven+캡3000 이 Loki 보호)
+          value: "PT2M"
+        - name: APIDISCOVER_SCAN_DOMAINSPERTICK        # scan.domains-per-tick 100→500 (틱당 처리량↑ — 전수 재순회 37h→~7.5h. 대부분 cheap skip, 실조회는 캡3000/h 보호. off-peak(300)은 유지)
+          value: "500"
         - name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE   # 설정값 검증용 configprops 노출(내부)
           value: "health,info,metrics,configprops"
       volumeMounts:
