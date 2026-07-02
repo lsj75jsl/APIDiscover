@@ -63,6 +63,17 @@ public class LokiBudget {
         }
     }
 
+    /**
+     * Loki I/O 실패(타임아웃·연결실패 등 HTTP 상태 이전) 계측 — 실패도 1쿼리로 시간당 예산에 계상해
+     * (D58) 느린 Loki 를 향한 무한 hammering 을 예산으로도 제어. + {@code loki.errors{status=kind}} 에러 메트릭.
+     */
+    public synchronized void recordFailure(String kind) {
+        rollIfNeeded();
+        queriesThisHour++;
+        queryCounter.increment();
+        registry.counter("loki.errors", "status", kind).increment();
+    }
+
     private void rollIfNeeded() {
         long hour = clock.millis() / MILLIS_PER_HOUR;
         if (hour != windowEpochHour) {

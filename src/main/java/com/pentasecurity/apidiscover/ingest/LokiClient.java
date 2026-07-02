@@ -4,6 +4,7 @@ package com.pentasecurity.apidiscover.ingest;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pentasecurity.apidiscover.config.ApiDiscoverProperties;
+import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -27,6 +28,8 @@ import org.springframework.stereotype.Component;
 public class LokiClient {
 
     private static final Logger log = LoggerFactory.getLogger(LokiClient.class);
+    // 쿼리별 상세(응답시간·도메인·성공/실패유형) 전용 로거 — logback-spring.xml 이 /opt/adc-log 파일로 분리(D58, 장애 원인분석).
+    private static final Logger queryLog = LoggerFactory.getLogger("com.pentasecurity.apidiscover.loki.query");
     private static final int MAX_ATTEMPTS = 4;
     private static final int MAX_THROTTLE_LEVEL = 4; // 적응형 throttle 상한: min-interval × 2^level (≤16×)
     private static final Set<Integer> RETRYABLE = Set.of(429, 502, 503, 504);
@@ -75,7 +78,7 @@ public class LokiClient {
         String url = props.loki().addr() + "/loki/api/v1/query"
                 + "?query=" + URLEncoder.encode(logql, StandardCharsets.UTF_8)
                 + "&time=" + toNanos(time);
-        JsonNode data = requestWithRetry(url);
+        JsonNode data = requestWithRetry(url, logql);
         List<MetricSample> out = new ArrayList<>();
         for (JsonNode r : data.path("result")) {
             Map<String, String> labels = new HashMap<>();
@@ -99,7 +102,7 @@ public class LokiClient {
                     + "?query=" + URLEncoder.encode(logql, StandardCharsets.UTF_8)
                     + "&start=" + startNs + "&end=" + endNs
                     + "&limit=" + limit + "&direction=forward";
-            JsonNode data = requestWithRetry(url);
+            JsonNode data = requestWithRetry(url, logql);
             long maxTs = -1L;
             int count = 0;
             for (JsonNode stream : data.path("result")) {
@@ -117,8 +120,14 @@ public class LokiClient {
         }
     }
 
-    /** 단일 Loki HTTP GET + 429/5xx 지수 백오프. data 노드 반환. query_range·instant 공용(doc/30 §2, URL 인자형). */
-    private JsonNode requestWithRetry(String url) {
+    /**
+     * 단일 Loki HTTP GET + 429/5xx 지수 백오프. data 노드 반환. query_range·instant 공용(doc/30 §2, URL 인자형).
+     * <p>★I/O 실패(타임아웃·연결실패)도 {@link #escalateThrottle()} 로 적응형 감속하고 budget 에 계상(D58) — 종전엔
+     * HTTP 429/5xx 에만 감속이 걸려, Loki 지연 시 앱이 감속 없이 전속으로 실패 쿼리를 계속 던졌다. 재시도는 안 한다
+     * (느린 Loki 가중 방지) — 실패는 다음 틱 resume. 모든 쿼리의 응답시간·결과를 {@code queryLog} 로 남긴다(장애 원인분석).
+     * @param logql 로깅용 원본 LogQL(엣지 hostname + 대상 도메인 포함) — url 은 인코딩돼 있어 사람이 읽기 어렵다.
+     */
+    private JsonNode requestWithRetry(String url, String logql) {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .timeout(props.loki().queryTimeout())
@@ -127,10 +136,25 @@ public class LokiClient {
 
         for (int attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
             throttle();
-            HttpResponse<String> response = send(request);
+            long t0 = System.nanoTime();
+            HttpResponse<String> response;
+            try {
+                response = send(request);
+            } catch (IOException e) {
+                long ms = elapsedMs(t0);
+                budget.recordFailure("io");   // 실패도 1쿼리로 시간당 예산 계상 + 에러 메트릭 (D58)
+                escalateThrottle();            // ★ Loki 지연/실패 → 적응형 감속 (D58) — throttle-on-error 시
+                queryLog.warn("loki query FAILED type={} elapsedMs={} throttle={} attempt={}/{} query={}",
+                        e.getClass().getSimpleName(), ms, throttleLevel.get(), attempt + 1, MAX_ATTEMPTS, logql);
+                throw new IllegalStateException("Loki query I/O error", e); // 재시도 안 함(느린 Loki 가중 방지)
+            }
+            long ms = elapsedMs(t0);
             int status = response.statusCode();
             String body = response.body();
-            budget.record(status, (body != null) ? body.length() : 0L); // E 계측·시간당 누적
+            long bytes = (body != null) ? body.length() : 0L;
+            budget.record(status, bytes); // E 계측·시간당 누적
+            queryLog.info("loki query status={} elapsedMs={} bytes={} throttle={} attempt={}/{} query={}",
+                    status, ms, bytes, throttleLevel.get(), attempt + 1, MAX_ATTEMPTS, logql);
             if (status == 200) {
                 relaxThrottle(); // 성공 → 적응형 throttle 감쇠
                 return parseData(body);
@@ -146,7 +170,7 @@ public class LokiClient {
         throw new IllegalStateException("Loki query failed after " + MAX_ATTEMPTS + " attempts");
     }
 
-    private HttpResponse<String> send(HttpRequest request) {
+    private HttpResponse<String> send(HttpRequest request) throws IOException {
         try {
             concurrencyGate.acquire();
             try {
@@ -156,10 +180,18 @@ public class LokiClient {
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new IllegalStateException("interrupted during Loki query", e);
-        } catch (java.io.IOException e) {
-            throw new IllegalStateException("Loki query I/O error", e);
+            throw new IOException("interrupted during Loki query", e);
         }
+    }
+
+    /** 경과시간(ms) — 쿼리 응답시간 계측(단조 시계 nanoTime 기준). */
+    private static long elapsedMs(long startNanos) {
+        return (System.nanoTime() - startNanos) / 1_000_000L;
+    }
+
+    /** 현재 적응형 throttle 레벨 — 테스트에서 감속 발동 검증용(package-private). */
+    int currentThrottleLevel() {
+        return throttleLevel.get();
     }
 
     private JsonNode parseData(String body) {
