@@ -29,6 +29,8 @@
 
 - **D63 Phase 2 = 엣지-그룹 배칭**: 실조회 도메인을 (워터마크 10분 버킷×엣지)로 묶어 `|~ (d1|d2|…)` 1쿼리(RE2 이스케이프)·host 파싱 분배·게이트/gap-free/예산 유지. scan.query-batch-size(0=off, 배포 10). build green 514·RED-확인.
 
+- **D64 Phase 3 = 활성 우선 선택**: due 분할(신규트래픽=실조회 우선 / skip-류 K/5 예약=기아·드리프트 방지) 3단 선발. 크로스-엔티티 join 실 PG 가드 포함. build green 517·RED-확인.
+
 ### 다음 단계
 - D61 재배포 후: 워터마크 평균지연이 빠르게 떨어지는지(빈 도메인 caught-up), 실 Loki 조회 캡 이하·타임아웃 0 유지 확인. 점프 불요(skip 이 자연 catch-up). 매뉴얼(TW)=후속(외부 로그·감속·부하 튜닝·무접속 last_seen_at·delta-driven·now-lag 반영).
 

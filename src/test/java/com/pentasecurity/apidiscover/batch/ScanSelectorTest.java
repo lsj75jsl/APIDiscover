@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.pentasecurity.apidiscover.config.ApiDiscoverProperties;
 import com.pentasecurity.apidiscover.domain.DomainConfig;
 import com.pentasecurity.apidiscover.domain.DomainConfigRepository;
+import com.pentasecurity.apidiscover.domain.Watermark;
+import com.pentasecurity.apidiscover.domain.WatermarkRepository;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -22,6 +24,9 @@ class ScanSelectorTest {
 
     @Autowired
     private DomainConfigRepository repo;
+
+    @Autowired
+    private WatermarkRepository wmRepo;
 
     @Test
     void selectsDueDomainsNullsFirstAscExcludingFutureAndDisabled() {
@@ -73,6 +78,37 @@ class ScanSelectorTest {
     }
 
     @Test
+    void prioritizesDomainsWithNewTrafficOverEarlierDueIdleOnes() {
+        // D64: FIFO 라면 idle(더 이른 due)이 먼저지만, busy(워터마크 이후 신규 트래픽)가 우선 선발.
+        repo.save(domain("idle.example.com", NOON.minus(Duration.ofMinutes(30)), true, NOON.minus(Duration.ofHours(2))));
+        wm("idle.example.com", NOON.minus(Duration.ofHours(1)));   // lastSeen(2h전) <= wm(1h전) = 신규 트래픽 없음
+        repo.save(domain("busy.example.com", NOON.minus(Duration.ofMinutes(1)), true, NOON.minus(Duration.ofMinutes(5))));
+        wm("busy.example.com", NOON.minus(Duration.ofHours(1)));   // lastSeen(5분전) > wm(1h전) = 신규 트래픽
+
+        ScanSelector selector = new ScanSelector(repo, props(10, 10, "UTC"), fixed(NOON));
+        var selected = selector.selectForTick().stream().map(DomainConfig::getHost).toList();
+
+        assertThat(selected).containsExactly("busy.example.com", "idle.example.com"); // 활성 먼저(due 순서 아님)
+    }
+
+    @Test
+    void reservesMinimumSlotsForIdleDomainsToPreventStarvation() {
+        // D64: 활성이 K 를 다 채워도 idle(K/5 예약)이 최소 1개는 선발 — D61 점프 유지(드리프트 방지).
+        for (int i = 0; i < 10; i++) {
+            String h = "busy" + i + ".example.com";
+            repo.save(domain(h, NOON.minus(Duration.ofMinutes(10)), true, NOON.minus(Duration.ofMinutes(5))));
+            wm(h, NOON.minus(Duration.ofHours(1)));
+        }
+        repo.save(domain("idle.example.com", NOON.minus(Duration.ofMinutes(30)), true, NOON.minus(Duration.ofHours(2))));
+        wm("idle.example.com", NOON.minus(Duration.ofHours(1)));
+
+        ScanSelector selector = new ScanSelector(repo, props(5, 5, "UTC"), fixed(NOON)); // K=5 → 예약 1
+        var selected = selector.selectForTick().stream().map(DomainConfig::getHost).toList();
+
+        assertThat(selected).hasSize(5).contains("idle.example.com"); // 예약분으로 idle 포함
+    }
+
+    @Test
     void inactiveAfterZeroDisablesStaleExclusion() {
         repo.save(domain("stale.example.com", null, true, NOON.minus(Duration.ofDays(40))));
 
@@ -84,6 +120,13 @@ class ScanSelectorTest {
 
     private static Clock fixed(Instant now) {
         return Clock.fixed(now, ZoneOffset.UTC);
+    }
+
+    private void wm(String host, Instant lastEnd) {
+        Watermark w = new Watermark();
+        w.setHost(host);
+        w.setLastEnd(lastEnd);
+        wmRepo.save(w);
     }
 
     private static DomainConfig domain(String host, Instant nextScanDueAt, boolean enabled) {

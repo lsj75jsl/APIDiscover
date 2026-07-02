@@ -36,14 +36,35 @@ public class ScanSelector {
         this.clock = clock;
     }
 
-    /** 이번 틱 처리 대상(due 도래 상위 K, off-peak 시 K 상향, 무접속 도메인 제외). */
+    /**
+     * 이번 틱 처리 대상(due 도래 상위 K, off-peak 시 K 상향, 무접속 도메인 제외).
+     * <p>★D64 활성 우선(Phase 3): "워터마크 이후 신규 트래픽 확정"(=실조회 필요) 도메인을 먼저 뽑아
+     * 활성 도메인의 스캔 지연을 최소화한다. 신규 트래픽 없는(delta-skip 예정) 도메인은 틱당 최소 K/5 를
+     * 예약해 기아를 방지 — 이들이 주기적으로 선택돼야 D61 점프로 워터마크가 near-now 를 유지해,
+     * 트래픽 재개 시 빈 과거 윈도우를 기어가는 낭비가 없다. 활성분이 부족하면 예약 이상을 채운다.
+     */
     public List<DomainConfig> selectForTick() {
         Instant now = Instant.now(clock);
         boolean offPeak = OffPeakWindow.isOffPeak(now, props.schedule().offPeakWindow(),
                 OffPeakWindow.zone(props.scan().offPeakZone()));
         int k = Math.max(1, offPeak ? props.scan().offPeakDomainsPerTick() : props.scan().domainsPerTick());
-        Pageable page = PageRequest.of(0, k); // ORDER BY 는 findDueForScan @Query 가 보유(nulls first 결정적, P1)
-        return repo.findDueForScan(now, staleCutoff(now), page);
+        Instant cutoff = staleCutoff(now);
+        int reserve = Math.max(1, k / 5); // ponytail: 고정 1/5 예약 — 필요 시 설정 승격
+        // 1) skip-류 예약 확인 → 2) 활성 우선 채움 → 3) 남는 몫 skip-류 추가
+        List<DomainConfig> restProbe = repo.findDueWithoutNewTraffic(now, cutoff, PageRequest.of(0, reserve));
+        List<DomainConfig> active = repo.findDueWithNewTraffic(now, cutoff,
+                PageRequest.of(0, Math.max(1, k - restProbe.size())));
+        int restLimit = k - active.size();
+        if (restLimit <= 0) {
+            return active;
+        }
+        List<DomainConfig> rest = (restProbe.size() >= restLimit)
+                ? restProbe.subList(0, restLimit)
+                : repo.findDueWithoutNewTraffic(now, cutoff, PageRequest.of(0, restLimit));
+        List<DomainConfig> out = new java.util.ArrayList<>(active.size() + rest.size());
+        out.addAll(active);
+        out.addAll(rest);
+        return out;
     }
 
     /**
