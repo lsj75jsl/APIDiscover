@@ -544,6 +544,13 @@ D55 무접속 중단(inactive-after)의 기준 정정 + D56 정적 토큰/확장
 - **③④⑤ 파일 로깅**: 신규 `logback-spring.xml`(`container` 프로파일만) → `/opt/adc-log`(hostPath 마운트=**컨테이너 외부**). 쿼리별 전용 로거 `com.pentasecurity.apidiscover.loki.query`(응답시간ms·대상 LogQL/도메인·성공status/실패type·바이트·throttle·attempt) + 앱 이벤트/실패(APP_FILE). `%d{yyyyMMdd}` **prefix 일별 파일**(당일 활성=`YYYYMMDD-adc.log`, `<file>` 미지정)·**롤오버 시 .gz 압축**·`maxHistory=30`(**1달 후 삭제**)·UTC 타임스탬프. 콘솔(podman logs) 유지. 비-container=콘솔만(무회귀). adc.yaml=app volumeMounts + `adclog` hostPath 볼륨. VM `/opt/adc-log` 사전 mkdir(type:Directory).
 - **검증**: build green **507**(신규 2: 타임아웃→감속·recordFailure 예산 계상)·실 PG OK·타임아웃 감속 **RED-확인**(escalateThrottle 임시 원복 시 throttle=0 red → 복원 throttle=1). 배포=재빌드+/opt/adc-log 생성+볼륨 마운트+재기동. 매뉴얼(TW)=후속.
 
+### D59. 무접속 자동스캔 제외 기준을 last_access_log_at → last_seen_at(discovery)로 전환 + 임계 3일(배포) (2026-07-02, 사용자 확정, D57 재설계)
+배경: 스캔 발산 진단 중 커버리지는 ~97% 완료됐으나 워터마크가 중앙값 1.5일 지연·발산(3000q/hr·PT30M 로 55k 도메인 실시간 유지는 물리적으로 ~140배 부족). 사용자가 fleet 축소('무접속 정리')를 요청. D57 게이트 기준 `last_access_log_at`(스캔이 채우는 값)은 스캔 지연(~1.5일)·미스캔 다수(57k 중 2,627만 값 존재)로 "무접속" 판정에 부적합 + 임계 30일 미도래(시스템 가동 ~6일)로 정리 0.
+- **전환 근거**: discovery 는 10분마다 Loki **실시간 집계**(최근 12분)로 트래픽 도메인을 관측하고 `DomainUpserter` 가 **매 관측 `lastSeenAt` 갱신**(insert+update, `max-domains-per-run=0`=전수). 따라서 `lastSeenAt` 이 오래됨 = "신규 로그가 Loki 에 안 들어옴"을 실시간·전수로 판정 → **D57 의도를 더 정확히 실현**(per-domain Loki 쿼리 0, discovery 신호 재사용). ScanSelector·application.yml 주석은 이미 lastSeenAt 로 기술돼 있어 코드/문서 정합도 회복.
+- **구현**: `DomainConfigRepository.findDueForScan` 게이트 `lastAccessLogAt` → `lastSeenAt`(null=제외 안 함, upsert 시 항상 set). `last_access_log_at`·`touchLastAccessLogAt` 는 정보성으로 유지(제거 안 함). 임계 `inactive-after`: application.yml 기본 P30D 유지, **배포는 env `APIDISCOVER_SCAN_INACTIVEAFTER=P3D`**(즉시 fleet 축소, self-healing 이라 오탐 안전). 3일 미관측 ~10,883개(57k→46k) 제외 예상.
+- **소프트 제외 확인(사용자 질의)**: 삭제·enabled=false 아님. 게이트는 `findDueForScan`(스케줄러 자동 틱 선택)에만 작용 → `/result`·`/scan-status`·`/discovery`(저장값 반환)·`/scan`·`/scan-now`(scanOnDemand·runScan 직접 호출) 전부 게이트 미경유 → 정리돼도 정상 조회·명시 스캔 가능. discovery 재관측 시 자동 복귀(self-healing).
+- **검증**: build green **507**·실 PG OK(findDueForScanExcludesStaleLastSeen)·게이트 RED-확인(lastAccessLogAt 임시 원복 시 stale 미제외 red→복원). 배포=코드 변경이라 재빌드+재기동.
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.
