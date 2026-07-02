@@ -44,6 +44,8 @@ spec:
           value: "Asia/Seoul"
         - name: APIDISCOVER_SCAN_OFFPEAKDOMAINSPERTICK  # scan.off-peak-domains-per-tick 500→300 (off-peak 틱당 K 하향, off-peak 부하 완화, 사용자 요청)
           value: "300"
+        - name: APIDISCOVER_SCAN_OFFPEAKMAXWINDOW      # scan.off-peak-max-window PT24H→PT1H (off-peak per-scan 조회 윈도우 축소 — 24h 대용량 요청 과부하 방지, 사용자 요청)
+          value: "PT1H"
         - name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE   # 설정값 검증용 configprops 노출(내부)
           value: "health,info,metrics,configprops"
       volumeMounts:
