@@ -805,13 +805,13 @@ class PostgresIntegrationTest {
         return d;
     }
 
-    /** 즉시 due(nextScanDueAt=null) + 실 access log 최신시각(lastAccessLogAt) 지정 — 무접속 제외 테스트용(D56). */
-    private DomainConfig seen(String host, Instant lastAccessLogAt) {
+    /** 즉시 due(nextScanDueAt=null) + discovery 관측시각(lastSeenAt) 지정 — 무접속 제외 게이트 테스트용(D59, D57 재설계). */
+    private DomainConfig seen(String host, Instant lastSeenAt) {
         DomainConfig d = new DomainConfig();
         d.setHost(host);
         d.setEnabled(true);
         d.setNextScanDueAt(null);
-        d.setLastAccessLogAt(lastAccessLogAt);
+        d.setLastSeenAt(lastSeenAt);
         return d;
     }
 

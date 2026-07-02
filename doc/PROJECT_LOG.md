@@ -18,9 +18,11 @@
 - ★배포 중 **SELinux 크래시루프** 발견·해결: `/opt/adc-log`(usr_t)에 컨테이너 쓰기 거부(Permission denied)로 앱 70회 재시작 → `chcon -Rt container_file_t /opt/adc-log` relabel(pgdata /opt/adc 와 동일). adc.yaml 볼륨 주석에 요구사항 명시.
 - **후속 튜닝(사용자 요청)**: `off-peak-domains-per-tick` 500→300 하향(off-peak 부하 완화). adc.yaml env override(`APIDISCOVER_SCAN_OFFPEAKDOMAINSPERTICK=300`, 재빌드 불요·pod 재적용). env·health·이미지 불변(D58 3d1b7b6) 검증.
 - **후속 튜닝2(사용자 요청)**: `off-peak-max-window` PT24H→PT1H 하향 — off-peak per-scan 조회 윈도우 24h 대용량 요청이 Loki 과부하 유발 → 1h 로 축소(스캔당 chunk 144→6). adc.yaml env(`APIDISCOVER_SCAN_OFFPEAKMAXWINDOW=PT1H`). 트레이드오프=off-peak 백필 전진이 스캔당 1h 로 느려짐(과부하 회피 우선). env·health·이미지 불변 검증.
+- **스캔 진행 진단(사용자 문의)**: 커버리지 ~97%(55,336/57,156 워터마크), 그러나 워터마크 중앙값 1.5일 지연·캐치업 0·발산(advance 386 vs 필요 55,336 도메인-h/h). 55k 를 안전조회율로 실시간 유지 불가(~140배 부족) → 자력 catch-up 불가, 점프 또는 fleet 축소 필요.
+- **무접속 정리 = D59(사용자 확정)**: 게이트 기준 `last_access_log_at`(스캔 지연·2,627개만) → `last_seen_at`(discovery 실시간·전수) 전환. 임계 배포 env `APIDISCOVER_SCAN_INACTIVEAFTER=P3D`(3일 미관측 ~10,883개 제외, 57k→46k). 소프트 제외(삭제·disable 아님, 조회·명시스캔 정상, self-healing). build green 507·게이트 RED-확인.
 
 ### 다음 단계
-- 재개된 스캔이 안정 설정(3000q/hr·throttle-on-timeout)에서 타임아웃 없이 백필 따라잡는지 모니터링. 매뉴얼(TW)=후속(외부 로그·감속·부하 튜닝 반영).
+- D59 재빌드·재배포 후 fleet 축소 효과(제외 도메인 수)·재개 스캔 타임아웃 여부 확인. 백필 발산은 fleet 축소 후에도 남으면 워터마크 점프 검토. 매뉴얼(TW)=후속(외부 로그·감속·부하 튜닝·무접속 last_seen_at 반영).
 
 ## 2026-07-01 세션 66 — 실배포 운영 점검: 백필 발산 진단·워터마크 점프·무접속 중단·/result 인라인 (D55)
 

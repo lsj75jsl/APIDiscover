@@ -46,6 +46,8 @@ spec:
           value: "300"
         - name: APIDISCOVER_SCAN_OFFPEAKMAXWINDOW      # scan.off-peak-max-window PT24H→PT1H (off-peak per-scan 조회 윈도우 축소 — 24h 대용량 요청 과부하 방지, 사용자 요청)
           value: "PT1H"
+        - name: APIDISCOVER_SCAN_INACTIVEAFTER         # scan.inactive-after P30D→P3D (무접속 자동스캔 제외 임계, D59 lastSeenAt 기준. self-healing: 트래픽 재개 시 자동 복귀. fleet 축소·발산 완화)
+          value: "P3D"
         - name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE   # 설정값 검증용 configprops 노출(내부)
           value: "health,info,metrics,configprops"
       volumeMounts:

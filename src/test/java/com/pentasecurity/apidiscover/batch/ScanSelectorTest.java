@@ -59,9 +59,9 @@ class ScanSelectorTest {
     }
 
     @Test
-    void excludesDomainsWithLastAccessOlderThanInactiveAfter() {
-        // inactive-after=30d(props 기본). NOON 기준 cutoff=NOON−30d.
-        repo.save(domain("recent.example.com", null, true, NOON.minus(Duration.ofDays(5))));  // 5일 전 접속=활성→포함
+    void excludesDomainsWithLastSeenOlderThanInactiveAfter() {
+        // inactive-after=30d(props 기본). NOON 기준 cutoff=NOON−30d. 게이트 기준=lastSeenAt(discovery 관측, D59).
+        repo.save(domain("recent.example.com", null, true, NOON.minus(Duration.ofDays(5))));  // 5일 전 관측=활성→포함
         repo.save(domain("stale.example.com", null, true, NOON.minus(Duration.ofDays(40))));  // 40일 전=무접속→제외
         repo.save(domain("never-seen.example.com", null, true, null));                        // 미관측=제외 안 함(기회 부여)
 
@@ -69,7 +69,7 @@ class ScanSelectorTest {
         var hosts = selector.selectForTick().stream().map(DomainConfig::getHost).toList();
 
         assertThat(hosts).contains("recent.example.com", "never-seen.example.com");
-        assertThat(hosts).doesNotContain("stale.example.com"); // 마지막 접속 30일 초과 → 스캔(수집+평가) 제외
+        assertThat(hosts).doesNotContain("stale.example.com"); // 마지막 관측 30일 초과 → 자동스캔 제외
     }
 
     @Test
@@ -87,15 +87,15 @@ class ScanSelectorTest {
     }
 
     private static DomainConfig domain(String host, Instant nextScanDueAt, boolean enabled) {
-        return domain(host, nextScanDueAt, enabled, null); // lastAccessLogAt 미설정(무접속 필터 무관=null→제외 안 함)
+        return domain(host, nextScanDueAt, enabled, null); // lastSeenAt 미설정(무접속 필터 무관=null→제외 안 함)
     }
 
-    private static DomainConfig domain(String host, Instant nextScanDueAt, boolean enabled, Instant lastAccessLogAt) {
+    private static DomainConfig domain(String host, Instant nextScanDueAt, boolean enabled, Instant lastSeenAt) {
         DomainConfig d = new DomainConfig();
         d.setHost(host);
         d.setEnabled(enabled);
         d.setNextScanDueAt(nextScanDueAt);
-        d.setLastAccessLogAt(lastAccessLogAt); // ★게이트 기준 = 실 access log 시각(D56)
+        d.setLastSeenAt(lastSeenAt); // ★게이트 기준 = discovery 관측시각 lastSeenAt(D59, D57 재설계)
         return d;
     }
 
