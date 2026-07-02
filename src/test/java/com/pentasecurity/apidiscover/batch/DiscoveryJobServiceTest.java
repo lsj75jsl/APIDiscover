@@ -177,8 +177,9 @@ class DiscoveryJobServiceTest {
         service.runScan(HOST, Duration.ofMinutes(30));
 
         verify(lokiClient, never()).queryRange(any(), any());          // Loki 미조회(빈 윈도우 쿼리 낭비 제거)
-        // 워터마크는 window.to(=wmEnd+maxWindow 30m, now 무관 결정적)로 전진
-        verify(watermarkRepo).save(argThat(w -> w.getLastEnd().equals(wmEnd.plus(Duration.ofMinutes(30)))));
+        // D61: skip 시 maxWindow(30분) 상한 없이 now−lag(ingest-lag PT10M → ≈t−10m)까지 즉시 전진
+        //   → 30분 cap(wmEnd+30m = t−30m)보다 훨씬 이후(t−11m 이후로 검증). 빈 도메인 1 touch caught-up.
+        verify(watermarkRepo).save(argThat(w -> w.getLastEnd().isAfter(t.minus(Duration.ofMinutes(11)))));
     }
 
     @Test

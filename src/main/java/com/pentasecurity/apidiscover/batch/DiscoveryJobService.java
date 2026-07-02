@@ -134,13 +134,19 @@ public class DiscoveryJobService {
         }
         LogWindow window = next.get();
         // D60 delta-driven skip: discovery(10분마다 Loki 실시간 집계)의 마지막 관측(lastSeenAt)이 이 윈도우 시작 이전이면
-        // = 윈도우 구간에 신규 트래픽 없음 → Loki 조회 없이 워터마크만 전진(빈 윈도우 쿼리 낭비 제거, 쿼리량을 실 트래픽 도메인에만 비례).
+        // = 윈도우 구간에 신규 트래픽 없음 → Loki 조회 없이 워터마크 전진(빈 윈도우 쿼리 낭비 제거, 쿼리량을 실 트래픽 도메인에만 비례).
         // D59(무접속 제외)와 동일한 discovery 신호 신뢰. ★scan-now(온디맨드)는 runScan 미경유라 항상 실조회. lastSeenAt null(방어)=skip 안 함.
         // ★한계(정직): discovery 가 놓친 트래픽은 skip될 수 있음(discovery 정상 가동 전제) — inventory/shadow 용도엔 허용.
+        // ★D61: lastSeen < window.from 은 [window.from, now−lag] 전체 무트래픽을 보장하므로, maxWindow(30분) 상한 없이
+        //   now−lag 까지 즉시 전진(빈 도메인 1 touch 로 caught-up → catch-up 가속). 실조회 도메인만 maxWindow 슬라이스 유지.
         if (cfg.getLastSeenAt() != null && cfg.getLastSeenAt().isBefore(window.from())) {
-            advanceWatermark(host, window.to());
-            log.info("skip scan: host={} no new traffic per discovery (lastSeen={} < window.from={}) → watermark advanced to {}",
-                    host, cfg.getLastSeenAt(), window.from(), window.to());
+            Instant caughtUp = Instant.now().minus(props.schedule().ingestLag()); // now−lag(윈도우 실제 상한, maxWindow 미적용)
+            if (caughtUp.isBefore(window.to())) {
+                caughtUp = window.to(); // 방어: 최소 window.to (clock skew)
+            }
+            advanceWatermark(host, caughtUp);
+            log.info("skip scan: host={} no new traffic per discovery (lastSeen={} < window.from={}) → watermark jumped to {}",
+                    host, cfg.getLastSeenAt(), window.from(), caughtUp);
             return;
         }
         // PR1.1(① doc/33 §14): 슬라이스 외부·hostname 내부 순회 + per-scan 캡/예산 → 부분 수집.
