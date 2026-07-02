@@ -551,6 +551,14 @@ D55 무접속 중단(inactive-after)의 기준 정정 + D56 정적 토큰/확장
 - **소프트 제외 확인(사용자 질의)**: 삭제·enabled=false 아님. 게이트는 `findDueForScan`(스케줄러 자동 틱 선택)에만 작용 → `/result`·`/scan-status`·`/discovery`(저장값 반환)·`/scan`·`/scan-now`(scanOnDemand·runScan 직접 호출) 전부 게이트 미경유 → 정리돼도 정상 조회·명시 스캔 가능. discovery 재관측 시 자동 복귀(self-healing).
 - **검증**: build green **507**·실 PG OK(findDueForScanExcludesStaleLastSeen)·게이트 RED-확인(lastAccessLogAt 임시 원복 시 stale 미제외 red→복원). 배포=코드 변경이라 재빌드+재기동.
 
+### D60. 실시간 유지 쿼리 튜닝 — chunk/slice PT30M(A) + delta-driven skip(D) + 워터마크 점프(D) (2026-07-02, 사용자 요청)
+"실시간 유지 쿼리 튜닝" 요청. 근본 병목: N 활성 도메인 실시간 유지에 필요 쿼리 ≈ N×(60/chunk-window분)/h — 활성 13k·chunk PT10M 이면 ~78,000/h vs 캡 3,000/h(~26배 부족). 순수 캡 상향(B)은 Loki 부하 직접 증가라 배제. 사용자 선택 = A(쿼리수 감소)+C(대상 축소=D59)+D(근본 효율화).
+- **A. chunk-window·slice-window PT10M→PT30M**(adc.yaml env, 재빌드 불요): 도메인-시간당 쿼리 1/3. ★둘을 함께 올려야 유효 — collectBounded 가 slice 단위로 queryRange 호출→유효 청크=min(slice,chunk)라 slice=PT10M 이 캡. busy 도메인은 응답↑(page-limit 페이지네이션으로 상쇄), 저트래픽 다수엔 순감.
+- **C. 대상 축소 = D59**(이미 라이브): inactive-after last_seen_at·P3D 로 무접속 제외(~11,420, 57k→46k). 시간이 지날수록 활성 코어로 수렴.
+- **D. delta-driven skip**(`DiscoveryJobService.runScan`, D60 코드): 스캔 직전 `lastSeenAt`(discovery)이 `window.from()` 이전이면 = 윈도우에 신규 트래픽 없음 → **Loki 조회 없이 워터마크만 전진**(빈 윈도우 쿼리 낭비 제거 → 쿼리량을 실 트래픽 도메인에만 비례). D59 와 동일 discovery 신호 신뢰. scan-now(온디맨드)는 runScan 미경유라 항상 실조회. ★한계: discovery 가 놓친 트래픽은 skip 가능(정상 가동 전제, inventory/shadow 허용). 워터마크 점프와 결합 시 최대 효과(점프로 백로그 제거 → 이후 delta 만 처리).
+- **D. 워터마크 점프**: 밀린 1.5일 백필 갭을 now−lag 로 일괄 전진(재배포 앱-down 중, 세션 66 방식). catch-up 부담 제거 → steady-state 만 남김. inventory/shadow 는 최신 로그 우선이라 과거 갭 무해.
+- **검증**: build green **508**(신규 1: runScanSkipsLokiWhenDiscoverySeesNoNewTraffic)·delta-driven RED-확인(skip 무력화 시 loki 호출됨 NeverWantedButInvoked→복원). 배포=재빌드+점프+재기동.
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.

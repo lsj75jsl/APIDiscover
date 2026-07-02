@@ -3,8 +3,11 @@ package com.pentasecurity.apidiscover.batch;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -27,6 +30,7 @@ import com.pentasecurity.apidiscover.model.ClassificationProfile;
 import com.pentasecurity.apidiscover.domain.ScanResult;
 import com.pentasecurity.apidiscover.domain.ScanResultRepository;
 import com.pentasecurity.apidiscover.domain.SpecRecord;
+import com.pentasecurity.apidiscover.domain.Watermark;
 import com.pentasecurity.apidiscover.domain.WatermarkRepository;
 import com.pentasecurity.apidiscover.ingest.LogWindow;
 import com.pentasecurity.apidiscover.ingest.LokiBudget;
@@ -105,6 +109,11 @@ class DiscoveryJobServiceTest {
         return repo;
     }
 
+    // runScan delta-driven skip(D60)·watermark 전진 검증용 — 참조 보유(인라인 mock 대신 필드).
+    private final WatermarkRepository watermarkRepo = mock(WatermarkRepository.class);
+    private final LokiClient lokiClient = mock(LokiClient.class);
+    private final LokiBudget lokiBudget = mock(LokiBudget.class);
+
     private final DiscoveryJobService service = new DiscoveryJobService(
             new LogLineParser(NORM, ParseProperties.defaults()),
             new InventoryBuilder(new PathNormalizer(), new EndpointKindClassifier(),
@@ -119,11 +128,11 @@ class DiscoveryJobServiceTest {
             new ReportBuilder(),
             scanRepo,
             domainRepo,
-            mock(WatermarkRepository.class),
+            watermarkRepo,
             discoveredRepo,
-            mock(LokiClient.class),
+            lokiClient,
             mock(LokiQueryBuilder.class),
-            mock(LokiBudget.class),
+            lokiBudget,
             objectMapper,
             props());
 
@@ -146,6 +155,30 @@ class DiscoveryJobServiceTest {
         assertThat(result.getActive()).isZero();
         assertThat(result.getVersion()).isNotBlank();
         assertThat(result.getReportJson()).contains("\"shadow\"");
+    }
+
+    @Test
+    void runScanSkipsLokiWhenDiscoverySeesNoNewTraffic() {
+        // D60 delta-driven: lastSeenAt(discovery)이 윈도우 시작 이전이면 신규 트래픽 없음 → Loki 조회 없이 워터마크만 전진.
+        Instant t = Instant.now();
+        Instant wmEnd = t.minus(Duration.ofHours(1));                 // 워터마크=1h 전 → window.from=1h 전
+        DomainConfig cfg = new DomainConfig();
+        cfg.setHost(HOST);
+        cfg.setEnabled(true);
+        cfg.setLastSeenAt(t.minus(Duration.ofHours(2)));              // 관측=2h 전(윈도우 시작 이전)=무트래픽
+        when(domainRepo.findById(HOST)).thenReturn(Optional.of(cfg));
+        Watermark wm = new Watermark();
+        wm.setHost(HOST);
+        wm.setLastEnd(wmEnd);
+        when(watermarkRepo.findById(HOST)).thenReturn(Optional.of(wm));
+        when(lokiClient.queryRange(any(), any())).thenReturn(List.of());
+        when(lokiBudget.hasBudget()).thenReturn(true); // 예산 있음 → skip 없으면 실제 조회했을 것(loki-never 가 skip 을 판별)
+
+        service.runScan(HOST, Duration.ofMinutes(30));
+
+        verify(lokiClient, never()).queryRange(any(), any());          // Loki 미조회(빈 윈도우 쿼리 낭비 제거)
+        // 워터마크는 window.to(=wmEnd+maxWindow 30m, now 무관 결정적)로 전진
+        verify(watermarkRepo).save(argThat(w -> w.getLastEnd().equals(wmEnd.plus(Duration.ofMinutes(30)))));
     }
 
     @Test

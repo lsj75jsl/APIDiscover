@@ -19,10 +19,11 @@
 - **후속 튜닝(사용자 요청)**: `off-peak-domains-per-tick` 500→300 하향(off-peak 부하 완화). adc.yaml env override(`APIDISCOVER_SCAN_OFFPEAKDOMAINSPERTICK=300`, 재빌드 불요·pod 재적용). env·health·이미지 불변(D58 3d1b7b6) 검증.
 - **후속 튜닝2(사용자 요청)**: `off-peak-max-window` PT24H→PT1H 하향 — off-peak per-scan 조회 윈도우 24h 대용량 요청이 Loki 과부하 유발 → 1h 로 축소(스캔당 chunk 144→6). adc.yaml env(`APIDISCOVER_SCAN_OFFPEAKMAXWINDOW=PT1H`). 트레이드오프=off-peak 백필 전진이 스캔당 1h 로 느려짐(과부하 회피 우선). env·health·이미지 불변 검증.
 - **스캔 진행 진단(사용자 문의)**: 커버리지 ~97%(55,336/57,156 워터마크), 그러나 워터마크 중앙값 1.5일 지연·캐치업 0·발산(advance 386 vs 필요 55,336 도메인-h/h). 55k 를 안전조회율로 실시간 유지 불가(~140배 부족) → 자력 catch-up 불가, 점프 또는 fleet 축소 필요.
-- **무접속 정리 = D59(사용자 확정)**: 게이트 기준 `last_access_log_at`(스캔 지연·2,627개만) → `last_seen_at`(discovery 실시간·전수) 전환. 임계 배포 env `APIDISCOVER_SCAN_INACTIVEAFTER=P3D`(3일 미관측 ~10,883개 제외, 57k→46k). 소프트 제외(삭제·disable 아님, 조회·명시스캔 정상, self-healing). build green 507·게이트 RED-확인.
+- **무접속 정리 = D59(사용자 확정)**: 게이트 기준 `last_access_log_at`(스캔 지연·2,627개만) → `last_seen_at`(discovery 실시간·전수) 전환. 임계 배포 env `APIDISCOVER_SCAN_INACTIVEAFTER=P3D`(3일 미관측 ~10,883개 제외, 57k→46k). 소프트 제외(삭제·disable 아님, 조회·명시스캔 정상, self-healing). build green 507·게이트 RED-확인. 배포 검증=제외 11,420(19.9%).
+- **실시간 유지 쿼리 튜닝 = D60(사용자 요청 A·C·D)**: A) chunk-window·slice-window PT10M→PT30M(env, 함께 상향해야 유효, 도메인-시간당 쿼리 1/3). C) D59(대상 축소, 라이브). D) delta-driven skip(runScan: lastSeenAt<window.from 이면 Loki 조회 없이 워터마크 전진, 빈 윈도우 쿼리 낭비 제거) + 워터마크 점프(백로그 제거). 근본 병목=필요 쿼리 N×(60/chunk분)/h 라 순수 튜닝만으론 실시간 불가 → A+C+D 조합. build green 508·delta-driven RED-확인.
 
 ### 다음 단계
-- D59 재빌드·재배포 후 fleet 축소 효과(제외 도메인 수)·재개 스캔 타임아웃 여부 확인. 백필 발산은 fleet 축소 후에도 남으면 워터마크 점프 검토. 매뉴얼(TW)=후속(외부 로그·감속·부하 튜닝·무접속 last_seen_at 반영).
+- D60 재빌드·재배포+워터마크 점프 후: 쿼리량 감소·delta skip 동작·점프 후 워터마크 near-now 유지·타임아웃 여부 확인. 매뉴얼(TW)=후속(외부 로그·감속·부하 튜닝·무접속 last_seen_at·delta-driven 반영).
 
 ## 2026-07-01 세션 66 — 실배포 운영 점검: 백필 발산 진단·워터마크 점프·무접속 중단·/result 인라인 (D55)
 
