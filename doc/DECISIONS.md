@@ -559,6 +559,13 @@ D55 무접속 중단(inactive-after)의 기준 정정 + D56 정적 토큰/확장
 - **D. 워터마크 점프**: 밀린 1.5일 백필 갭을 now−lag 로 일괄 전진(재배포 앱-down 중, 세션 66 방식). catch-up 부담 제거 → steady-state 만 남김. inventory/shadow 는 최신 로그 우선이라 과거 갭 무해.
 - **검증**: build green **508**(신규 1: runScanSkipsLokiWhenDiscoverySeesNoNewTraffic)·delta-driven RED-확인(skip 무력화 시 loki 호출됨 NeverWantedButInvoked→복원). 배포=재빌드+점프+재기동.
 
+### D61. delta-driven skip 을 now−lag 즉시전진으로 (catch-up 가속) (2026-07-02, 사용자 요청, D60 후속)
+D60 delta-driven + PT1M·domains-per-tick 500 로도 워터마크 drift 미해소(평균지연 353분) — 원인: skip 이 워터마크를 `maxWindow(30분)`씩만 전진해 4h 밀린 도메인은 8 touch 필요, 56k 수렴엔 ~112k touch/h 필요(처리율 물리적 부족). tick-interval·domains-per-tick 튜닝만으론 catch-up 불가 확인.
+- **변경**(`DiscoveryJobService.runScan`, 1곳): skip 시 `advanceWatermark(window.to())`(=watermark+maxWindow) → `advanceWatermark(now−ingest_lag)`. skip 조건 `lastSeen < window.from` 은 `[window.from, now−lag]` 전체 무트래픽을 보장(discovery 가 그 구간 트래픽을 봤다면 lastSeen 이 갱신됐을 것)하므로, maxWindow 상한 없이 now 까지 전진해도 로그 누락 없음. **빈 도메인이 1 touch 로 즉시 caught-up** → drift 해소. 실조회(트래픽 있는) 도메인은 maxWindow 슬라이스 유지(무변경). clock skew 방어로 최소 window.to.
+- **효과**: 빈 도메인(대다수) 1회 처리로 near-now 도달 → 56k 를 1 패스(~2h at 500/PT1M)면 대부분 caught-up, 이후 skip 유지. 실 Loki 조회는 캡 3000/h 로 계속 보호.
+- **한계(정직)**: D60 과 동일 — discovery 가 놓친 트래픽은 skip 될 수 있음(정상 가동 전제). D61 은 스킵 폭만 키움(30분→now), 신뢰 가정은 동일.
+- **검증**: build green **508**·RED-확인(now−lag 전진을 window.to 로 원복 시 test 의 `isAfter(now−11m)` red→복원). 배포=재빌드+재기동(점프 불요 — skip 이 자연히 catch-up).
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.
