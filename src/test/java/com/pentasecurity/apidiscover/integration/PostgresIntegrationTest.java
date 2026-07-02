@@ -95,6 +95,7 @@ class PostgresIntegrationTest {
     @Autowired SpecRecordRepository specRepo;
     @Autowired DiscoveredEndpointRepository discoveredRepo;
     @Autowired DomainConfigRepository domainRepo;
+    @Autowired com.pentasecurity.apidiscover.domain.WatermarkRepository watermarkRepo;
     @Autowired EffectiveClassificationResolver resolver;
     @Autowired com.pentasecurity.apidiscover.batch.DomainUpserter domainUpserter;
     @Autowired DiscoveryJobService jobService;
@@ -793,6 +794,31 @@ class PostgresIntegrationTest {
         List<String> all = domainRepo.findDueForScan(now, Instant.EPOCH, PageRequest.of(0, 10))
                 .stream().map(DomainConfig::getHost).toList();
         assertThat(all).contains("recent.example.com", "stale.example.com", "never.example.com");
+    }
+
+    @Test
+    void findDueWithNewTrafficPartitionsOnRealPg() {
+        // D64 활성 우선 — ★실 PG 가드: 크로스-엔티티 left join(on w.host=d.host) JPQL 이 실 PG 에서 동작·분할 정확한지
+        // (H2 가 가릴 수 있는 dialect 발산 대비, h2-pg trap). 세 부류: 신규트래픽/무트래픽/미스캔.
+        Instant now = Instant.parse("2026-06-26T12:00:00Z");
+        Instant wmEnd = now.minus(Duration.ofHours(1));
+        domainRepo.save(seen("busy.example.com", now.minus(Duration.ofMinutes(5))));   // lastSeen > wm = 신규
+        domainRepo.save(seen("idle.example.com", now.minus(Duration.ofHours(2))));     // lastSeen <= wm = 무트래픽
+        domainRepo.save(seen("fresh.example.com", now.minus(Duration.ofMinutes(5))));  // 워터마크 없음 = 미스캔(신규 취급)
+        for (String h : List.of("busy.example.com", "idle.example.com")) {
+            com.pentasecurity.apidiscover.domain.Watermark w = new com.pentasecurity.apidiscover.domain.Watermark();
+            w.setHost(h);
+            w.setLastEnd(wmEnd);
+            watermarkRepo.save(w);
+        }
+
+        List<String> active = domainRepo.findDueWithNewTraffic(now, Instant.EPOCH, PageRequest.of(0, 10))
+                .stream().map(DomainConfig::getHost).toList();
+        List<String> rest = domainRepo.findDueWithoutNewTraffic(now, Instant.EPOCH, PageRequest.of(0, 10))
+                .stream().map(DomainConfig::getHost).toList();
+
+        assertThat(active).contains("busy.example.com", "fresh.example.com").doesNotContain("idle.example.com");
+        assertThat(rest).contains("idle.example.com").doesNotContain("busy.example.com", "fresh.example.com");
     }
 
     // --- helpers ---

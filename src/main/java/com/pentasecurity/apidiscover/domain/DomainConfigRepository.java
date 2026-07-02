@@ -35,6 +35,30 @@ public interface DomainConfigRepository extends JpaRepository<DomainConfig, Stri
                                       @Param("staleCutoff") Instant staleCutoff, Pageable pageable);
 
     /**
+     * D64 활성 우선(Phase 3): due 중 "워터마크 이후 신규 트래픽 확정" 도메인 — discovery 관측(lastSeenAt)이
+     * 워터마크(lastEnd)보다 최신이거나 미스캔(watermark 없음) = 실조회가 필요한 활성분. 술어·정렬은 findDueForScan 동일.
+     * findDueWithoutNewTraffic 과 정확히 분할(같은 due 집합의 여집합).
+     */
+    @Query("select d from DomainConfig d left join Watermark w on w.host = d.host "
+            + "where d.enabled = true "
+            + "and (d.nextScanDueAt is null or d.nextScanDueAt <= :now) "
+            + "and (d.lastSeenAt is null or d.lastSeenAt >= :staleCutoff) "
+            + "and (w.lastEnd is null or d.lastSeenAt > w.lastEnd) "
+            + "order by d.nextScanDueAt asc nulls first")
+    List<DomainConfig> findDueWithNewTraffic(@Param("now") Instant now,
+                                             @Param("staleCutoff") Instant staleCutoff, Pageable pageable);
+
+    /** D64: findDueWithNewTraffic 의 여집합 — 신규 트래픽 없음(delta-skip 예정, 값싼 워터마크 전진용). */
+    @Query("select d from DomainConfig d join Watermark w on w.host = d.host "
+            + "where d.enabled = true "
+            + "and (d.nextScanDueAt is null or d.nextScanDueAt <= :now) "
+            + "and (d.lastSeenAt is null or d.lastSeenAt >= :staleCutoff) "
+            + "and (d.lastSeenAt is null or d.lastSeenAt <= w.lastEnd) "
+            + "order by d.nextScanDueAt asc nulls first")
+    List<DomainConfig> findDueWithoutNewTraffic(@Param("now") Instant now,
+                                                @Param("staleCutoff") Instant staleCutoff, Pageable pageable);
+
+    /**
      * ★실 access log 최신 시각 갱신(D56) — 스캔이 관측한 최신 로그시각으로 {@code last_access_log_at} 전진(never decrease).
      * ★D59부터 무접속 게이트 기준은 {@code lastSeenAt}(discovery)로 이전 — 이 값은 이제 정보성(마지막 스캔이 본 실 로그시각). 유지.
      * 직접 UPDATE(엔티티 로드 없음)라 동시 설정 PUT 과 무관. 더 최신일 때만 갱신.
