@@ -42,10 +42,10 @@ spec:
         # 공격적 버스트(300/PT3M/16000/5000, D56 후속)는 Loki 타임아웃 급증 유발로 제거. 필요 시 여기 env 로만 재상향(재빌드 불요).
         - name: APIDISCOVER_SCAN_OFFPEAKZONE          # scan.off-peak-zone ""→Asia/Seoul (버스트 값 아님 — off-peak 01-06 을 KST 실 저부하에 정렬, 유지)
           value: "Asia/Seoul"
-        - name: APIDISCOVER_SCAN_OFFPEAKDOMAINSPERTICK  # scan.off-peak-domains-per-tick 500→300 (off-peak 틱당 K 하향, off-peak 부하 완화, 사용자 요청)
-          value: "300"
-        - name: APIDISCOVER_SCAN_OFFPEAKMAXWINDOW      # scan.off-peak-max-window PT24H→PT1H (off-peak per-scan 조회 윈도우 축소 — 24h 대용량 요청 과부하 방지, 사용자 요청)
-          value: "PT1H"
+        - name: APIDISCOVER_SCAN_OFFPEAKDOMAINSPERTICK  # scan.off-peak-domains-per-tick =주간 domains-per-tick 500 로 일치(사용자 요청, 주야 균일). Loki 는 캡3000/h 로 보호
+          value: "500"
+        - name: APIDISCOVER_SCAN_OFFPEAKMAXWINDOW      # scan.off-peak-max-window =주간 max-window PT30M 로 일치(사용자 요청). ★PT24H 대량조회는 복구 금지(과부하 이력)
+          value: "PT30M"
         - name: APIDISCOVER_SCAN_INACTIVEAFTER         # scan.inactive-after P30D→P3D (무접속 자동스캔 제외 임계, D59 lastSeenAt 기준. self-healing: 트래픽 재개 시 자동 복귀. fleet 축소·발산 완화)
           value: "P3D"
         # --- A(D60) 쿼리수 감소: chunk·slice 함께 PT10M→PT30M (collectBounded 가 slice 단위 조회 → 유효 청크=min(slice,chunk). 함께 올려야 3× 감소) ---
@@ -53,9 +53,9 @@ spec:
           value: "PT30M"
         - name: APIDISCOVER_SCAN_SLICEWINDOW           # scan.slice-window PT10M→PT30M (부분전진 슬라이스=유효 청크 캡, chunk 와 동반 상향)
           value: "PT30M"
-        - name: APIDISCOVER_SCAN_TICKINTERVAL          # scan.tick-interval PT5M→PT2M (틱 주기 단축 — 워터마크 더 자주 전진. delta-driven+캡3000 이 Loki 보호)
-          value: "PT2M"
-        - name: APIDISCOVER_SCAN_DOMAINSPERTICK        # scan.domains-per-tick 100→500 (틱당 처리량↑ — 전수 재순회 37h→~7.5h. 대부분 cheap skip, 실조회는 캡3000/h 보호. off-peak(300)은 유지)
+        - name: APIDISCOVER_SCAN_TICKINTERVAL          # scan.tick-interval PT2M→PT1M (주야 공통. 틱 주기 최소화 — 워터마크 최대 빈도 전진. delta-driven+캡3000 이 Loki 보호)
+          value: "PT1M"
+        - name: APIDISCOVER_SCAN_DOMAINSPERTICK        # scan.domains-per-tick 500 (주간=off-peak 동일). 틱당 처리량↑, 대부분 cheap skip, 실조회는 캡3000/h 보호
           value: "500"
         - name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE   # 설정값 검증용 configprops 노출(내부)
           value: "health,info,metrics,configprops"
