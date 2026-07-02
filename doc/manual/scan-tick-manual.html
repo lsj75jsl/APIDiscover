@@ -73,6 +73,33 @@
   .kv .k{font-family:monospace; color:#10204a;}
   hr{border:none; border-top:1px solid var(--line); margin:38px 0;}
   .footer{margin-top:56px; padding-top:20px; border-top:1px solid var(--line); color:var(--muted); font-size:13px;}
+
+  /* ── 확대(zoom) 기능 — api-discovery-manual 과 동일 패턴 ── */
+  .zoom-wrap{position:relative;}
+  .zoom-btn{position:absolute; top:10px; right:10px; z-index:6; background:var(--accent); color:#fff;
+    border:none; border-radius:7px; padding:5px 11px; font-size:12.5px; font-weight:600; cursor:pointer;
+    opacity:0; transition:opacity .15s; box-shadow:0 2px 6px rgba(0,0,0,.18);}
+  .zoom-wrap:hover > .zoom-btn, .zoom-btn:focus{opacity:1;}
+  @media(hover:none){.zoom-btn{opacity:.9;}}
+  .mermaid.zoomable, .formula.zoomable{cursor:zoom-in;}
+  .zoom-overlay{position:fixed; inset:0; z-index:1000; display:flex; flex-direction:column;
+    background:rgba(247,249,252,.975);}
+  .zoom-overlay[hidden]{display:none;}
+  .zoom-toolbar{display:flex; align-items:center; gap:8px; padding:10px 16px; background:#fff;
+    border-bottom:1px solid var(--line); box-shadow:0 1px 6px rgba(0,0,0,.06); flex-wrap:wrap;}
+  .zoom-toolbar button{background:var(--accent-soft); color:#10204a; border:1px solid #cfe0ff;
+    border-radius:7px; padding:6px 13px; font-size:15px; line-height:1; cursor:pointer; font-weight:700;}
+  .zoom-toolbar button:hover{background:#dde9ff;}
+  .zoom-toolbar .zoom-level{min-width:60px; text-align:center; font-variant-numeric:tabular-nums; color:var(--muted); font-size:13px;}
+  .zoom-toolbar .zoom-hint{color:var(--muted); font-size:12.5px;}
+  .zoom-toolbar .sp{flex:1;}
+  .zoom-toolbar .zoom-close{background:#fdeceb; border-color:#f4cdc9; color:var(--red);}
+  .zoom-stage{flex:1; overflow:auto; padding:28px; display:flex; align-items:flex-start; justify-content:center; cursor:grab;}
+  .zoom-stage.grabbing{cursor:grabbing;}
+  .zoom-content{transform-origin:center top; transition:transform .08s ease-out; width:92vw; max-width:1500px;}
+  .zoom-content svg{width:100% !important; max-width:none !important; height:auto !important;}
+  .zoom-content table{width:100%; font-size:16px; display:table; overflow:visible;}
+  .zoom-content .formula{font-size:21px; width:100%;}
 </style>
 </head>
 <body>
@@ -107,8 +134,9 @@
     <li><a href="#s5">하루 타임라인으로 보면</a></li>
     <li><a href="#s6">실제로는 이론치보다 적게 돕니다</a></li>
     <li><a href="#s7">첫 스캔은 얼마나 과거까지 보는가 — initial-backfill</a></li>
-    <li><a href="#s8">관련 코드 정보 (file:line)</a></li>
-    <li><a href="#s9">설정값 변경 방법</a></li>
+    <li><a href="#s8">★실제 스캔 한 사이클 — 시계열로 따라가기 (초보자용)</a></li>
+    <li><a href="#s9">관련 코드 정보 (file:line)</a></li>
+    <li><a href="#s10">설정값 변경 방법</a></li>
   </ol>
 </nav>
 
@@ -117,13 +145,13 @@
 
 <div class="callout ok">
   <span class="ct">은행 창구 비유</span>
-  대기번호표를 뽑은 손님(도메인)이 53,718명 있고, 창구는 <b>3분마다 한 번(tick)</b> 열려서 <b>번호 순으로 앞에서 300명(domains-per-tick)</b> 만 부릅니다. 나머지는 다음 회차로 이월됩니다.
+  대기번호표를 뽑은 손님(도메인)이 53,718명 있고, 창구는 <b>약 1분마다 한 번(tick)</b> 열려서 <b>번호 순으로 앞에서 500명(domains-per-tick)</b> 만 부릅니다. 나머지는 다음 회차로 이월됩니다.
 </div>
 
 <h2 id="s2">2. 한 틱이 실제로 하는 일 <span class="b-key">DiscoveryScheduler.scanTick</span></h2>
-<p>3분마다 이 루프가 돕니다.</p>
+<p>약 1분마다(배포값 PT1M — fixedDelay 라 이전 회차 <em>완료 후</em> 1분) 이 루프가 돕니다.</p>
 <pre><code>1. 지금이 off-peak 시간대인가? 판정   (밤 01~06시 Asia/Seoul 인가)
-2. K 결정 = off-peak면 500, 평시면 300   ← 여기가 domains-per-tick / off-peak-domains-per-tick
+2. K 결정 = 500   ← domains-per-tick (현 배포는 주간·off-peak 동일 500)
 3. "가장 오래 안 본 순"으로 딱 K개 도메인을 큐에서 꺼냄  (ScanSelector)
 4. 꺼낸 K개를 하나씩:
      - Loki 쿼리 예산 남았나? 없으면 즉시 중단, 나머지는 다음 틱으로  (LokiBudget)
@@ -138,42 +166,42 @@
 
 <h2 id="s3">3. domains-per-tick = 평상시 한 틱의 몫</h2>
 <ul>
-  <li>현재 <strong>300</strong>. tick 이 3분이니 시간당 20틱 → 이론상 <strong>20 × 300 = 6,000 도메인/시간</strong> 을 처리하는 속도.</li>
+  <li>현재 <strong>500</strong>(배포값). tick 1분(fixedDelay·처리시간 포함 실제 ~2분 간격) → 이론상 <strong>시간당 ~15,000 도메인</strong> 을 검토하는 속도. 검토 대부분은 로그를 안 읽는 값싼 통과(§8 delta-skip)라 가능한 수치입니다.</li>
   <li>이 값이 <strong>처리 속도의 메인 다이얼</strong>입니다. 올리면 순회가 빨라지지만 Loki 쿼리도 비례해 늘어 부하↑. 내리면 부하↓·순회 느려짐.</li>
 </ul>
 
 <h2 id="s4">4. off-peak-domains-per-tick = 밤에만 몫을 키우는 다이얼</h2>
 <p><strong>off-peak = 트래픽이 적은 새벽 시간대</strong>(현재 <code>01:00–06:00</code>, <code>Asia/Seoul</code>)를 말합니다. 이 시간엔 운영 Loki 자체도 한가하므로, <strong>밀린 도메인을 더 빨리 따라잡으라고(backfill) 한 틱의 몫을 키웁니다.</strong></p>
 <ul>
-  <li>평시(주간): 틱당 <strong>300</strong> (domains-per-tick).</li>
-  <li>off-peak(새벽 01~06시): 틱당 <strong>500</strong> (off-peak-domains-per-tick).</li>
+  <li>평시(주간): 틱당 <strong>500</strong> (domains-per-tick).</li>
+  <li>off-peak(새벽 01~06시): 틱당 <strong>500</strong> (off-peak-domains-per-tick) — ★현 배포는 <b>주야 동일</b>로 설정(야간 몰아치기 방지, 사용자 확정). 값만 바꾸면 야간 가속을 다시 켤 수 있는 <em>기능</em>은 그대로입니다.</li>
 </ul>
 <p>코드로는 딱 한 줄 삼항입니다 (ScanSelector.java:44).</p>
-<pre><code>int k = offPeak ? props.scan().offPeakDomainsPerTick()   // 새벽 500
-                : props.scan().domainsPerTick();          // 평시 300</code></pre>
-<p>즉 <strong>"누구를 뽑느냐(밀린 순)"는 밤낮 동일하고, "몇 개 뽑느냐(K)"만 밤에 커집니다.</strong> 부하 여유가 있는 시간에 몰아서 백로그를 태우는 전략입니다. (참고. 밤엔 K 뿐 아니라 도메인당 조회 윈도우도 <code>off-peak-max-window</code> PT24H 로 넓혀 더 긴 기간을 한 번에 따라잡습니다 — DiscoveryScheduler.java:52.)</p>
+<pre><code>int k = offPeak ? props.scan().offPeakDomainsPerTick()   // 새벽 (현 배포 500)
+                : props.scan().domainsPerTick();          // 평시 (현 배포 500)</code></pre>
+<p>즉 <strong>"누구를 뽑느냐(밀린 순)"는 밤낮 동일하고, "몇 개 뽑느냐(K)"만 밤에 커집니다.</strong> 부하 여유가 있는 시간에 몰아서 백로그를 태우는 전략입니다. (참고. 조회 윈도우 <code>off-peak-max-window</code> 도 현 배포는 주간과 동일 <b>PT30M</b> 입니다 — 과거 PT24H 대량조회가 Loki 과부하를 유발해 축소. DiscoveryScheduler.java:52.)</p>
 
 <h2 id="s5">5. 하루 타임라인으로 보면</h2>
-<p>평시엔 틱마다 300개(20틱/hr → ~6,000/hr 상한), 새벽 off-peak(01–06시)엔 틱마다 500개로 올라가고 조회 윈도우도 PT24H 로 넓어집니다.</p>
+<p>★현 배포는 <b>주야 동일</b>(틱당 500·윈도우 PT30M)입니다 — 야간 몰아치기 방지를 위해 off-peak 가속을 평시와 같게 맞췄습니다(사용자 확정). 아래는 그 상태의 하루입니다.</p>
 <div class="mermaid">
 gantt
-    title 하루 스캔 처리량 (틱당 K)
+    title 하루 스캔 처리량 (현 배포 — 주야 동일)
     dateFormat HH:mm
     axisFormat %H:%M
-    section 평시 300개/틱
-    00–01시 :done, p1, 00:00, 1h
-    06–24시 :done, p2, 06:00, 18h
-    section off-peak 500개/틱 (윈도우 24h)
-    01–06시 :crit, o1, 01:00, 5h
+    section 주야 동일 500개/틱 · 윈도우 30분
+    00–24시 :done, p1, 00:00, 24h
+    section (참고) off-peak 01–06시 — 별도 가속 없음
+    01–06시 :o1, 01:00, 5h
 </div>
+<p class="legend">off-peak 가속(틱당 K·윈도우 상향)은 기능으로 남아 있습니다 — env 값만 바꾸면 야간에만 더 처리하게 되돌릴 수 있습니다(§10).</p>
 
 <h2 id="s6">6. 실제로는 이론치보다 적게 돕니다</h2>
-<p>두 개의 상한이 더 있어서, 300×20=6,000/hr 이론치가 그대로 안 나옵니다.</p>
+<p>몇 개의 상한이 더 있어서, 이론치가 그대로 안 나옵니다.</p>
 <ul>
-  <li><strong>max-queries-per-hour(16000)</strong> — 틱 도중 이 쿼리 예산이 바닥나면 <code>budget.hasBudget()==false</code> 로 그 틱을 조기 종료하고 나머지는 이월(DiscoveryScheduler.java:55-58).</li>
+  <li><strong>max-queries-per-hour(현 배포 3000)</strong> — 틱 도중 이 쿼리 예산이 바닥나면 <code>budget.hasBudget()==false</code> 로 그 틱을 조기 종료하고 나머지는 이월(DiscoveryScheduler.java:55-58). Loki 타임아웃/연결실패도 예산에 계상되고 적응형 감속이 걸립니다(D58).</li>
   <li>이미 최근에 본 도메인은 <code>nextScanDueAt</code> 가 미래라 큐 뒤로 가서 이번 틱 대상에서 빠짐.</li>
 </ul>
-<p>그래서 앞서 실측이 ~1,930 도메인/hr 이었습니다.</p>
+<p>대신 요즘은 <b>delta-driven skip</b>(§8) 덕분에 검토 대부분이 Loki 조회 없는 값싼 통과라, 검토 속도는 높게 유지하면서 실제 Loki 조회만 예산 안에서 이뤄집니다.</p>
 
 <div class="callout note">
   <span class="ct">정리</span>
@@ -227,7 +255,135 @@ flowchart LR
 
 <hr>
 
-<h2 id="s8">8. 관련 코드 정보 (file:line)</h2>
+<h2 id="s8">8. ★실제 스캔 한 사이클 — 시계열로 따라가기 (초보자용)</h2>
+<p>이 장은 <b>프로그램을 몰라도</b> 이해할 수 있도록, 시계를 <b>14:00</b>에 맞춰 놓고 5분 동안 시스템 안에서 실제로 무슨 일이 벌어지는지 순서대로 따라갑니다. 모든 그림은 마우스를 올리면 나오는 <b>🔍 확대 버튼(또는 그림 클릭)</b>으로 크게 볼 수 있습니다.</p>
+
+<h3>8.1 등장인물 — 다섯 명만 기억하면 됩니다</h3>
+<table>
+  <thead><tr><th>비유</th><th>실제 이름</th><th>하는 일</th></tr></thead>
+  <tbody>
+    <tr><td>📚 도서관</td><td>Loki (운영 로그 저장소)</td><td>모든 웹사이트의 방문 기록(access log)이 실시간으로 쌓이는 곳. 원본은 여기에만 있습니다.</td></tr>
+    <tr><td>📋 출석부 담당</td><td>디스커버리(discovery)</td><td>10분마다 도서관에 "최근 12분간 방문 기록이 있는 사이트 명단"을 <b>요약본 한 장</b>으로 받아와, 사이트별 출석부(<code>last_seen_at</code>)에 도장을 찍습니다. 개별 방문 기록은 받지 않아 매우 가볍습니다.</td></tr>
+    <tr><td>👷 작업반장</td><td>스케줄러(스캔 틱)</td><td>약 1분마다 명부에서 <b>차례가 된 사이트 500개</b>를 뽑아 하나씩 처리합니다.</td></tr>
+    <tr><td>🔖 책갈피</td><td>워터마크(watermark)</td><td>사이트마다 "방문 기록을 여기까지 읽었다"는 표시. 이 덕분에 같은 기록을 두 번 읽지 않고, 빠뜨리지도 않습니다.</td></tr>
+    <tr><td>🧠 분석기</td><td>API 분석 파이프라인</td><td>읽어온 방문 기록에서 API 주소를 골라내고 Shadow/Zombie 를 판정합니다.</td></tr>
+  </tbody>
+</table>
+
+<div class="mermaid">
+flowchart LR
+    LOKI["📚 도서관 (Loki)<br/>모든 방문 기록 원본"]
+    DISC["📋 출석부 담당<br/>(디스커버리)"]
+    DB[("📒 명부 + 출석부 + 책갈피<br/>(DB)")]
+    TICK["👷 작업반장<br/>(스캔 틱, ~1분마다)"]
+    ANA["🧠 분석기<br/>(API 추출)"]
+    OUT["📑 결과<br/>(API 목록 · /result)"]
+    LOKI -- "요약 1장 / 10분" --> DISC
+    DISC -- "출석 도장" --> DB
+    DB -- "차례 된 500개" --> TICK
+    TICK -- "방문 있던 사이트만 기록 요청" --> LOKI
+    LOKI -- "기록 뭉치" --> ANA
+    ANA -- "API 판정 저장" --> OUT
+    TICK -- "책갈피 전진" --> DB
+</div>
+
+<h3>8.2 시계열 시나리오 — 14:00 부터 5분간</h3>
+<p>아래 순서가 <b>실제 배포 설정 그대로</b>의 흐름입니다. (사용자가 제안한 "5분 스텝" 설계와 비교하기 좋도록 같은 시계열 형식으로 썼습니다.)</p>
+
+<div class="mermaid">
+sequenceDiagram
+    autonumber
+    participant D as 📋 출석부 담당
+    participant B as 📒 명부/출석부/책갈피(DB)
+    participant W as 👷 작업반장(틱)
+    participant L as 📚 도서관(Loki)
+    participant A as 🧠 분석기
+    Note over D,L: 14:00:00 — 출석부 갱신 (10분마다)
+    D->>L: 최근 12분간 방문 있던 사이트 명단 주세요 (요약 1장)
+    L-->>D: 약 28,000줄 요약 (사이트×중계서버별 방문 수)
+    D->>D: 제외 명단(AAJ 중계서버 23곳) 기록 무시 (~4,100줄)
+    D->>B: 나머지 ~11,000개 사이트 출석부에 14:00 도장
+    Note over W,A: 14:00:30 — 작업 회차(틱) 시작 (약 1분마다 반복)
+    W->>B: 차례 된 사이트 500개 주세요 (가장 오래 기다린 순)
+    B-->>W: 500개 명단 (중지·3일 무접속 사이트는 애초 제외)
+    loop 사이트 하나씩 (500회)
+        W->>B: 이 사이트 책갈피·출석부 확인
+        alt 출석부에 새 도장 없음 (구간에 방문 없음)
+            W->>B: 도서관 안 감 — 책갈피만 "지금−10분"으로 이동 (0.01초)
+        else 새 도장 있음 (방문 있었음)
+            W->>L: 책갈피부터 최대 30분치 기록 주세요
+            L-->>W: 기록 뭉치 (2,000줄씩 나눠서)
+            W->>A: 분석 의뢰
+            A->>B: API 판정 저장 + 책갈피 전진
+        end
+    end
+    Note over W: 회차 종료 → 1분 쉬고 다음 회차 (14:02, 14:03…)
+    Note over D,L: 14:10:00 — 다음 출석부 갱신 … (계속 반복)
+</div>
+
+<h3>8.3 사이트 하나가 겪는 판정 — 결정 트리</h3>
+<p>틱에 뽑힌 사이트 하나는 아래 관문을 차례로 지납니다. <b>대부분은 도서관까지 가지 않고 끝납니다</b> — 이게 운영 Loki 를 지키는 핵심입니다.</p>
+
+<div class="mermaid">
+flowchart TD
+    S(["사이트 1개, 틱에 뽑힘"]) --> Q0{"사용 중지<br/>(enabled=false)?"}
+    Q0 -- "예" --> X0["아무것도 안 함"]:::skip
+    Q0 -- "아니오" --> Q1{"중계서버가 전부<br/>제외 명단(AAJ)?"}
+    Q1 -- "예" --> X1["건너뜀 (D62)"]:::skip
+    Q1 -- "아니오" --> Q2{"읽을 새 구간이 있나?<br/>(책갈피가 이미 최신?)"}
+    Q2 -- "이미 최신" --> X2["건너뜀 — 다음 차례에"]:::skip
+    Q2 -- "새 구간 있음" --> Q3{"출석부를 보니 그 구간에<br/>방문 도장이 있나? (D60)"}
+    Q3 -- "없음 (방문 0)" --> X3["도서관 안 감.<br/>책갈피만 지금−10분으로 점프 (D61)<br/>= 0.01초, Loki 부담 0"]:::cheap
+    Q3 -- "있음" --> R["📚 도서관에서 최대 30분치 기록 읽기<br/>→ 🧠 API 분석 → 결과 저장<br/>→ 책갈피 30분 전진"]:::real
+    classDef skip fill:#fdf3e2,stroke:#b45309,color:#1f2430;
+    classDef cheap fill:#e9f7ee,stroke:#15803d,color:#1f2430;
+    classDef real fill:#eff4ff,stroke:#2563eb,color:#1f2430;
+</div>
+<p class="legend">참고 — "3일 이상 무접속" 사이트(D59)는 이 그림에 아예 안 나옵니다. 명부에서 뽑는 단계(findDueForScan)에서 걸러지기 때문입니다. 방문이 재개되면 출석부 도장이 다시 찍혀 자동 복귀합니다.</p>
+
+<h3>8.4 한 사이트의 하루 — shop.example.com 예시</h3>
+<p>방문이 활발한 낮에는 30분마다 실제 조회가 일어나고, 방문이 끊긴 밤에는 값싼 통과만 반복됩니다.</p>
+
+<div class="mermaid">
+gantt
+    title shop.example.com 의 하루 (예시)
+    dateFormat HH:mm
+    axisFormat %H:%M
+    section 사이트 방문(트래픽)
+    손님 방문 있음 :active, t1, 09:00, 13h
+    section 스캔이 한 일
+    밤 — 방문 없음 → 책갈피만 점프(도서관 안 감) :done, s1, 00:00, 9h
+    낮 — 30분마다 실제 조회+분석 :crit, s2, 09:00, 13h
+    밤 — 다시 값싼 통과 :done, s3, 22:00, 2h
+</div>
+
+<h3>8.5 5분 동안의 숫자 — 실측 기반</h3>
+<table>
+  <thead><tr><th>항목</th><th>대략 값</th><th>설명</th></tr></thead>
+  <tbody>
+    <tr><td>작업 회차(틱)</td><td>2~3회</td><td>1분 간격이지만 회차 처리시간이 있어 실제 ~2분 간격</td></tr>
+    <tr><td>검토한 사이트</td><td>~1,000~1,500개</td><td>회차당 500개</td></tr>
+    <tr><td>그중 도서관 안 간 통과</td><td>~60%</td><td>방문 도장 없음 → 책갈피만 점프(건당 ~0.01초)</td></tr>
+    <tr><td>실제 도서관 조회</td><td>수백 건</td><td><b>시간당 3,000건 상한을 절대 넘지 않음</b>(예산 소진 시 다음 회차로 미룸)</td></tr>
+    <tr><td>도서관이 늦게 답하면</td><td>자동 감속</td><td>타임아웃도 감속·예산에 계상(D58) — 과부하 재발 방지</td></tr>
+  </tbody>
+</table>
+
+<h3>8.6 왜 이렇게 도는가 — 설계 이유 세 가지</h3>
+<ul>
+  <li><b>도서관(운영 Loki) 보호</b> — 조회는 "방문이 있었던 사이트"에만, 그것도 시간당 상한 안에서만.</li>
+  <li><b>기록 무손실</b> — 책갈피(워터마크)가 "여기까지 읽음"을 보장해, 밀려도 이어 읽지 빠뜨리지 않습니다.</li>
+  <li><b>신선도</b> — 방문 많은 사이트는 ~30분마다 다시 보고, 방문 없는 사이트는 공짜로 통과시켜 전체가 실시간에 가깝게 유지됩니다.</li>
+</ul>
+
+<div class="callout note">
+  <span class="ct">사용자 제안(5분 스텝 설계)과의 관계</span>
+  "전체 로그를 다 볼 필요 없다 — 방문 있는 사이트만 보자"는 아이디어가 위 8.2~8.3 의 <b>출석부(디스커버리) + 방문 도장 확인(D60/D61)</b> 으로 구현돼 있습니다. 차이는 ① 고정 5분 스텝 대신 due 기반 회차(도서관이 느려져도 붕괴하지 않음) ② "쿼리한 도메인 체크" 대신 책갈피(빠짐없음 보장) ③ 여기에 제외 명단(D62)이 더해진 것입니다. 도메인 여러 개를 한 번에 묶어 조회(배칭)는 다음 단계(Phase 2)로 예정돼 있습니다.
+</div>
+
+<hr>
+
+<h2 id="s9">9. 관련 코드 정보 (file:line)</h2>
 <p>위 동작이 실제로 구현된 위치입니다. 소스 기준.</p>
 <table>
   <thead><tr><th>역할</th><th>파일 : 라인</th><th>내용</th></tr></thead>
@@ -240,9 +396,12 @@ flowchart LR
     <tr><td><b>K(틱당 개수) 결정</b></td><td><code>ScanSelector.java:44</code></td><td><code>int k = offPeak ? offPeakDomainsPerTick() : domainsPerTick();</code> — off-peak 500 / 평시 300.</td></tr>
     <tr><td>상위 K 선택</td><td><code>ScanSelector.java:45-46</code></td><td><code>PageRequest.of(0, k)</code> + <code>findDueForScan(now, staleCutoff, page)</code> — 밀린 순 상위 K.</td></tr>
     <tr><td>밀린 순 정렬 · due 술어</td><td><code>DomainConfigRepository.findDueForScan</code></td><td><code>where enabled=true and nextScanDueAt(null 즉시 due or &lt;= now) order by nextScanDueAt asc nulls first</code>.</td></tr>
-    <tr><td>쿼리 예산 캡 로드</td><td><code>LokiBudget.java:33-34</code></td><td>생성자에서 <code>props.scan().maxQueriesPerHour()</code> 를 <b>기동 시 1회</b> 읽어 final 필드로 보유(런타임 변경 불가 — §9 참조).</td></tr>
+    <tr><td>쿼리 예산 캡 로드</td><td><code>LokiBudget.java:33-34</code></td><td>생성자에서 <code>props.scan().maxQueriesPerHour()</code> 를 <b>기동 시 1회</b> 읽어 final 필드로 보유(런타임 변경 불가 — §10 참조).</td></tr>
     <tr><td>조회 시간 구간 산정</td><td><code>DiscoveryJobService.windowFor:484-498</code></td><td><code>[watermark(없으면 end−initial-backfill), now−ingest-lag)</code> + max-window 절단. 첫 스캔 시작점(§7)이 여기서 결정.</td></tr>
-    <tr><td>워터마크 전진</td><td><code>DiscoveryJobService.advanceWatermark:500-505</code></td><td>스캔 성공 후 소비 끝점으로 커서 전진(앞으로만) → 다음 스캔이 이어감.</td></tr>
+    <tr><td>워터마크 전진</td><td><code>DiscoveryJobService.advanceWatermark</code></td><td>스캔 성공 후 소비 끝점으로 커서 전진(앞으로만) → 다음 스캔이 이어감.</td></tr>
+    <tr><td>무접속 자동제외 게이트 (D59)</td><td><code>DomainConfigRepository.findDueForScan</code></td><td><code>lastSeenAt >= now−inactive-after</code> 아니면 자동스캔 선발에서 제외(3일 무접속). scan-now 는 무관·트래픽 재개 시 자동 복귀.</td></tr>
+    <tr><td><b>delta-driven skip (D60/D61)</b></td><td><code>DiscoveryJobService.runScan</code></td><td>출석부(<code>lastSeenAt</code>)가 윈도우 시작 이전이면 = 구간 무방문 → <b>Loki 조회 없이</b> 워터마크를 now−lag 로 즉시 점프(§8.3).</td></tr>
+    <tr><td>대상 제외 엣지 (D62)</td><td><code>DiscoveryJobService.effectiveEdges</code> / <code>DomainDiscoveryService</code></td><td>제외 엣지(AAJ 23개) 매핑은 조회·등록·출석 도장 모두 제외. 전부 제외면 스캔 skip(전 스트림 폴백 금지).</td></tr>
   </tbody>
 </table>
 
@@ -250,13 +409,16 @@ flowchart LR
 <table>
   <thead><tr><th>설정 키</th><th>기본값<br>(application.yml)</th><th>배포값<br>(adc.yaml env)</th><th>의미</th></tr></thead>
   <tbody>
-    <tr><td><code>tick-interval</code></td><td>PT5M</td><td><b>PT3M</b></td><td>틱 주기. 짧을수록 시간당 틱 수↑ → 처리량↑·부하↑.</td></tr>
-    <tr><td><code>domains-per-tick</code></td><td>100</td><td><b>300</b></td><td>평시 한 틱에 처리할 도메인 수(K).</td></tr>
-    <tr><td><code>off-peak-domains-per-tick</code></td><td>500</td><td>500</td><td>off-peak(새벽)에 대신 쓰는 더 큰 K.</td></tr>
-    <tr><td><code>off-peak-max-window</code></td><td>PT24H</td><td>PT24H</td><td>off-peak 도메인당 조회 윈도우 상향(백필).</td></tr>
+    <tr><td><code>tick-interval</code></td><td>PT5M</td><td><b>PT1M</b></td><td>틱 주기(주야 공통). 짧을수록 워터마크가 자주 전진.</td></tr>
+    <tr><td><code>domains-per-tick</code></td><td>100</td><td><b>500</b></td><td>평시 한 틱에 처리할 도메인 수(K).</td></tr>
+    <tr><td><code>off-peak-domains-per-tick</code></td><td>500</td><td><b>500 (=주간)</b></td><td>현 배포는 주야 동일 — 야간 가속 비활성(사용자 확정).</td></tr>
+    <tr><td><code>off-peak-max-window</code></td><td>PT24H</td><td><b>PT30M (=주간)</b></td><td>PT24H 대량조회는 Loki 과부하 이력으로 축소 — 복구 금지.</td></tr>
     <tr><td><code>off-peak-zone</code></td><td>"" (시스템 기본)</td><td><b>Asia/Seoul</b></td><td>off-peak 시각대(01–06시) 판정 기준 타임존.</td></tr>
-    <tr><td><code>max-queries-per-hour</code></td><td>3000</td><td><b>16000</b></td><td>전역 시간당 Loki 쿼리 하드캡(0=무제한).</td></tr>
+    <tr><td><code>max-queries-per-hour</code></td><td>3000</td><td>3000 (기본)</td><td>전역 시간당 Loki 쿼리 하드캡(0=무제한). 주야 공통.</td></tr>
     <tr><td><code>max-window</code></td><td>PT30M</td><td>PT30M</td><td>평시 도메인당 조회 윈도우 상한.</td></tr>
+    <tr><td><code>loki.chunk-window</code> · <code>scan.slice-window</code></td><td>PT10M</td><td><b>PT30M</b></td><td>쿼리 1회 시간창·슬라이스(함께 상향해야 유효) — 도메인-시간당 쿼리 1/3 (D60 A).</td></tr>
+    <tr><td><code>inactive-after</code></td><td>P30D</td><td><b>P3D</b></td><td>무접속(출석부 기준) 자동스캔 제외 임계(D59). self-healing.</td></tr>
+    <tr><td><code>discovery.excluded-hostnames</code></td><td>[] (없음)</td><td><b>AAJ 23개</b></td><td>대상 제외 엣지(D62) — 등록·출석·조회 모두 제외.</td></tr>
     <tr><td><code>schedule.initial-backfill</code></td><td>P7D</td><td>P7D</td><td><b>첫 스캔이 과거로 얼마나 거슬러 갈지</b>(워터마크 없는 도메인의 시작점). 그 이전 로그는 안 읽음(§7). 소급 적용 없음.</td></tr>
     <tr><td><code>schedule.ingest-lag</code></td><td>PT10M</td><td>PT10M</td><td>조회 종료점 보정(<code>end=now−lag</code>) — 아직 완전히 수집 안 된 최신 로그 제외.</td></tr>
   </tbody>
@@ -265,14 +427,14 @@ flowchart LR
 
 <hr>
 
-<h2 id="s9">9. 설정값 변경 방법</h2>
+<h2 id="s10">10. 설정값 변경 방법</h2>
 
 <div class="callout warn">
   <span class="ct">핵심 — 런타임 REST API 없음, 소스 하드코딩도 아님</span>
   이 노브들(<code>domains-per-tick</code>·<code>off-peak-domains-per-tick</code>·<code>tick-interval</code>·<code>max-queries-per-hour</code> 등)은 <b>Spring 외부 설정</b>이다. 값 자체는 <code>application.yml</code> 에 있고 <code>adc.yaml</code> env 로 덮어쓴다. <b>재빌드는 불요</b>지만, 살아있는 상태에서 API 로 바꿀 수는 없고 <b>pod 재시작(<code>podman play kube</code>)으로만 반영</b>된다. (예: <code>LokiBudget</code> 은 생성자에서 값을 1회만 읽는다 — LokiBudget.java:33-34.)
 </div>
 
-<h3>9.1 env 이름 규칙 (property → 환경변수)</h3>
+<h3>10.1 env 이름 규칙 (property → 환경변수)</h3>
 <p>Spring relaxed binding 규칙으로, <code>apidiscover.scan.domains-per-tick</code> ↔ <code>APIDISCOVER_SCAN_DOMAINSPERTICK</code> 처럼 매핑된다(점·하이픈 제거, 대문자).</p>
 <div class="kv">
   <span class="k">apidiscover.scan.tick-interval</span><span>APIDISCOVER_SCAN_TICKINTERVAL</span>
@@ -282,13 +444,17 @@ flowchart LR
   <span class="k">apidiscover.scan.max-queries-per-hour</span><span>APIDISCOVER_SCAN_MAXQUERIESPERHOUR</span>
   <span class="k">apidiscover.schedule.initial-backfill</span><span>APIDISCOVER_SCHEDULE_INITIALBACKFILL</span>
   <span class="k">apidiscover.schedule.ingest-lag</span><span>APIDISCOVER_SCHEDULE_INGESTLAG</span>
+  <span class="k">apidiscover.loki.chunk-window</span><span>APIDISCOVER_LOKI_CHUNKWINDOW</span>
+  <span class="k">apidiscover.scan.slice-window</span><span>APIDISCOVER_SCAN_SLICEWINDOW</span>
+  <span class="k">apidiscover.scan.inactive-after</span><span>APIDISCOVER_SCAN_INACTIVEAFTER</span>
+  <span class="k">apidiscover.discovery.excluded-hostnames</span><span>APIDISCOVER_DISCOVERY_EXCLUDEDHOSTNAMES (쉼표구분)</span>
 </div>
 
-<h3>9.2 방법 A — 배포 VM 에서 env 만 바꿔 재적용 (권장 · 재빌드 불요)</h3>
-<p>이미지는 그대로 두고 <code>adc.yaml</code> 의 env 값만 고쳐 pod 를 재시작한다. 예로 평시 처리량을 300→200 으로 낮추려면.</p>
+<h3>10.2 방법 A — 배포 VM 에서 env 만 바꿔 재적용 (권장 · 재빌드 불요)</h3>
+<p>이미지는 그대로 두고 <code>adc.yaml</code> 의 env 값만 고쳐 pod 를 재시작한다. 예로 평시 처리량을 500→200 으로 낮추려면.</p>
 <pre><code># 1) 로컬 adc.yaml 편집 — 해당 env value 수정
 #    - name: APIDISCOVER_SCAN_DOMAINSPERTICK
-#      value: "200"          # 300 → 200
+#      value: "200"          # 500 → 200 (예시)
 
 # 2) VM 으로 복사
 scp adc.yaml root@192.168.8.197:/root/adc.yaml
@@ -310,7 +476,7 @@ ssh root@192.168.8.197 '
   현재 적용된 값은 <code>configprops</code> 액추에이터로 확인한다(내부 노출: adc.yaml 의 <code>MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE</code> 에 <code>configprops</code> 포함). <code>max-queries-per-hour</code> 실소비는 <code>/actuator/metrics/loki.queries</code>(누적 카운터)로 관찰.
 </div>
 
-<h3>9.3 방법 B — 기본값 자체를 바꾸기 (재빌드 필요)</h3>
+<h3>10.3 방법 B — 기본값 자체를 바꾸기 (재빌드 필요)</h3>
 <p>모든 환경의 기본값을 바꾸려면 <code>src/main/resources/application.yml</code> 의 <code>scan:</code> 블록을 수정하고 이미지를 재빌드한다. 배포에 env override 가 있으면 <b>env 가 우선</b>하므로 배포값도 함께 확인할 것.</p>
 <pre><code># src/main/resources/application.yml
 scan:
@@ -322,13 +488,13 @@ scan:
 # 재빌드
 JAVA_HOME=/usr/lib/jvm/java-21-openjdk ./gradlew build</code></pre>
 
-<h3>9.4 값 조정 지침 — 부하 vs 순회 속도</h3>
+<h3>10.4 값 조정 지침 — 부하 vs 순회 속도</h3>
 <table>
   <thead><tr><th>목표</th><th>조정</th><th>효과</th></tr></thead>
   <tbody>
     <tr><td>순회를 빠르게(24h 내 전체)</td><td><code>domains-per-tick</code> ↑ (또는 <code>tick-interval</code> ↓)</td><td>시간당 스캔 도메인↑. 병목은 쿼리캡이 아니라 이 값이므로 <b>순회 속도의 주 레버</b>. Loki 부하도 비례 증가.</td></tr>
     <tr><td>Loki 부하 낮추기</td><td><code>domains-per-tick</code> ↓</td><td>시간당 쿼리↓. <code>max-queries-per-hour</code> 캡보다 더 직접적인 레버(캡은 천장일 뿐, 실소비는 이 값이 만든다).</td></tr>
-    <tr><td>부하 스파이크만 상한</td><td><code>max-queries-per-hour</code> 를 실소비 약간 위로</td><td>실소비(~10,600/hr)를 살짝 웃도는 선(예 10,000~11,000)이면 순회는 사실상 불변, 폭주만 차단.</td></tr>
+    <tr><td>부하 스파이크만 상한</td><td><code>max-queries-per-hour</code> 를 실소비 약간 위로</td><td>현 배포는 기본 3000 — 상향은 Loki 부하 직접 증가라 신중(과부하 이력). 쿼리 로그(elapsedMs)·loki.errors 보며 단계적으로만.</td></tr>
     <tr><td>새벽에만 몰아 처리</td><td><code>off-peak-domains-per-tick</code> ↑</td><td>저부하 시간대 백로그 소진 가속. 주간 부하는 불변.</td></tr>
     <tr><td>과거를 더 깊게 스캔</td><td><code>schedule.initial-backfill</code> ↑ (첫 스캔 전에)</td><td>첫 스캔 시작점을 과거로 당김(예 P7D→P30D). ★이미 스캔된 도메인엔 소급 안 됨 · Loki 보존기간 내에서만.</td></tr>
   </tbody>
@@ -350,6 +516,99 @@ JAVA_HOME=/usr/lib/jvm/java-21-openjdk ./gradlew build</code></pre>
     },
     flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' }
   });
+</script>
+
+<script>
+/* 다이어그램·표·수식 확대(zoom/pan) 모달 — api-discovery-manual 과 동일 패턴 */
+(function(){
+  var targets = Array.prototype.slice.call(
+    document.querySelectorAll('.mermaid, table, .formula'));
+  targets.forEach(function(el){
+    if (el.closest('.zoom-content')) return;
+    var wrap = document.createElement('div');
+    wrap.className = 'zoom-wrap';
+    el.parentNode.insertBefore(wrap, el);
+    wrap.appendChild(el);
+    var btn = document.createElement('button');
+    btn.className = 'zoom-btn'; btn.type = 'button'; btn.textContent = '🔍 확대';
+    wrap.appendChild(btn);
+    btn.addEventListener('click', function(e){ e.stopPropagation(); openZoom(el); });
+    if (!el.matches('table')) {
+      el.classList.add('zoomable');
+      el.addEventListener('click', function(){ openZoom(el); });
+    }
+  });
+
+  var overlay = document.createElement('div');
+  overlay.className = 'zoom-overlay'; overlay.hidden = true;
+  overlay.innerHTML =
+    '<div class="zoom-toolbar">' +
+      '<button data-act="out" title="축소">−</button>' +
+      '<span class="zoom-level">100%</span>' +
+      '<button data-act="in" title="확대">+</button>' +
+      '<button data-act="reset">원래 크기</button>' +
+      '<span class="zoom-hint">휠: 확대/축소 · 드래그: 이동 · ESC: 닫기</span>' +
+      '<span class="sp"></span>' +
+      '<button data-act="close" class="zoom-close">✕ 닫기</button>' +
+    '</div>' +
+    '<div class="zoom-stage"><div class="zoom-content"></div></div>';
+  document.body.appendChild(overlay);
+
+  var stage   = overlay.querySelector('.zoom-stage');
+  var content = overlay.querySelector('.zoom-content');
+  var levelEl = overlay.querySelector('.zoom-level');
+  var scale = 1;
+
+  function render(){
+    content.style.transform = 'scale(' + scale + ')';
+    levelEl.textContent = Math.round(scale * 100) + '%';
+  }
+  function setScale(s){ scale = Math.min(6, Math.max(0.4, s)); render(); }
+  function openZoom(el){
+    content.innerHTML = '';
+    content.appendChild(el.cloneNode(true));
+    scale = 1; render();
+    overlay.hidden = false;
+    document.body.style.overflow = 'hidden';
+    stage.scrollTop = 0; stage.scrollLeft = 0;
+  }
+  function closeZoom(){
+    overlay.hidden = true;
+    document.body.style.overflow = '';
+    content.innerHTML = '';
+  }
+
+  overlay.addEventListener('click', function(e){
+    var act = e.target.getAttribute && e.target.getAttribute('data-act');
+    if (act === 'in')        setScale(scale * 1.25);
+    else if (act === 'out')  setScale(scale / 1.25);
+    else if (act === 'reset')setScale(1);
+    else if (act === 'close')closeZoom();
+    else if (e.target === stage || e.target === overlay) closeZoom();
+  });
+  stage.addEventListener('wheel', function(e){
+    if (overlay.hidden) return;
+    e.preventDefault();
+    setScale(scale * (e.deltaY < 0 ? 1.12 : 0.89));
+  }, { passive: false });
+  var dragging = false, sx, sy, sl, st;
+  stage.addEventListener('mousedown', function(e){
+    if (e.target.closest('button')) return;
+    dragging = true; stage.classList.add('grabbing');
+    sx = e.clientX; sy = e.clientY; sl = stage.scrollLeft; st = stage.scrollTop;
+  });
+  window.addEventListener('mousemove', function(e){
+    if (!dragging) return;
+    stage.scrollLeft = sl - (e.clientX - sx);
+    stage.scrollTop  = st - (e.clientY - sy);
+  });
+  window.addEventListener('mouseup', function(){
+    dragging = false; stage.classList.remove('grabbing');
+  });
+  window.addEventListener('keydown', function(e){
+    if (e.key === 'Escape' && !overlay.hidden) closeZoom();
+  });
+})();
 </script>
 </body>
 </html>
