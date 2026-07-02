@@ -2,6 +2,7 @@
 package com.pentasecurity.apidiscover.config;
 
 import java.time.Duration;
+import java.util.List;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "apidiscover")
@@ -37,7 +38,10 @@ public record ApiDiscoverProperties(Loki loki, Schedule schedule, Central centra
             Duration bootstrapWindow,  // 첫 실행 1회
             Duration initialDelay,     // 스캔 스케줄과 stagger offset
             int maxDomainsPerRun,      // 0=무제한(전수 등록), >0=카운트 desc 상위 N 캡(폭증 가드)
-            String hostPattern         // FQDN 검증 정규식
+            String hostPattern,        // FQDN 검증 정규식
+            // D62: 작업 대상 제외 엣지(hostname 라벨) — 디스커버리 등록·lastSeen 갱신·스캔 조회 모두 제외.
+            // null/빈=제외 없음(무회귀). 정확 일치 매칭.
+            List<String> excludedHostnames
     ) {}
 
     /** 엔드포인트 스캔 부하 운영정책 — B 틱당 예산·A 윈도우 상한·E 전역 레이트 가드 (doc/33 §8/§14, PR1·PR1.1) + C/D/F 티어링(§4–6, PR2/PR3 D48). */

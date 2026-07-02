@@ -37,6 +37,8 @@ public class DomainDiscoveryService {
     private final DomainUpserter upserter;
     private final ApiDiscoverProperties props;
     private final Pattern hostPattern;
+    /** D62: 대상 제외 엣지(hostname 라벨) — 이 엣지의 관측은 없는 것으로 취급(등록·lastSeen 갱신 안 함). */
+    private final Set<String> excludedHostnames;
 
     public DomainDiscoveryService(LokiClient loki, DomainConfigRepository repo,
                                   DomainUpserter upserter, ApiDiscoverProperties props) {
@@ -45,6 +47,8 @@ public class DomainDiscoveryService {
         this.upserter = upserter;
         this.props = props;
         this.hostPattern = Pattern.compile(props.discovery().hostPattern());
+        List<String> excl = props.discovery().excludedHostnames();
+        this.excludedHostnames = (excl == null) ? Set.of() : Set.copyOf(excl);
     }
 
     /** 디스커버리 1회 실행 결과(스케줄러 로그·테스트용). */
@@ -70,7 +74,15 @@ public class DomainDiscoveryService {
         Map<String, Set<String>> hostnamesByDomain = new LinkedHashMap<>();
         Map<String, Double> countByDomain = new LinkedHashMap<>();
         int rejected = 0;
+        int excluded = 0;
         for (LokiClient.MetricSample s : vector) {
+            // D62: 제외 엣지의 관측은 통째로 skip — 그 엣지에서만 보이는 도메인은 등록/lastSeen 갱신이 안 돼
+            // 자동스캔 대상이 되지 않는다(기존 등록분은 lastSeen 정체 → inactive-after 게이트가 자연 제외).
+            String hostname = s.labels().get("hostname");
+            if (hostname != null && excludedHostnames.contains(hostname)) {
+                excluded++;
+                continue;
+            }
             // 클라이언트 coalesce(host 빈/"-"→real_host) — LogLineParser line83 firstNonEmpty(nullIfDash(host),nullIfDash(real_host)) 동일.
             // 서버 label_format coalesce 는 실측 10배(2.2s→20.2s, query-timeout 초과) → 제거하고 클라이언트에서 처리(doc/30 §1).
             String domain = firstNonEmpty(
@@ -80,7 +92,6 @@ public class DomainDiscoveryService {
                 continue;
             }
             Set<String> hostnames = hostnamesByDomain.computeIfAbsent(domain, k -> new TreeSet<>());
-            String hostname = s.labels().get("hostname");
             if (hostname != null && !hostname.isBlank()) {
                 hostnames.add(hostname);
             }
@@ -117,8 +128,8 @@ public class DomainDiscoveryService {
                 updated++;
             }
         }
-        log.info("domain discovery: bootstrap={} window={} vector={} inserted={} updated={} rejected={} dropped={}",
-                bootstrap, window, vector.size(), inserted, updated, rejected, dropped);
+        log.info("domain discovery: bootstrap={} window={} vector={} inserted={} updated={} rejected={} dropped={} excludedEdge={}",
+                bootstrap, window, vector.size(), inserted, updated, rejected, dropped, excluded);
         return new DiscoveryResult(bootstrap, inserted, updated, rejected, dropped);
     }
 

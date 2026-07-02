@@ -75,6 +75,9 @@ public class DiscoveryJobService {
     private final ObjectMapper objectMapper;
     private final ApiDiscoverProperties props;
 
+    /** D62: 대상 제외 엣지 — 스캔 조회에서 이 엣지 매핑을 뺀다(디스커버리 필터와 동일 목록). */
+    private final Set<String> excludedEdges;
+
     public DiscoveryJobService(LogLineParser parser,
                                InventoryBuilder inventoryBuilder,
                                SpecStore specStore,
@@ -109,6 +112,8 @@ public class DiscoveryJobService {
         this.budget = budget;
         this.objectMapper = objectMapper;
         this.props = props;
+        List<String> excl = props.discovery().excludedHostnames();
+        this.excludedEdges = (excl == null) ? Set.of() : Set.copyOf(excl);
     }
 
     /** 한 도메인 스캔 — 윈도우 상한 = {@code scan.max-window}(기본). off-peak 등 상한 스위치는 오버로드(아래). */
@@ -125,6 +130,12 @@ public class DiscoveryJobService {
         DomainConfig cfg = domainRepo.findById(host).orElse(null);
         if (cfg == null || !cfg.isEnabled()) {
             log.info("skip scan: host={} not found or disabled", host);
+            return;
+        }
+        // D62: 엣지가 있었는데 전부 제외 대상이면 스캔 자체를 skip(★hostname-less 폴백 금지 — 전 스트림 조회 방지).
+        List<String> edges = effectiveEdges(cfg);
+        if (edges != null && edges.isEmpty()) {
+            log.info("skip scan: host={} all edges excluded (D62)", host);
             return;
         }
         Optional<LogWindow> next = nextWindow(host, maxWindow);
@@ -533,13 +544,28 @@ public class DiscoveryJobService {
         return out;
     }
 
-    /** 도메인의 엣지 서버(hostname 라벨)별로 Loki 조회. 부하 보호는 LokiClient 내부(doc/05 §2.4). */
+    /**
+     * D62: 제외 엣지를 뺀 유효 엣지 목록. null=원래 엣지 없음(레거시 hostname-less 폴백 유지),
+     * empty=엣지가 있었는데 전부 제외(호출측 skip — 폴백 금지). 그 외=필터된 목록.
+     */
+    private List<String> effectiveEdges(DomainConfig cfg) {
+        if (cfg.getHostnames() == null || cfg.getHostnames().isEmpty()) {
+            return null;
+        }
+        if (excludedEdges.isEmpty()) {
+            return List.copyOf(cfg.getHostnames());
+        }
+        return cfg.getHostnames().stream().filter(h -> !excludedEdges.contains(h)).toList();
+    }
+
+    /** 도메인의 엣지 서버(hostname 라벨)별로 Loki 조회. 부하 보호는 LokiClient 내부(doc/05 §2.4). D62 제외 엣지 미조회. */
     private List<String> collect(DomainConfig cfg, LogWindow window) {
         List<String> lines = new ArrayList<>();
-        if (cfg.getHostnames() == null || cfg.getHostnames().isEmpty()) {
+        List<String> edges = effectiveEdges(cfg);
+        if (edges == null) {
             lines.addAll(lokiClient.queryRange(queryBuilder.build(cfg.getHost()), window));
         } else {
-            for (String edge : cfg.getHostnames()) {
+            for (String edge : edges) { // 전부 제외(empty)면 조회 0 = 빈 결과(온디맨드 포함 정책 일관)
                 lines.addAll(lokiClient.queryRange(queryBuilder.build(edge, cfg.getHost()), window));
             }
         }
@@ -553,9 +579,10 @@ public class DiscoveryJobService {
      * 무회귀: cap=0 && 예산 무제한 && slice≥window → 전 슬라이스 수집 = 기존 collect 동치(consumedUpTo=window.to()).
      */
     BoundedCollection collectBounded(DomainConfig cfg, LogWindow window) {
-        List<String> edges = (cfg.getHostnames() == null || cfg.getHostnames().isEmpty())
-                ? java.util.Collections.singletonList(null)   // null = hostname 라벨 없는 도메인 쿼리
-                : cfg.getHostnames();
+        List<String> effective = effectiveEdges(cfg); // D62 제외 엣지 필터(empty 는 runScan 이 선차단)
+        List<String> edges = (effective == null)
+                ? java.util.Collections.singletonList(null)   // null = hostname 라벨 없는 도메인 쿼리(레거시 폴백)
+                : effective;
         Duration slice = sliceWindow();
         int cap = props.scan().maxQueriesPerScan();
         List<String> lines = new ArrayList<>();

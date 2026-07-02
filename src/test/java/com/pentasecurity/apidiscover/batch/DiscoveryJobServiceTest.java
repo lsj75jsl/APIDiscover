@@ -114,27 +114,32 @@ class DiscoveryJobServiceTest {
     private final LokiClient lokiClient = mock(LokiClient.class);
     private final LokiBudget lokiBudget = mock(LokiBudget.class);
 
-    private final DiscoveryJobService service = new DiscoveryJobService(
-            new LogLineParser(NORM, ParseProperties.defaults()),
-            new InventoryBuilder(new PathNormalizer(), new EndpointKindClassifier(),
-                    new CardinalityNormalizer(NORM),
-                    new ParamCandidateExtractor(new SensitiveKeyMatcher(SensitiveKeyProperties.defaults()), NORM),
-                    new RefererSignalExtractor(new PathNormalizer())),
-            specStore,
-            apiInventoryService,
-            new EndpointMatcherCache(),
-            new Classifier(new ApiScorer()),
-            resolver,
-            new ReportBuilder(),
-            scanRepo,
-            domainRepo,
-            watermarkRepo,
-            discoveredRepo,
-            lokiClient,
-            mock(LokiQueryBuilder.class),
-            lokiBudget,
-            objectMapper,
-            props());
+    private final DiscoveryJobService service = serviceWith(props());
+
+    /** 동일 mock 셋으로 props 만 달리한 서비스(D62 제외 엣지 테스트 등). */
+    private DiscoveryJobService serviceWith(ApiDiscoverProperties p) {
+        return new DiscoveryJobService(
+                new LogLineParser(NORM, ParseProperties.defaults()),
+                new InventoryBuilder(new PathNormalizer(), new EndpointKindClassifier(),
+                        new CardinalityNormalizer(NORM),
+                        new ParamCandidateExtractor(new SensitiveKeyMatcher(SensitiveKeyProperties.defaults()), NORM),
+                        new RefererSignalExtractor(new PathNormalizer())),
+                specStore,
+                apiInventoryService,
+                new EndpointMatcherCache(),
+                new Classifier(new ApiScorer()),
+                resolver,
+                new ReportBuilder(),
+                scanRepo,
+                domainRepo,
+                watermarkRepo,
+                discoveredRepo,
+                lokiClient,
+                mock(LokiQueryBuilder.class),
+                lokiBudget,
+                objectMapper,
+                p);
+    }
 
     private final LogWindow window = new LogWindow(Instant.EPOCH, Instant.EPOCH.plusSeconds(3600));
 
@@ -180,6 +185,23 @@ class DiscoveryJobServiceTest {
         // D61: skip 시 maxWindow(30분) 상한 없이 now−lag(ingest-lag PT10M → ≈t−10m)까지 즉시 전진
         //   → 30분 cap(wmEnd+30m = t−30m)보다 훨씬 이후(t−11m 이후로 검증). 빈 도메인 1 touch caught-up.
         verify(watermarkRepo).save(argThat(w -> w.getLastEnd().isAfter(t.minus(Duration.ofMinutes(11)))));
+    }
+
+    @Test
+    void runScanSkipsWhenAllEdgesExcluded() {
+        // D62: 도메인의 엣지가 전부 제외 대상이면 Loki 조회·워터마크 전진 없이 skip(hostname-less 폴백 금지).
+        DomainConfig cfg = new DomainConfig();
+        cfg.setHost(HOST);
+        cfg.setEnabled(true);
+        cfg.setLastSeenAt(Instant.now());                              // delta-skip 미발동 조건(활성)으로 두고
+        cfg.setHostnames(new java.util.ArrayList<>(List.of("AAJ11", "AAJ12"))); // 전부 제외 엣지
+        when(domainRepo.findById(HOST)).thenReturn(Optional.of(cfg));
+        when(lokiBudget.hasBudget()).thenReturn(true);
+
+        serviceWith(props(List.of("AAJ11", "AAJ12"))).runScan(HOST, Duration.ofMinutes(30));
+
+        verify(lokiClient, never()).queryRange(any(), any());          // 조회 0
+        verify(watermarkRepo, never()).save(any());                    // 전진도 없음(대상 아님)
     }
 
     @Test
@@ -771,6 +793,11 @@ class DiscoveryJobServiceTest {
     }
 
     private static ApiDiscoverProperties props() {
+        return props(java.util.List.of());
+    }
+
+    /** D62: 제외 엣지 목록 지정 변형. */
+    private static ApiDiscoverProperties props(List<String> excludedHostnames) {
         return new ApiDiscoverProperties(
                 new ApiDiscoverProperties.Loki("http://192.168.8.100:3200", "access_log",
                         Duration.ofSeconds(30), Duration.ofMinutes(10), 2000, 2, Duration.ofMillis(200)),
@@ -779,7 +806,7 @@ class DiscoveryJobServiceTest {
                 new ApiDiscoverProperties.Central("https://central.internal"),
                 new ApiDiscoverProperties.Discovery(true, Duration.ofMinutes(10), Duration.ofMinutes(12),
                         Duration.ofHours(1), Duration.ofMinutes(2), 200,
-                        "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$"),
+                        "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$", excludedHostnames),
                 new ApiDiscoverProperties.Scan(Duration.ofMinutes(5), 100, Duration.ZERO, 0, 0L, true, Duration.ZERO, 0, false, Duration.ofMinutes(30), Duration.ofHours(2), Duration.ofHours(6), Duration.ofHours(24), 500, Duration.ofHours(24), "", Duration.ofDays(14), Duration.ofDays(1), Duration.ZERO));
     }
 }
