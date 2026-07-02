@@ -116,6 +116,6 @@ class ScanSelectorTest {
                 new ApiDiscoverProperties.Scan(Duration.ofMinutes(5), domainsPerTick, Duration.ZERO, 0, 0L, true,
                         Duration.ZERO, 0, true, Duration.ofMinutes(30), Duration.ofHours(2), Duration.ofHours(6),
                         Duration.ofHours(24), offPeakDomainsPerTick, Duration.ofHours(24), offPeakZone,
-                        Duration.ofDays(14), Duration.ofDays(1), inactiveAfter));
+                        Duration.ofDays(14), Duration.ofDays(1), inactiveAfter, 0));
     }
 }

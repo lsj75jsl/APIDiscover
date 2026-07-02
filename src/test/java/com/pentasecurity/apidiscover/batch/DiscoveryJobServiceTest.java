@@ -4,9 +4,11 @@ package com.pentasecurity.apidiscover.batch;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -113,6 +115,7 @@ class DiscoveryJobServiceTest {
     private final WatermarkRepository watermarkRepo = mock(WatermarkRepository.class);
     private final LokiClient lokiClient = mock(LokiClient.class);
     private final LokiBudget lokiBudget = mock(LokiBudget.class);
+    private final LokiQueryBuilder lokiQueryBuilder = mock(LokiQueryBuilder.class);
 
     private final DiscoveryJobService service = serviceWith(props());
 
@@ -135,7 +138,7 @@ class DiscoveryJobServiceTest {
                 watermarkRepo,
                 discoveredRepo,
                 lokiClient,
-                mock(LokiQueryBuilder.class),
+                lokiQueryBuilder,
                 lokiBudget,
                 objectMapper,
                 p);
@@ -185,6 +188,42 @@ class DiscoveryJobServiceTest {
         // D61: skip 시 maxWindow(30분) 상한 없이 now−lag(ingest-lag PT10M → ≈t−10m)까지 즉시 전진
         //   → 30분 cap(wmEnd+30m = t−30m)보다 훨씬 이후(t−11m 이후로 검증). 빈 도메인 1 touch caught-up.
         verify(watermarkRepo).save(argThat(w -> w.getLastEnd().isAfter(t.minus(Duration.ofMinutes(11)))));
+    }
+
+    @Test
+    void runScanBatchedGroupsSameEdgeDomainsIntoOneQueryAndSplitsLines() {
+        // D63: 같은 엣지·같은 워터마크 버킷의 실조회 도메인 2개 → Loki 1쿼리(|~ OR) + host 별 라인 분배 + 각자 전진.
+        Instant t = Instant.now();
+        Instant wmEnd = t.minus(Duration.ofMinutes(40));
+        for (String h : List.of("a.example.com", "b.example.com")) {
+            DomainConfig cfg = new DomainConfig();
+            cfg.setHost(h);
+            cfg.setEnabled(true);
+            cfg.setLastSeenAt(t); // 신규 트래픽 있음 → delta-skip 미발동 = 실조회
+            cfg.setHostnames(new java.util.ArrayList<>(List.of("EDGE1")));
+            when(domainRepo.findById(h)).thenReturn(Optional.of(cfg));
+            Watermark w = new Watermark();
+            w.setHost(h);
+            w.setLastEnd(wmEnd); // 동일 버킷(같은 from)
+            when(watermarkRepo.findById(h)).thenReturn(Optional.of(w));
+        }
+        when(lokiBudget.hasBudget()).thenReturn(true);
+        when(scanRepo.findById(any())).thenReturn(Optional.empty());
+        when(scanRepo.save(any(ScanResult.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(specStore.activeMeta(any())).thenReturn(Optional.empty());
+        when(lokiQueryBuilder.buildBatch(eq("EDGE1"), any())).thenReturn("BATCHQ");
+        when(lokiClient.queryRange(eq("BATCHQ"), any())).thenReturn(List.of(
+                lineH("a.example.com", "GET", "/api/a1?x=1", 200),
+                lineH("b.example.com", "GET", "/api/b1?x=1", 200),
+                lineH("other.example.com", "GET", "/api/x?x=1", 200))); // 배치 외 host = 버려짐
+
+        serviceWith(propsWithBatch(10))
+                .runScanBatched(List.of("a.example.com", "b.example.com"), Duration.ofMinutes(30));
+
+        verify(lokiClient, times(1)).queryRange(any(), any());        // ★도메인 2개 = 쿼리 1건(배칭)
+        verify(scanRepo).save(argThat(r -> "a.example.com".equals(r.getHost())));   // 각자 분석·저장
+        verify(scanRepo).save(argThat(r -> "b.example.com".equals(r.getHost())));
+        verify(watermarkRepo, times(2)).save(argThat(w -> w.getLastEnd().isAfter(wmEnd))); // 각자 전진
     }
 
     @Test
@@ -796,8 +835,17 @@ class DiscoveryJobServiceTest {
         return props(java.util.List.of());
     }
 
+    /** D63: 배치 크기 지정 변형. */
+    private static ApiDiscoverProperties propsWithBatch(int queryBatchSize) {
+        return props(java.util.List.of(), queryBatchSize);
+    }
+
     /** D62: 제외 엣지 목록 지정 변형. */
     private static ApiDiscoverProperties props(List<String> excludedHostnames) {
+        return props(excludedHostnames, 0);
+    }
+
+    private static ApiDiscoverProperties props(List<String> excludedHostnames, int queryBatchSize) {
         return new ApiDiscoverProperties(
                 new ApiDiscoverProperties.Loki("http://192.168.8.100:3200", "access_log",
                         Duration.ofSeconds(30), Duration.ofMinutes(10), 2000, 2, Duration.ofMillis(200)),
@@ -807,6 +855,6 @@ class DiscoveryJobServiceTest {
                 new ApiDiscoverProperties.Discovery(true, Duration.ofMinutes(10), Duration.ofMinutes(12),
                         Duration.ofHours(1), Duration.ofMinutes(2), 200,
                         "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$", excludedHostnames),
-                new ApiDiscoverProperties.Scan(Duration.ofMinutes(5), 100, Duration.ZERO, 0, 0L, true, Duration.ZERO, 0, false, Duration.ofMinutes(30), Duration.ofHours(2), Duration.ofHours(6), Duration.ofHours(24), 500, Duration.ofHours(24), "", Duration.ofDays(14), Duration.ofDays(1), Duration.ZERO));
+                new ApiDiscoverProperties.Scan(Duration.ofMinutes(5), 100, Duration.ZERO, 0, 0L, true, Duration.ZERO, 0, false, Duration.ofMinutes(30), Duration.ofHours(2), Duration.ofHours(6), Duration.ofHours(24), 500, Duration.ofHours(24), "", Duration.ofDays(14), Duration.ofDays(1), Duration.ZERO, queryBatchSize));
     }
 }
