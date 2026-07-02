@@ -13,11 +13,12 @@
 - **D58 안정화 구현**(사용자 5개 요구): ① adc.yaml 버스트 4개 env 제거→기본값(off-peak-zone 유지) ② `LokiClient` 타임아웃→`escalateThrottle`+`budget.recordFailure`(적응형 감속·hammering 방지) ③④⑤ `logback-spring.xml` 신규 → `/opt/adc-log`(컨테이너 외부 hostPath) 쿼리별+앱 로그, `%d{yyyyMMdd}` 일별·롤오버 gz·30일 보관.
 
 ### 결과
-- build green **507**(신규 2)·실 PG OK·타임아웃 감속 RED-확인(throttle 0↔1). adc.yaml=volumeMount+adclog 볼륨.
-- adc-app 은 사용자 요청으로 중지 상태였고, 이번 수정 후 재빌드·재배포·재기동 예정(사용자 확정).
+- build green **507**(신규 2)·실 PG OK·타임아웃 감속 RED-확인(throttle 0↔1). PR #54 머지(714867b).
+- **재배포·기동 완료**(사용자 확정): 새 이미지 재빌드→VM load→pod 재적용, health UP. `/opt/adc-log/20260702-{adc,loki-query}.log` 생성 확인, 쿼리 로그에 응답시간·도메인 기록(FAILED 0·status=200). env 검증=버스트 4개 부재(기본값)·off-peak-zone 유지.
+- ★배포 중 **SELinux 크래시루프** 발견·해결: `/opt/adc-log`(usr_t)에 컨테이너 쓰기 거부(Permission denied)로 앱 70회 재시작 → `chcon -Rt container_file_t /opt/adc-log` relabel(pgdata /opt/adc 와 동일). adc.yaml 볼륨 주석에 요구사항 명시.
 
 ### 다음 단계
-- VM `/opt/adc-log` mkdir → 재빌드 → 재배포 → 기동·로그파일 생성·health 확인. 매뉴얼(TW)=후속(외부 로그·감속·부하 튜닝 반영).
+- 재개된 스캔이 안정 설정(3000q/hr·throttle-on-timeout)에서 타임아웃 없이 백필 따라잡는지 모니터링. 매뉴얼(TW)=후속(외부 로그·감속·부하 튜닝 반영).
 
 ## 2026-07-01 세션 66 — 실배포 운영 점검: 백필 발산 진단·워터마크 점프·무접속 중단·/result 인라인 (D55)
 
