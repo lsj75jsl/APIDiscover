@@ -51,6 +51,21 @@ public class DiscoveryScheduler {
                 OffPeakWindow.zone(props.scan().offPeakZone()));
         Duration maxWindow = offPeak ? props.scan().offPeakMaxWindow() : props.scan().maxWindow();
         List<DomainConfig> slice = scanSelector.selectForTick();
+        // D63 배칭 경로: 스케줄 커서는 동일하게 전진(재선택 방지)하고, 스캔은 배칭 서비스가 일괄 처리(게이트·예산 내부).
+        if (props.scan().queryBatchSize() > 0) {
+            java.util.List<String> hosts = new java.util.ArrayList<>(slice.size());
+            for (DomainConfig domain : slice) {
+                Duration interval = ScanTier.effectiveInterval(domain, now, props.scan());
+                domains.touchScanSchedule(domain.getHost(), now, now.plus(interval));
+                hosts.add(domain.getHost());
+            }
+            try {
+                jobService.runScanBatched(hosts, maxWindow);
+            } catch (RuntimeException e) {
+                log.warn("batched scan tick failed", e); // 다음 틱 재시도(커서는 전진돼 기아 없음)
+            }
+            return;
+        }
         for (DomainConfig domain : slice) {
             if (!budget.hasBudget()) {
                 log.info("loki budget exhausted — deferring remaining domains to next tick");

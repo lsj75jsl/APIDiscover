@@ -43,6 +43,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -144,20 +145,7 @@ public class DiscoveryJobService {
             return;
         }
         LogWindow window = next.get();
-        // D60 delta-driven skip: discovery(10분마다 Loki 실시간 집계)의 마지막 관측(lastSeenAt)이 이 윈도우 시작 이전이면
-        // = 윈도우 구간에 신규 트래픽 없음 → Loki 조회 없이 워터마크 전진(빈 윈도우 쿼리 낭비 제거, 쿼리량을 실 트래픽 도메인에만 비례).
-        // D59(무접속 제외)와 동일한 discovery 신호 신뢰. ★scan-now(온디맨드)는 runScan 미경유라 항상 실조회. lastSeenAt null(방어)=skip 안 함.
-        // ★한계(정직): discovery 가 놓친 트래픽은 skip될 수 있음(discovery 정상 가동 전제) — inventory/shadow 용도엔 허용.
-        // ★D61: lastSeen < window.from 은 [window.from, now−lag] 전체 무트래픽을 보장하므로, maxWindow(30분) 상한 없이
-        //   now−lag 까지 즉시 전진(빈 도메인 1 touch 로 caught-up → catch-up 가속). 실조회 도메인만 maxWindow 슬라이스 유지.
-        if (cfg.getLastSeenAt() != null && cfg.getLastSeenAt().isBefore(window.from())) {
-            Instant caughtUp = Instant.now().minus(props.schedule().ingestLag()); // now−lag(윈도우 실제 상한, maxWindow 미적용)
-            if (caughtUp.isBefore(window.to())) {
-                caughtUp = window.to(); // 방어: 최소 window.to (clock skew)
-            }
-            advanceWatermark(host, caughtUp);
-            log.info("skip scan: host={} no new traffic per discovery (lastSeen={} < window.from={}) → watermark jumped to {}",
-                    host, cfg.getLastSeenAt(), window.from(), caughtUp);
+        if (skipIfNoNewTraffic(cfg, window)) {
             return;
         }
         // PR1.1(① doc/33 §14): 슬라이스 외부·hostname 내부 순회 + per-scan 캡/예산 → 부분 수집.
@@ -175,8 +163,175 @@ public class DiscoveryJobService {
                 bc.consumedUpTo().isBefore(window.to()) ? " (partial — resume next tick)" : "");
     }
 
+    /**
+     * D60 delta-driven skip: discovery(10분마다 Loki 실시간 집계)의 마지막 관측(lastSeenAt)이 윈도우 시작 이전이면
+     * = 구간에 신규 트래픽 없음 → Loki 조회 없이 워터마크만 전진(빈 윈도우 쿼리 낭비 제거). D59 와 동일 discovery 신호 신뢰.
+     * ★D61: lastSeen < window.from 은 [window.from, now−lag] 전체 무트래픽을 보장 → maxWindow 상한 없이 now−lag 로
+     * 즉시 전진(빈 도메인 1 touch caught-up). ★scan-now(온디맨드)는 미경유. lastSeenAt null(방어)=skip 안 함.
+     * ★한계(정직): discovery 가 놓친 트래픽은 skip 될 수 있음(정상 가동 전제) — inventory/shadow 용도엔 허용.
+     *
+     * @return true = skip 처리됨(워터마크 전진 완료)
+     */
+    private boolean skipIfNoNewTraffic(DomainConfig cfg, LogWindow window) {
+        if (cfg.getLastSeenAt() == null || !cfg.getLastSeenAt().isBefore(window.from())) {
+            return false;
+        }
+        Instant caughtUp = Instant.now().minus(props.schedule().ingestLag()); // now−lag(윈도우 실제 상한, maxWindow 미적용)
+        if (caughtUp.isBefore(window.to())) {
+            caughtUp = window.to(); // 방어: 최소 window.to (clock skew)
+        }
+        advanceWatermark(cfg.getHost(), caughtUp);
+        log.info("skip scan: host={} no new traffic per discovery (lastSeen={} < window.from={}) → watermark jumped to {}",
+                cfg.getHost(), cfg.getLastSeenAt(), window.from(), caughtUp);
+        return true;
+    }
+
     /** 슬라이스 부분 수집 결과: 누적 라인 + 모든 hostname 완료된 마지막 슬라이스 끝(watermark 전진 한계). 테스트 가시(package-private). */
     record BoundedCollection(List<String> lines, Instant consumedUpTo) {}
+
+    // ── D63 엣지-그룹 배칭 ────────────────────────────────────────────────────────
+
+    /** 배칭 워터마크 버킷 폭. ponytail: 상수 10분 — maxWindow(30m)보다 충분히 작아 재읽기 상한·전진 보장. 필요 시 설정 승격. */
+    private static final long BATCH_BUCKET_SECONDS = 600L;
+
+    /** 배칭 실조회 작업 1건: 도메인 + 자기 윈도우 + 유효 엣지. */
+    private record BatchJob(DomainConfig cfg, LogWindow window, List<String> edges, String normHost) {}
+
+    /**
+     * D63: 틱의 도메인들을 배칭 스캔. 도메인별 게이트(disabled/D62 전부제외/무윈도우/D60·D61 delta-skip)는 개별 처리하고,
+     * 남은 <b>실조회</b> 도메인을 (워터마크 10분 버킷 × 엣지)로 묶어 {@code |~ `(d1|d2|…)`} 1쿼리로 조회한다
+     * — Loki 라인필터는 비인덱스(청크 전체 스캔)라 같은 엣지 청크를 도메인별로 N번 재읽던 것이 1번이 된다.
+     * <p>그룹 윈도우 = [버킷 min from, min(min from+maxWindow, now−lag)). 자기 from 이 그룹 from 보다 늦은 도메인은
+     * 최대 버킷폭(10분)만큼 재읽기(멱등: firstSeen min/lastSeen max/request_id dedup). 워터마크는 그룹 to 로 전진(버킷폭<maxWindow
+     * 이므로 항상 자기 from 이후 = 후퇴 없음, 방어 가드 포함). ★gap-free: 도메인의 <b>모든</b> 엣지 쿼리가 성공한 경우에만
+     * analyze+전진(부분 실패 = 미전진, 다음 due 재시도 — collectBounded 와 동일 규칙). 예산 소진 시 잔여 그룹 이월.
+     * <p>hostname-less 레거시 도메인(엣지 없음)은 배칭 불가 → 기존 per-domain 경로(runScan)로 위임.
+     */
+    public void runScanBatched(List<String> hosts, Duration maxWindow) {
+        int batchSize = Math.max(1, props.scan().queryBatchSize());
+        List<BatchJob> jobs = new ArrayList<>();
+        for (String host : hosts) {
+            DomainConfig cfg = domainRepo.findById(host).orElse(null);
+            if (cfg == null || !cfg.isEnabled()) {
+                log.info("skip scan: host={} not found or disabled", host);
+                continue;
+            }
+            List<String> edges = effectiveEdges(cfg);
+            if (edges != null && edges.isEmpty()) {
+                log.info("skip scan: host={} all edges excluded (D62)", host);
+                continue;
+            }
+            if (edges == null) {
+                runScan(host, maxWindow); // 레거시(hostname-less): 배칭 불가 → 기존 경로
+                continue;
+            }
+            Optional<LogWindow> next = nextWindow(host, maxWindow);
+            if (next.isEmpty()) {
+                log.info("skip scan: host={} no new window (watermark up to date)", host);
+                continue;
+            }
+            LogWindow window = next.get();
+            if (skipIfNoNewTraffic(cfg, window)) {
+                continue;
+            }
+            String norm = DomainNames.normalize(host);
+            if (norm == null) {
+                continue; // 방어: 비정규화 host 는 라인 분배 불가
+            }
+            jobs.add(new BatchJob(cfg, window, edges, norm));
+        }
+        if (jobs.isEmpty()) {
+            return;
+        }
+
+        // 버킷(윈도우 from 10분 절사) → 그 안에서 엣지별 sub-batch
+        Map<Long, List<BatchJob>> byBucket = new HashMap<>();
+        for (BatchJob j : jobs) {
+            byBucket.computeIfAbsent(j.window().from().getEpochSecond() / BATCH_BUCKET_SECONDS,
+                    k -> new ArrayList<>()).add(j);
+        }
+        Instant lagEnd = Instant.now().minus(props.schedule().ingestLag());
+        int batchedQueries = 0;
+        int scanned = 0;
+        int deferred = 0;
+        for (List<BatchJob> bucket : byBucket.values()) {
+            Instant groupFrom = bucket.stream().map(j -> j.window().from()).min(Instant::compareTo).orElseThrow();
+            Instant groupTo = groupFrom.plus(maxWindow);
+            if (groupTo.isAfter(lagEnd)) {
+                groupTo = lagEnd;
+            }
+            if (!groupTo.isAfter(groupFrom)) {
+                continue; // 방어: 유효 구간 없음(다음 틱)
+            }
+            LogWindow groupWindow = new LogWindow(groupFrom, groupTo);
+
+            // 엣지 → 그 엣지를 가진 job 들(멀티엣지 job 은 여러 엣지에 등장)
+            Map<String, List<BatchJob>> byEdge = new LinkedHashMap<>();
+            for (BatchJob j : bucket) {
+                for (String e : j.edges()) {
+                    byEdge.computeIfAbsent(e, k -> new ArrayList<>()).add(j);
+                }
+            }
+            Map<String, List<String>> linesByHost = new HashMap<>();
+            Map<String, Integer> okEdgesByHost = new HashMap<>();
+            Set<String> failedHosts = new HashSet<>();
+            for (Map.Entry<String, List<BatchJob>> e : byEdge.entrySet()) {
+                List<BatchJob> onEdge = e.getValue();
+                for (int i = 0; i < onEdge.size(); i += batchSize) {
+                    List<BatchJob> chunk = onEdge.subList(i, Math.min(i + batchSize, onEdge.size()));
+                    if (!budget.hasBudget()) {
+                        chunk.forEach(j -> failedHosts.add(j.normHost())); // 예산 소진 → 이월(미전진)
+                        deferred += chunk.size();
+                        continue;
+                    }
+                    List<String> domains = chunk.stream().map(j -> j.cfg().getHost()).toList();
+                    try {
+                        List<String> lines = lokiClient.queryRange(
+                                queryBuilder.buildBatch(e.getKey(), domains), groupWindow);
+                        batchedQueries++;
+                        splitByHost(lines, chunk, linesByHost);
+                        chunk.forEach(j -> okEdgesByHost.merge(j.normHost(), 1, Integer::sum));
+                    } catch (RuntimeException ex) {
+                        chunk.forEach(j -> failedHosts.add(j.normHost())); // 부분 실패 = 그 도메인 미전진(gap-free)
+                        log.warn("batched scan failed for edge={} domains={}", e.getKey(), domains.size(), ex);
+                    }
+                }
+            }
+            for (BatchJob j : bucket) {
+                if (failedHosts.contains(j.normHost())
+                        || okEdgesByHost.getOrDefault(j.normHost(), 0) < j.edges().size()) {
+                    continue; // 전 엣지 성공 못함 → 미전진(다음 due 재시도)
+                }
+                try {
+                    analyze(j.cfg().getHost(),
+                            linesByHost.getOrDefault(j.normHost(), List.of()),
+                            new LogWindow(j.window().from(), groupTo));
+                    advanceWatermark(j.cfg().getHost(), groupTo);
+                    scanned++;
+                } catch (RuntimeException ex) {
+                    log.warn("batched analyze failed for host={}", j.cfg().getHost(), ex); // 도메인 격리
+                }
+            }
+        }
+        log.info("batched scan tick: jobs={} queries={} scanned={} deferred={} (batchSize={})",
+                jobs.size(), batchedQueries, scanned, deferred, batchSize);
+    }
+
+    /** 배치 응답 라인을 도메인별로 분배 — host 필드 파싱·정규화 후 배치 도메인과 정확 일치만(라인필터 과탐 차단). */
+    private void splitByHost(List<String> lines, List<BatchJob> chunk, Map<String, List<String>> sink) {
+        Set<String> wanted = new HashSet<>();
+        for (BatchJob j : chunk) {
+            wanted.add(j.normHost());
+        }
+        for (String line : lines) {
+            parser.parse(line).ifPresent(r -> {
+                String h = DomainNames.normalize(r.host());
+                if (h != null && wanted.contains(h)) {
+                    sink.computeIfAbsent(h, k -> new ArrayList<>()).add(line);
+                }
+            });
+        }
+    }
 
     /**
      * 특정 (엣지 hostname, domain) 1쌍에 대한 온디맨드 조회+분석 (외부 API 직접 호출용).
