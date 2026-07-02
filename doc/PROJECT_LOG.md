@@ -16,6 +16,7 @@
 - build green **507**(신규 2)·실 PG OK·타임아웃 감속 RED-확인(throttle 0↔1). PR #54 머지(714867b).
 - **재배포·기동 완료**(사용자 확정): 새 이미지 재빌드→VM load→pod 재적용, health UP. `/opt/adc-log/20260702-{adc,loki-query}.log` 생성 확인, 쿼리 로그에 응답시간·도메인 기록(FAILED 0·status=200). env 검증=버스트 4개 부재(기본값)·off-peak-zone 유지.
 - ★배포 중 **SELinux 크래시루프** 발견·해결: `/opt/adc-log`(usr_t)에 컨테이너 쓰기 거부(Permission denied)로 앱 70회 재시작 → `chcon -Rt container_file_t /opt/adc-log` relabel(pgdata /opt/adc 와 동일). adc.yaml 볼륨 주석에 요구사항 명시.
+- **후속 튜닝(사용자 요청)**: `off-peak-domains-per-tick` 500→300 하향(off-peak 부하 완화). adc.yaml env override(`APIDISCOVER_SCAN_OFFPEAKDOMAINSPERTICK=300`, 재빌드 불요·pod 재적용). env·health·이미지 불변(D58 3d1b7b6) 검증.
 
 ### 다음 단계
 - 재개된 스캔이 안정 설정(3000q/hr·throttle-on-timeout)에서 타임아웃 없이 백필 따라잡는지 모니터링. 매뉴얼(TW)=후속(외부 로그·감속·부하 튜닝 반영).

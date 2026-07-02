@@ -42,6 +42,8 @@ spec:
         # 공격적 버스트(300/PT3M/16000/5000, D56 후속)는 Loki 타임아웃 급증 유발로 제거. 필요 시 여기 env 로만 재상향(재빌드 불요).
         - name: APIDISCOVER_SCAN_OFFPEAKZONE          # scan.off-peak-zone ""→Asia/Seoul (버스트 값 아님 — off-peak 01-06 을 KST 실 저부하에 정렬, 유지)
           value: "Asia/Seoul"
+        - name: APIDISCOVER_SCAN_OFFPEAKDOMAINSPERTICK  # scan.off-peak-domains-per-tick 500→300 (off-peak 틱당 K 하향, off-peak 부하 완화, 사용자 요청)
+          value: "300"
         - name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE   # 설정값 검증용 configprops 노출(내부)
           value: "health,info,metrics,configprops"
       volumeMounts:
