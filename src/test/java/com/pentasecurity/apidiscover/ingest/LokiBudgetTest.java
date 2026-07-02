@@ -74,6 +74,19 @@ class LokiBudgetTest {
         assertThat(registry.get("loki.errors").tag("status", "503").counter().count()).isEqualTo(1.0);
     }
 
+    @Test
+    void recordFailureCountsTowardQueryCapAndErrorMetric() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        LokiBudget budget = new LokiBudget(props(2, 0), registry,
+                Clock.fixed(Instant.parse("2026-06-26T10:00:00Z"), ZoneOffset.UTC));
+        budget.recordFailure("io");                 // D58: I/O 실패도 1쿼리로 계상 → 무한 hammering 방지
+        assertThat(budget.hasBudget()).isTrue();    // 1 < 2
+        budget.recordFailure("io");
+        assertThat(budget.hasBudget()).isFalse();   // 2 >= 2 캡 (실패도 시간당 예산 소진)
+        assertThat(registry.get("loki.queries").counter().count()).isEqualTo(2.0);
+        assertThat(registry.get("loki.errors").tag("status", "io").counter().count()).isEqualTo(2.0);
+    }
+
     private static ApiDiscoverProperties props(int maxQueries, long maxBytes) {
         return new ApiDiscoverProperties(
                 new ApiDiscoverProperties.Loki("http://loki.local:3200", "access_log",

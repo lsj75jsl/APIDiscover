@@ -161,6 +161,17 @@
 
 ## Done
 
+### Loki 부하 안정화 — 버스트 기본값 복귀 + 타임아웃 적응형 감속 + 외부 파일 로깅 (2026-07-02, D58, 사용자 요청)
+- [x] **① 버스트→기본값**: adc.yaml 4개 env(domains-per-tick·tick-interval·max-queries-per-hour·page-limit) 제거 → application.yml 기본(100/PT5M/3000/2000). off-peak-zone=Asia/Seoul 유지(타이밍 정합, 버스트 아님).
+- [x] **② 타임아웃 적응형 감속**: `LokiClient` IOException 경로 → `escalateThrottle`+`LokiBudget.recordFailure("io")`(예산 계상=hammering 방지)+에러 메트릭. 재시도 안 함. `send()` throws IOException. 테스트: 타임아웃→throttle·recordFailure 예산(RED-확인).
+- [x] **③④⑤ 외부 파일 로깅**: `logback-spring.xml`(container) → `/opt/adc-log`(hostPath). 쿼리별 로거(응답시간·도메인·성공/실패유형·바이트)+앱 로그, `%d{yyyyMMdd}` 일별·롤오버 gz·maxHistory 30. adc.yaml volumeMount+adclog 볼륨.
+- [x] **진단**: 07-01 13:26 KST부터 Loki 조회 대부분 실패(2093건, 77% HttpTimeoutException) — 버스트 포화 + IOException 감속 우회 원인 규명.
+- [ ] **배포**: VM /opt/adc-log mkdir → 재빌드 → 재배포 → 기동·로그생성·health 확인. (진행 중)
+- [ ] 매뉴얼(TW)=후속(외부 로그·감속·부하 튜닝 반영).
+
+### 스캔 틱 동작 매뉴얼 (2026-07-02, PR #53 3807591, 문서만)
+- [x] `doc/manual/scan-tick-manual.html` — domains-per-tick·off-peak·initial-backfill·관련 코드 file:line·설정 변경법. 기간 다이어그램 mermaid(gantt·flowchart).
+
 ### REST API 매뉴얼 경로 rename 반영 — GET /apis → /spec/apis (2026-06-30, PR #48 7480a8c, 문서만) — TW
 - [x] `api-rest-manual.html` 의 도메인 API 인벤토리 경로 `/apis` → `/spec/apis` 9곳 갱신(TOC·개요표·§2.4 제목/시그니처·curl 2건·본문·TODO) + 스펙 리소스 구분 설명(/spec=문서 목록·/spec/apis=문서의 API·discovery 와 구분) 보강. 로직/응답/쿼리 무변경. 구 `/apis` 경로 잔존 0 검증. `ApiInventoryController` 라우트 교차검증.
 

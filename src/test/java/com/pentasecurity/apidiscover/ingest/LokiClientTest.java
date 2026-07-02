@@ -42,7 +42,7 @@ class LokiClientTest {
     }
 
     private LokiClient client() {
-        ApiDiscoverProperties p = props("http://localhost:" + port);
+        ApiDiscoverProperties p = props("http://localhost:" + port, Duration.ofSeconds(5));
         LokiBudget budget = new LokiBudget(p, new SimpleMeterRegistry(), Clock.systemUTC());
         return new LokiClient(p, new ObjectMapper(), budget);
     }
@@ -97,6 +97,34 @@ class LokiClientTest {
         }
     }
 
+    @Test
+    void timeoutEscalatesThrottleAndCountsAsFailure() throws IOException {
+        // 응답을 query-timeout(100ms)보다 늦게 → HttpTimeoutException → 실패 계상 + 적응형 감속 (D58)
+        startServer(ex -> {
+            try {
+                Thread.sleep(400);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+            }
+            respond(ex, 200, streams(new String[]{"late"}, new long[]{100}));
+        });
+        SimpleMeterRegistry reg = new SimpleMeterRegistry();
+        ApiDiscoverProperties p = props("http://localhost:" + port, Duration.ofMillis(100));
+        LokiClient c = new LokiClient(p, new ObjectMapper(), new LokiBudget(p, reg, Clock.systemUTC()));
+
+        try {
+            c.queryRange("{job=\"access_log\"} |= `example.com`", window);
+            assertThat(false).as("타임아웃 시 예외 발생해야 함").isTrue();
+        } catch (IllegalStateException e) {
+            assertThat(e.getMessage()).contains("I/O error");
+        }
+
+        assertThat(reg.get("loki.queries").counter().count()).isGreaterThanOrEqualTo(1.0);   // 실패도 쿼리로 계상
+        assertThat(reg.get("loki.errors").tag("status", "io").counter().count())
+                .isGreaterThanOrEqualTo(1.0);                                                // 에러 메트릭
+        assertThat(c.currentThrottleLevel()).isGreaterThanOrEqualTo(1);                      // ★ Loki 지연→감속 발동
+    }
+
     // --- helpers ---
 
     private static String streams(String[] lines, long[] ts) {
@@ -128,10 +156,10 @@ class LokiClientTest {
         }
     }
 
-    private static ApiDiscoverProperties props(String addr) {
+    private static ApiDiscoverProperties props(String addr, Duration queryTimeout) {
         return new ApiDiscoverProperties(
                 new ApiDiscoverProperties.Loki(addr, "access_log",
-                        Duration.ofSeconds(5),   // query-timeout
+                        queryTimeout,            // query-timeout (테스트별 주입)
                         Duration.ofHours(1),     // chunk-window (단일 chunk)
                         2,                       // page-limit
                         2,                       // max-concurrent-queries

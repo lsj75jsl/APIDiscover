@@ -5,6 +5,20 @@
 
 ---
 
+## 2026-07-02 세션 67 — Loki 부하 장애 진단 + 안정화(버스트 복귀·타임아웃 감속·외부 파일 로깅) + 스캔 틱 매뉴얼 (D58)
+
+### 한 일
+- **스캔 틱 매뉴얼**(`doc/manual/scan-tick-manual.html`, PR #53 머지) — domains-per-tick·off-peak·initial-backfill·관련 코드·설정 변경법. 기간 다이어그램은 mermaid(gantt·flowchart, 한글폭 ASCII 깨짐 해소).
+- **Loki 부하 장애 진단**(사용자: 07-09시 KST 부하 문의) — 중지된 adc-app 로그 분석. 해당 창 스캔 4건 성공/238건 실패, 전부 `Loki query I/O error`. 근본원인 07-01 04:26Z부터 지속(2093건, 77% `HttpTimeoutException`=응답 타임아웃). D56 후속 버스트로 Loki 포화 + IOException 이 감속/budget 우회 → 감속 없이 전속 실패쿼리 지속으로 확인.
+- **D58 안정화 구현**(사용자 5개 요구): ① adc.yaml 버스트 4개 env 제거→기본값(off-peak-zone 유지) ② `LokiClient` 타임아웃→`escalateThrottle`+`budget.recordFailure`(적응형 감속·hammering 방지) ③④⑤ `logback-spring.xml` 신규 → `/opt/adc-log`(컨테이너 외부 hostPath) 쿼리별+앱 로그, `%d{yyyyMMdd}` 일별·롤오버 gz·30일 보관.
+
+### 결과
+- build green **507**(신규 2)·실 PG OK·타임아웃 감속 RED-확인(throttle 0↔1). adc.yaml=volumeMount+adclog 볼륨.
+- adc-app 은 사용자 요청으로 중지 상태였고, 이번 수정 후 재빌드·재배포·재기동 예정(사용자 확정).
+
+### 다음 단계
+- VM `/opt/adc-log` mkdir → 재빌드 → 재배포 → 기동·로그파일 생성·health 확인. 매뉴얼(TW)=후속(외부 로그·감속·부하 튜닝 반영).
+
 ## 2026-07-01 세션 66 — 실배포 운영 점검: 백필 발산 진단·워터마크 점프·무접속 중단·/result 인라인 (D55)
 
 ### 한 일

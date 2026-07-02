@@ -37,24 +37,24 @@ spec:
           value: adc
         - name: SPRING_DATASOURCE_PASSWORD
           value: adc
-        # --- 스캔 처리율 튜닝 (application.yml 속성 env override, 재빌드 불요·pod 재시작만, doc/33) ---
-        # ★운영 Loki 부하 일부 증가 감수. 값만 바꿔 play kube 재적용하면 반영(이미지 불변).
-        - name: APIDISCOVER_SCAN_DOMAINSPERTICK       # scan.domains-per-tick 100→300 (틱당 선택↑, 미스캔 backlog 가속)
-          value: "300"
-        - name: APIDISCOVER_SCAN_TICKINTERVAL         # scan.tick-interval PT5M→PT3M (틱 빈도↑, 20회/hr)
-          value: "PT3M"
-        - name: APIDISCOVER_SCAN_MAXQUERIESPERHOUR    # scan.max-queries-per-hour →16000 (24h 내 전체 순회 목표, D56 후속. 8000=~42h→16000=~21h)
-          value: "16000"
-        - name: APIDISCOVER_LOKI_PAGELIMIT            # loki.page-limit 2000→5000 (쿼리당 로그↑→스캔당 쿼리↓, D7 1e8 금지 준수)
-          value: "5000"
-        - name: APIDISCOVER_SCAN_OFFPEAKZONE          # scan.off-peak-zone ""→Asia/Seoul (off-peak 01-06 을 실 저부하 시간에 정렬)
+        # --- 스캔 부하 = application.yml 기본값 사용 (D58 안정화: 공격적 버스트 override 제거) ---
+        # domains-per-tick(100)·tick-interval(PT5M)·max-queries-per-hour(3000)·page-limit(2000) 은 기본값.
+        # 공격적 버스트(300/PT3M/16000/5000, D56 후속)는 Loki 타임아웃 급증 유발로 제거. 필요 시 여기 env 로만 재상향(재빌드 불요).
+        - name: APIDISCOVER_SCAN_OFFPEAKZONE          # scan.off-peak-zone ""→Asia/Seoul (버스트 값 아님 — off-peak 01-06 을 KST 실 저부하에 정렬, 유지)
           value: "Asia/Seoul"
         - name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE   # 설정값 검증용 configprops 노출(내부)
           value: "health,info,metrics,configprops"
+      volumeMounts:
+        - name: adclog
+          mountPath: /opt/adc-log      # D58: 로그를 컨테이너 외부(hostPath)로 영속
       ports:
         - containerPort: 8080      # hostNetwork=true 라 host:8080 직접 바인드(hostPort 매핑 불요)
   volumes:
     - name: pgdata
       hostPath:
         path: /opt/adc            # 사용자 확정 PGDATA 마운트. 사전 생성 필요(mkdir -p)
+        type: Directory
+    - name: adclog
+      hostPath:
+        path: /opt/adc-log        # D58 로그 마운트(컨테이너 외부). 사전 생성 필요(mkdir -p /opt/adc-log)
         type: Directory

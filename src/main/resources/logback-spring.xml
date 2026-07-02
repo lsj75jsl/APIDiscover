@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 로깅 설정 — container 프로파일에서 /opt/adc-log(컨테이너 외부 마운트)로 파일 로깅. 일별 파일·롤오버 gz 압축·30일 보관 (D58) -->
+<configuration>
+    <!-- Spring Boot 기본 패턴·CONSOLE 어펜더 재사용(콘솔=podman logs 라이브 확인용) -->
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+
+    <!-- 배포(container) 프로파일: /opt/adc-log 파일 로깅. 로그는 컨테이너 내부가 아닌 hostPath 마운트로 남긴다(D58, adc.yaml). -->
+    <springProfile name="container">
+        <property name="LOG_DIR" value="/opt/adc-log"/>
+
+        <!-- 앱 전체 이벤트/실패(스캔 실패·디스커버리 실패 등 장애 원인분석). 타임스탬프는 UTC 고정(DB·access log 와 일치). -->
+        <appender name="APP_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+            <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+                <!-- YYYYMMDD prefix 일별 파일. <file> 미지정 → 당일 활성파일도 날짜명(YYYYMMDD-adc.log), 롤오버 시 .gz 압축. -->
+                <fileNamePattern>${LOG_DIR}/%d{yyyyMMdd}-adc.log.gz</fileNamePattern>
+                <maxHistory>30</maxHistory>            <!-- 1달 보관, 이후 자동 삭제 -->
+                <cleanHistoryOnStart>true</cleanHistoryOnStart>
+            </rollingPolicy>
+            <encoder>
+                <pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSS'Z', UTC} %-5level [%thread] %logger{36} - %msg%n</pattern>
+            </encoder>
+        </appender>
+
+        <!-- Loki 쿼리별 상세(응답시간·대상 도메인/LogQL·성공/실패유형·바이트) 전용 — 장애 시 지연·실패 패턴 분석용 -->
+        <appender name="LOKI_QUERY_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+            <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+                <fileNamePattern>${LOG_DIR}/%d{yyyyMMdd}-loki-query.log.gz</fileNamePattern>
+                <maxHistory>30</maxHistory>
+                <cleanHistoryOnStart>true</cleanHistoryOnStart>
+            </rollingPolicy>
+            <encoder>
+                <pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSS'Z', UTC} %msg%n</pattern>
+            </encoder>
+        </appender>
+
+        <!-- 쿼리 로그는 전용 파일로만(고빈도 → 앱 로그·콘솔 오염 방지). additivity=false. -->
+        <logger name="com.pentasecurity.apidiscover.loki.query" level="INFO" additivity="false">
+            <appender-ref ref="LOKI_QUERY_FILE"/>
+        </logger>
+
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="APP_FILE"/>
+        </root>
+    </springProfile>
+
+    <!-- 로컬/테스트(비-container): 콘솔만(파일 미생성 → /opt/adc-log 없어도 무해) -->
+    <springProfile name="!container">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+    </springProfile>
+</configuration>
