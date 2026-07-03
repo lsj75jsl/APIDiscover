@@ -59,6 +59,7 @@ apidiscover:
     inactive-after: "P30D"         # ★무접속 중단: 마지막 접속(lastSeenAt) > 이 기간이면 스캔(수집+평가) 제외(0=비활성). 트래픽 재개 시 자동 재개
     query-batch-size: 0            # D63 배칭: 같은 엣지 실조회 도메인 N개를 1쿼리로(0=off). Loki 청크 재읽기 1/N
     edge-group-main-only: false    # D65: 엣지를 그룹 Master 로 치환 조회(Master 로그=그룹 전체 집계). false=off
+    sample-window: "PT0S"          # D66 롤링 샘플링: 주기 스캔을 최신 N분 표본만(0=off=gap-free 크롤). 발산 정지·신선도=재방문주기
     # off-peak-max-queries-per-hour(쿼리캡 상향)는 범위 밖 — K·max-window 스위치만(doc/33 §5, D48)
     # schedule.off-peak-window("01:00-06:00") 재사용 — off-peak 시각대 판정
   discovery:                       # 도메인 자동 디스커버리 (doc/30, 서버측 집계)

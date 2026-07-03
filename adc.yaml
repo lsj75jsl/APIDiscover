@@ -63,6 +63,10 @@ spec:
           value: "10"
         - name: APIDISCOVER_SCAN_EDGEGROUPMAINONLY    # D65: 그룹 Master 엣지만 조회(활성 매핑 -47%, 고아는 Master 치환으로 커버). 사용자 확정 ㉮
           value: "true"
+        - name: APIDISCOVER_SCAN_SAMPLEWINDOW         # D66 롤링 샘플링: 최신 10분 표본만 조사(33% 커버리지·신선도<=30분·발산 정지). 사용자 확정 ②안
+          value: "PT10M"
+        - name: APIDISCOVER_SCAN_MAXQUERIESPERHOUR    # D66 동반: 3000→6000 (샘플링 수요 ~5-6k/h. 배칭+Main-only 로 쿼리당 Loki 부하 대폭 감소 후라 안전)
+          value: "6000"
         - name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE   # 설정값 검증용 configprops 노출(내부)
           value: "health,info,metrics,configprops"
       volumeMounts:
