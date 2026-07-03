@@ -161,13 +161,24 @@
 
 ## Done
 
+### 스캔 실시간화 D59~D67 — 무접속 게이트·delta-skip·엣지 제외/배칭/Main-only·활성 우선·롤링 샘플링·기본값 승격 (2026-07-02~03, 사용자 요청·확정)
+- [x] **D59 무접속 게이트 전환**: `lastSeenAt`(discovery 실시간) 기준 + 배포 P3D — 소프트 제외·self-healing. RED-확인.
+- [x] **D60/D61 delta-skip + now−lag 점프**: 신규 트래픽 없으면 Loki 조회 없이 워터마크 now−lag 즉시 전진(1-touch caught-up). RED-확인.
+- [x] **D62 엣지 제외**: `discovery.excluded-hostnames` AAJ 23개(사용자 확정) — 등록·출석·조회 전부 제외 + 일회성 정리(백업 테이블). RED-확인.
+- [x] **D63 엣지-그룹 배칭**: (10분 버킷×엣지) `|~ OR` 1쿼리·host 분배·gap-free 유지. RED-확인.
+- [x] **D64 활성 우선 선발**: 신규트래픽 우선 + skip-류 K/5 예약(기아 방지). 실 PG 가드. RED-확인.
+- [x] **D65 엣지 그룹 Main-only**: `EdgeGroupResolver` 4유형 치환(활성 매핑 −47%·고아 자연 커버). RED-확인.
+- [x] **D66 롤링 샘플링**: 주기 스캔=최신 10분 표본(PT10M)·예산 6000 — 발산 정지·신선도≤30분. RED-확인. 수렴 실측 확인(틱 jobs<K·deferred 0·활성 지연 67분).
+- [x] **D67 배치 10→20 + 기본값 승격**: 실측 쿼리 −13.7%(캡 6000 이내 복귀). 검증 설정(D58~D67) 전부 application.yml 기본값 승격 — 신규 서버 env 없이 동일 동작(adc.yaml=DB 접속 등 고유값만). 매뉴얼 설정표 재편.
+- [ ] (후속·선택) 배치 캡 30 단계 상향 — 20 관측(elapsedMs·시간당 페이스) 후 판단. fill=1(39%)·페이지네이션(24%)은 캡 무관 — 추가 절감은 교차-엣지 배칭 등 설계 변경 필요.
+
 ### Loki 부하 안정화 — 버스트 기본값 복귀 + 타임아웃 적응형 감속 + 외부 파일 로깅 (2026-07-02, D58, 사용자 요청)
 - [x] **① 버스트→기본값**: adc.yaml 4개 env(domains-per-tick·tick-interval·max-queries-per-hour·page-limit) 제거 → application.yml 기본(100/PT5M/3000/2000). off-peak-zone=Asia/Seoul 유지(타이밍 정합, 버스트 아님).
 - [x] **② 타임아웃 적응형 감속**: `LokiClient` IOException 경로 → `escalateThrottle`+`LokiBudget.recordFailure("io")`(예산 계상=hammering 방지)+에러 메트릭. 재시도 안 함. `send()` throws IOException. 테스트: 타임아웃→throttle·recordFailure 예산(RED-확인).
 - [x] **③④⑤ 외부 파일 로깅**: `logback-spring.xml`(container) → `/opt/adc-log`(hostPath). 쿼리별 로거(응답시간·도메인·성공/실패유형·바이트)+앱 로그, `%d{yyyyMMdd}` 일별·롤오버 gz·maxHistory 30. adc.yaml volumeMount+adclog 볼륨.
 - [x] **진단**: 07-01 13:26 KST부터 Loki 조회 대부분 실패(2093건, 77% HttpTimeoutException) — 버스트 포화 + IOException 감속 우회 원인 규명.
-- [ ] **배포**: VM /opt/adc-log mkdir → 재빌드 → 재배포 → 기동·로그생성·health 확인. (진행 중)
-- [ ] 매뉴얼(TW)=후속(외부 로그·감속·부하 튜닝 반영).
+- [x] **배포**: VM /opt/adc-log mkdir+chcon(SELinux relabel) → 재빌드 → 재배포 → 기동·로그생성·health 확인 완료(07-02).
+- [x] 매뉴얼 반영 — scan-tick-manual.html D58~D66 현행화 패스에서 완료(외부 로그·감속·부하 튜닝, D66 동반).
 
 ### 스캔 틱 동작 매뉴얼 (2026-07-02, PR #53 3807591, 문서만)
 - [x] `doc/manual/scan-tick-manual.html` — domains-per-tick·off-peak·initial-backfill·관련 코드 file:line·설정 변경법. 기간 다이어그램 mermaid(gantt·flowchart).

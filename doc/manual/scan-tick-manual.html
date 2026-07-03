@@ -418,7 +418,7 @@ gantt
     <tr><td>3</td><td>윈도우 산정</td><td><b>샘플링: 항상 [지금−lag−10분, 지금−lag)</b>(D66). 샘플링 off 면 워터마크 증분</td><td><code>sampleWindowFor</code> / <code>windowFor</code></td><td>구간 없음=skip</td></tr>
     <tr><td>4</td><td>delta-skip</td><td>출석부(lastSeen)가 윈도우 시작 이전 = 그 구간 무방문(D60)</td><td><code>skipIfNoNewTraffic</code></td><td>조회 없이 워터마크 now−lag 점프(D61)</td></tr>
     <tr><td>5</td><td>예산·감속</td><td>시간당 쿼리 6,000 하드캡 + 타임아웃 시 자동 감속(D58)</td><td><code>LokiBudget</code> · <code>LokiClient</code></td><td>잔여분 다음 틱 이월</td></tr>
-    <tr><td>6</td><td>배칭 조회</td><td>같은 (Master 엣지×버킷) 도메인 ≤10개 = 정규식 OR 1쿼리(D63)</td><td><code>runScanBatched</code> · <code>buildBatch</code></td><td>그룹 부분실패=해당 도메인 미전진(재시도)</td></tr>
+    <tr><td>6</td><td>배칭 조회</td><td>같은 (Master 엣지×버킷) 도메인 ≤20개 = 정규식 OR 1쿼리(D63, D67 에서 10→20)</td><td><code>runScanBatched</code> · <code>buildBatch</code></td><td>그룹 부분실패=해당 도메인 미전진(재시도)</td></tr>
     <tr><td>7</td><td>분석·저장</td><td>host 별 라인 분배 → 파싱→인벤토리→분류→리포트</td><td><code>analyze</code></td><td>도메인 격리(한 도메인 실패가 남을 안 막음)</td></tr>
     <tr><td>8</td><td>전진</td><td>워터마크 = now−lag (표본 밖 구간은 의도적 통과)</td><td><code>advanceWatermark</code></td><td>—</td></tr>
   </tbody>
@@ -459,27 +459,28 @@ gantt
 </table>
 
 <h4>관련 설정 키 (application.yml <code>apidiscover.scan.*</code> · <code>apidiscover.schedule.*</code>)</h4>
+<p><b>D67 부터 검증된 배포값이 곧 application.yml 기본값이다</b> — 신규 서버는 env override 없이 기본값 배포만으로 테스트 서버와 동일하게 동작하고, <code>adc.yaml</code> env 는 서버 고유값(DB 접속 등)과 임시 튜닝에만 쓴다.</p>
 <table>
-  <thead><tr><th>설정 키</th><th>기본값<br>(application.yml)</th><th>배포값<br>(adc.yaml env)</th><th>의미</th></tr></thead>
+  <thead><tr><th>설정 키</th><th>기본값 = 배포값<br>(application.yml, D67)</th><th>의미</th></tr></thead>
   <tbody>
-    <tr><td><code>tick-interval</code></td><td>PT5M</td><td><b>PT1M</b></td><td>틱 주기(주야 공통). 짧을수록 워터마크가 자주 전진.</td></tr>
-    <tr><td><code>domains-per-tick</code></td><td>100</td><td><b>500</b></td><td>평시 한 틱에 처리할 도메인 수(K).</td></tr>
-    <tr><td><code>off-peak-domains-per-tick</code></td><td>500</td><td><b>500 (=주간)</b></td><td>현 배포는 주야 동일 — 야간 가속 비활성(사용자 확정).</td></tr>
-    <tr><td><code>off-peak-max-window</code></td><td>PT24H</td><td><b>PT30M (=주간)</b></td><td>PT24H 대량조회는 Loki 과부하 이력으로 축소 — 복구 금지.</td></tr>
-    <tr><td><code>off-peak-zone</code></td><td>"" (시스템 기본)</td><td><b>Asia/Seoul</b></td><td>off-peak 시각대(01–06시) 판정 기준 타임존.</td></tr>
-    <tr><td><code>max-queries-per-hour</code></td><td>3000</td><td><b>6000</b></td><td>전역 시간당 Loki 쿼리 하드캡(D66 동반 상향 — 배칭·Main-only 로 쿼리당 부하 급감 후라 안전). 주야 공통.</td></tr>
-    <tr><td><code>max-window</code></td><td>PT30M</td><td>PT30M</td><td>평시 도메인당 조회 윈도우 상한.</td></tr>
-    <tr><td><code>loki.chunk-window</code> · <code>scan.slice-window</code></td><td>PT10M</td><td><b>PT30M</b></td><td>쿼리 1회 시간창·슬라이스(함께 상향해야 유효) — 도메인-시간당 쿼리 1/3 (D60 A).</td></tr>
-    <tr><td><code>inactive-after</code></td><td>P30D</td><td><b>P3D</b></td><td>무접속(출석부 기준) 자동스캔 제외 임계(D59). self-healing.</td></tr>
-    <tr><td><code>discovery.excluded-hostnames</code></td><td>[] (없음)</td><td><b>AAJ 23개</b></td><td>대상 제외 엣지(D62) — 등록·출석·조회 모두 제외.</td></tr>
-    <tr><td><code>query-batch-size</code></td><td>0 (off)</td><td><b>10</b></td><td>D63 배칭 — 같은 엣지 실조회 도메인 N개를 1쿼리로.</td></tr>
-    <tr><td><code>edge-group-main-only</code></td><td>false</td><td><b>true</b></td><td>D65 — 엣지를 그룹 Master 로 치환 조회(활성 매핑 −47%).</td></tr>
-    <tr><td><code>sample-window</code></td><td>PT0S (off)</td><td><b>PT10M</b></td><td>D66 롤링 샘플링 — 주기 스캔을 최신 N분 표본만(0=off=gap-free).</td></tr>
-    <tr><td><code>schedule.initial-backfill</code></td><td>P7D</td><td>P7D</td><td><b>첫 스캔이 과거로 얼마나 거슬러 갈지</b>(워터마크 없는 도메인의 시작점). 그 이전 로그는 안 읽음(§7). 소급 적용 없음.</td></tr>
-    <tr><td><code>schedule.ingest-lag</code></td><td>PT10M</td><td>PT10M</td><td>조회 종료점 보정(<code>end=now−lag</code>) — 아직 완전히 수집 안 된 최신 로그 제외.</td></tr>
+    <tr><td><code>tick-interval</code></td><td><b>PT1M</b></td><td>틱 주기(주야 공통). 짧을수록 워터마크가 자주 전진.</td></tr>
+    <tr><td><code>domains-per-tick</code></td><td><b>500</b></td><td>평시 한 틱에 처리할 도메인 수(K).</td></tr>
+    <tr><td><code>off-peak-domains-per-tick</code></td><td><b>500 (=주간)</b></td><td>주야 동일 — 야간 가속 비활성(사용자 확정).</td></tr>
+    <tr><td><code>off-peak-max-window</code></td><td><b>PT30M (=주간)</b></td><td>PT24H 대량조회는 Loki 과부하 이력으로 축소 — 복구 금지.</td></tr>
+    <tr><td><code>off-peak-zone</code></td><td><b>Asia/Seoul</b></td><td>off-peak 시각대(01–06시) 판정 기준 타임존.</td></tr>
+    <tr><td><code>max-queries-per-hour</code></td><td><b>6000</b></td><td>전역 시간당 Loki 쿼리 하드캡(D66 동반 상향 — 배칭·Main-only 로 쿼리당 부하 급감 후라 안전). 주야 공통.</td></tr>
+    <tr><td><code>max-window</code></td><td>PT30M</td><td>평시 도메인당 조회 윈도우 상한.</td></tr>
+    <tr><td><code>loki.chunk-window</code> · <code>scan.slice-window</code></td><td><b>PT30M</b></td><td>쿼리 1회 시간창·슬라이스(함께 상향해야 유효) — 도메인-시간당 쿼리 1/3 (D60 A).</td></tr>
+    <tr><td><code>inactive-after</code></td><td><b>P3D</b></td><td>무접속(출석부 기준) 자동스캔 제외 임계(D59). self-healing.</td></tr>
+    <tr><td><code>discovery.excluded-hostnames</code></td><td><b>AAJ 23개</b></td><td>대상 제외 엣지(D62) — 등록·출석·조회 모두 제외.</td></tr>
+    <tr><td><code>query-batch-size</code></td><td><b>20</b></td><td>D63 배칭 — 같은 엣지 실조회 도메인 N개를 1쿼리로. D67 에서 10→20(실측 전체 쿼리 −13.7%).</td></tr>
+    <tr><td><code>edge-group-main-only</code></td><td><b>true</b></td><td>D65 — 엣지를 그룹 Master 로 치환 조회(활성 매핑 −47%).</td></tr>
+    <tr><td><code>sample-window</code></td><td><b>PT10M</b></td><td>D66 롤링 샘플링 — 주기 스캔을 최신 N분 표본만(0=off=gap-free).</td></tr>
+    <tr><td><code>schedule.initial-backfill</code></td><td>P7D</td><td><b>첫 스캔이 과거로 얼마나 거슬러 갈지</b>(워터마크 없는 도메인의 시작점). 그 이전 로그는 안 읽음(§7). 소급 적용 없음.</td></tr>
+    <tr><td><code>schedule.ingest-lag</code></td><td>PT10M</td><td>조회 종료점 보정(<code>end=now−lag</code>) — 아직 완전히 수집 안 된 최신 로그 제외.</td></tr>
   </tbody>
 </table>
-<p class="legend">off-peak 시각대(<code>01:00–06:00</code>)는 <code>schedule.off-peak-window</code> 를 재사용한다(application.yml). 배포값 열이 굵게 표시된 항목은 <code>adc.yaml</code> env 로 기본값을 덮어쓴 것.</p>
+<p class="legend">off-peak 시각대(<code>01:00–06:00</code>)는 <code>schedule.off-peak-window</code> 를 재사용한다(application.yml). 굵은 항목은 테스트 서버 튜닝(D58~D67)에서 승격된 값 — 특정 서버에서 달리 쓰려면 <code>adc.yaml</code> env 로 덮어쓴다(§10).</p>
 
 <hr>
 

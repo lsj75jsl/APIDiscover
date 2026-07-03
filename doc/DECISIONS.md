@@ -597,6 +597,13 @@ gap-free 크롤은 활성 수요(~22.6k 윈도우/h) vs 예산 용량(D65 후 ~7
 - **트레이드오프(정직)**: 표본 밖 호출은 그 시점 미관측(반복 호출은 결국 잡힘 — 롤링이라 결정적 사각지대 없음), hits=표본 기반(~1/3), 워터마크 의미 "전부 읽음"→"표본 경계". 매뉴얼 §8.7 문서화.
 - **검증**: build green **524**(신규 2: 순수함수·배선)·RED-확인(샘플링 분기 무력화 시 최신-10분 윈도우 검증 red). 매뉴얼 전면 보강(파이프라인 관문표 §8.8·결정트리·설정표 D58~D66 현행화) 동반.
 
+### D67. query-batch-size 10→20 + 검증 설정의 기본값 승격 (2026-07-03, 사용자 요청)
+- **배경(실측)**: D66 수렴 확인(16:12 KST) — 발산 정지·백로그 소진(틱 jobs<K·deferred 0·활성 평균 wm 지연 17h→67분). 단 쿼리 페이스 ~6.4k/h 로 캡 6000 초과 추세(매시 후반 이월 톱니파 위험). 배치 충전 실측(2h, 8,403건): 서브배치 6,383 중 캡(10) 포화 25%·그룹>10 = 786/4,600(최대 120 도메인).
+- **① 배치 20**: 캡 20 시 전체 쿼리 **−13.7%**(−1,150/2h, 그룹 재구성 시뮬레이션) → ~5.5k/h 캡 이내. 안전 근거 = fill=10 p50 88ms(fill=1 의 1.8×뿐 — 청크읽기 지배라 fill 증가 저비용)·쿼리 최장 753자→~1.5KB(URL 한계 여유)·병합 시 페이지 수 비증가(ceil 합산 성질)·실패 파급 ≤20 도메인 1틱 이월(FAILED ~0/일).
+- **② 기본값 승격(이식성, 사용자 요청)**: 테스트 서버(192.168.8.197)에서 검증된 튜닝(D58~D67) 전부를 **application.yml 기본값으로 승격** — tick PT1M·domains-per-tick 500(주야 균일)·off-peak=주간(PT30M/500/Asia/Seoul)·chunk/slice PT30M·inactive-after P3D·excluded-hostnames AAJ 23·edge-group-main-only true·sample-window PT10M·max-queries-per-hour 6000·query-batch-size 20. **adc.yaml env 는 서버 고유값(DB 접속·configprops)만 유지** → 신규 서버는 기본값 배포만으로 동일 동작. ★off-peak-max-window PT24H 복구 금지(과부하 이력) 주석 유지.
+- **한계(정직)**: 캡 상향 이득 상한 13.7% — 서브배치 39%는 fill=1(틱당 due 1개 엣지), 전체 쿼리 24%는 페이지네이션이라 캡과 무관. 캡 30 은 +4.2%p 추가 — 20 관측(elapsedMs·페이스) 후 단계 적용. excluded-hostnames 기본값은 현 사이트 엣지명 기준 — 다른 WAAP 환경이면 env 로 교체.
+- **검증**: build green(전 테스트)·재배포 후 batchSize=20 틱 요약·fill≤20 elapsedMs·시간당 쿼리 ≤6000 확인.
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.
