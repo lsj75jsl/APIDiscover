@@ -14,6 +14,10 @@ public interface DomainConfigRepository extends JpaRepository<DomainConfig, Stri
 
     List<DomainConfig> findByEnabledIsTrue();
 
+    /** D65: 관측된 엣지(hostname) 전체 — EdgeGroupResolver 의 그룹 Master 맵 구성용(413행 수준, 경량). */
+    @Query("select distinct h from DomainConfig d join d.hostnames h")
+    List<String> findDistinctHostnames();
+
     /**
      * 스캔 due 선택 (doc/33 §4, D48) — enabled + (nextScanDueAt null=즉시 due OR &lt;= now).
      * ★정렬은 @Query 의 {@code order by nextScanDueAt asc nulls first} 가 보유(Hibernate JPQL→PG NULLS FIRST·H2 동일=결정적).

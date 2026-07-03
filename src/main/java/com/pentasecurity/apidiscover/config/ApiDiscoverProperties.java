@@ -69,6 +69,8 @@ public record ApiDiscoverProperties(Loki loki, Schedule schedule, Central centra
             // 0/null=비활성(현행 무회귀). 기본 P30D. fleet 디스커버리는 계속 → 트래픽 재개 시 lastSeenAt 갱신=자동 재개.
             Duration inactiveAfter,
             // D63 배칭: 같은 엣지의 실조회 도메인 N개를 정규식 OR 1쿼리로(0=off 무회귀). Loki 청크 재읽기 1/N.
-            int queryBatchSize
+            int queryBatchSize,
+            // D65: 엣지를 그룹 Master 로 치환해 조회(Master 로그=그룹 전체 집계, 사용자 확정 ㉮). false=off 무회귀.
+            boolean edgeGroupMainOnly
     ) {}
 }

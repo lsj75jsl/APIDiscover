@@ -78,6 +78,8 @@ public class DiscoveryJobService {
 
     /** D62: 대상 제외 엣지 — 스캔 조회에서 이 엣지 매핑을 뺀다(디스커버리 필터와 동일 목록). */
     private final Set<String> excludedEdges;
+    /** D65: 엣지 그룹 Master 해석기 — edge-group-main-only 시 조회 엣지를 Master 로 치환. */
+    private final EdgeGroupResolver edgeGroups;
 
     public DiscoveryJobService(LogLineParser parser,
                                InventoryBuilder inventoryBuilder,
@@ -95,7 +97,8 @@ public class DiscoveryJobService {
                                LokiQueryBuilder queryBuilder,
                                LokiBudget budget,
                                ObjectMapper objectMapper,
-                               ApiDiscoverProperties props) {
+                               ApiDiscoverProperties props,
+                               EdgeGroupResolver edgeGroups) {
         this.parser = parser;
         this.inventoryBuilder = inventoryBuilder;
         this.specStore = specStore;
@@ -115,6 +118,7 @@ public class DiscoveryJobService {
         this.props = props;
         List<String> excl = props.discovery().excludedHostnames();
         this.excludedEdges = (excl == null) ? Set.of() : Set.copyOf(excl);
+        this.edgeGroups = edgeGroups;
     }
 
     /** 한 도메인 스캔 — 윈도우 상한 = {@code scan.max-window}(기본). off-peak 등 상한 스위치는 오버로드(아래). */
@@ -707,10 +711,12 @@ public class DiscoveryJobService {
         if (cfg.getHostnames() == null || cfg.getHostnames().isEmpty()) {
             return null;
         }
-        if (excludedEdges.isEmpty()) {
-            return List.copyOf(cfg.getHostnames());
+        var stream = cfg.getHostnames().stream().filter(h -> !excludedEdges.contains(h));
+        if (props.scan().edgeGroupMainOnly()) {
+            // D65: 엣지→그룹 Master 치환(중복 그룹은 distinct 로 1회 조회). replica 에만 매핑된 도메인도 Master 조회로 커버.
+            stream = stream.map(edgeGroups::masterOf).distinct();
         }
-        return cfg.getHostnames().stream().filter(h -> !excludedEdges.contains(h)).toList();
+        return stream.toList();
     }
 
     /** 도메인의 엣지 서버(hostname 라벨)별로 Loki 조회. 부하 보호는 LokiClient 내부(doc/05 §2.4). D62 제외 엣지 미조회. */
