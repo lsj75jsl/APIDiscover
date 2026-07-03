@@ -37,36 +37,11 @@ spec:
           value: adc
         - name: SPRING_DATASOURCE_PASSWORD
           value: adc
-        # --- 스캔 부하 = application.yml 기본값 사용 (D58 안정화: 공격적 버스트 override 제거) ---
-        # domains-per-tick(100)·tick-interval(PT5M)·max-queries-per-hour(3000)·page-limit(2000) 은 기본값.
-        # 공격적 버스트(300/PT3M/16000/5000, D56 후속)는 Loki 타임아웃 급증 유발로 제거. 필요 시 여기 env 로만 재상향(재빌드 불요).
-        - name: APIDISCOVER_SCAN_OFFPEAKZONE          # scan.off-peak-zone ""→Asia/Seoul (버스트 값 아님 — off-peak 01-06 을 KST 실 저부하에 정렬, 유지)
-          value: "Asia/Seoul"
-        - name: APIDISCOVER_SCAN_OFFPEAKDOMAINSPERTICK  # scan.off-peak-domains-per-tick =주간 domains-per-tick 500 로 일치(사용자 요청, 주야 균일). Loki 는 캡3000/h 로 보호
-          value: "500"
-        - name: APIDISCOVER_SCAN_OFFPEAKMAXWINDOW      # scan.off-peak-max-window =주간 max-window PT30M 로 일치(사용자 요청). ★PT24H 대량조회는 복구 금지(과부하 이력)
-          value: "PT30M"
-        - name: APIDISCOVER_SCAN_INACTIVEAFTER         # scan.inactive-after P30D→P3D (무접속 자동스캔 제외 임계, D59 lastSeenAt 기준. self-healing: 트래픽 재개 시 자동 복귀. fleet 축소·발산 완화)
-          value: "P3D"
-        # --- A(D60) 쿼리수 감소: chunk·slice 함께 PT10M→PT30M (collectBounded 가 slice 단위 조회 → 유효 청크=min(slice,chunk). 함께 올려야 3× 감소) ---
-        - name: APIDISCOVER_LOKI_CHUNKWINDOW           # loki.chunk-window PT10M→PT30M (query_range 1회 시간창↑ → 도메인-시간당 쿼리 1/3)
-          value: "PT30M"
-        - name: APIDISCOVER_SCAN_SLICEWINDOW           # scan.slice-window PT10M→PT30M (부분전진 슬라이스=유효 청크 캡, chunk 와 동반 상향)
-          value: "PT30M"
-        - name: APIDISCOVER_SCAN_TICKINTERVAL          # scan.tick-interval PT2M→PT1M (주야 공통. 틱 주기 최소화 — 워터마크 최대 빈도 전진. delta-driven+캡3000 이 Loki 보호)
-          value: "PT1M"
-        - name: APIDISCOVER_SCAN_DOMAINSPERTICK        # scan.domains-per-tick 500 (주간=off-peak 동일). 틱당 처리량↑, 대부분 cheap skip, 실조회는 캡3000/h 보호
-          value: "500"
-        - name: APIDISCOVER_DISCOVERY_EXCLUDEDHOSTNAMES  # D62 대상 제외 엣지(사용자 확정 AAJ 23개) — 등록·lastSeen·스캔 조회 제외. fleet -37%(전용 20,880 별도 비활성화)
-          value: "AAJ11,AAJ12,AAJ13,AAJ14,AAJ21,AAJ22,AAJ23,AAJ24,AAJ31,AAJ32,AAJ33,AAJ34,AAJ41,AAJ42,AAJ43,AAJ44,AAJ51,AAJ52,AAJ53,AAJ54,AAJ61,AAJ62,AAJ63"
-        - name: APIDISCOVER_SCAN_QUERYBATCHSIZE       # D63 배칭: 같은 엣지 실조회 도메인 10개→1쿼리(|~ OR, 0=off). 시작값 10, 계측 후 조정
-          value: "10"
-        - name: APIDISCOVER_SCAN_EDGEGROUPMAINONLY    # D65: 그룹 Master 엣지만 조회(활성 매핑 -47%, 고아는 Master 치환으로 커버). 사용자 확정 ㉮
-          value: "true"
-        - name: APIDISCOVER_SCAN_SAMPLEWINDOW         # D66 롤링 샘플링: 최신 10분 표본만 조사(33% 커버리지·신선도<=30분·발산 정지). 사용자 확정 ②안
-          value: "PT10M"
-        - name: APIDISCOVER_SCAN_MAXQUERIESPERHOUR    # D66 동반: 3000→6000 (샘플링 수요 ~5-6k/h. 배칭+Main-only 로 쿼리당 Loki 부하 대폭 감소 후라 안전)
-          value: "6000"
+        # --- 스캔/Loki 부하 설정 = application.yml 기본값 사용 (D67) ---
+        # 테스트 서버에서 검증된 튜닝(D58~D67: 주야 균일 PT1M/500 틱, chunk·slice PT30M, inactive-after P3D,
+        # AAJ 23개 제외, 배칭 20, Main-only, 샘플링 PT10M, 캡 6000/h)을 전부 application.yml 기본값으로 승격 —
+        # 다른 서버도 env override 없이 기본값 배포만으로 동일 동작. 필요 시 여기 env 로만 조정(재빌드 불요).
+        # ★off-peak-max-window PT24H 대량조회는 복구 금지(Loki 과부하 이력).
         - name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE   # 설정값 검증용 configprops 노출(내부)
           value: "health,info,metrics,configprops"
       volumeMounts:
