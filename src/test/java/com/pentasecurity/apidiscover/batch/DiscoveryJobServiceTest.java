@@ -116,6 +116,7 @@ class DiscoveryJobServiceTest {
     private final LokiClient lokiClient = mock(LokiClient.class);
     private final LokiBudget lokiBudget = mock(LokiBudget.class);
     private final LokiQueryBuilder lokiQueryBuilder = mock(LokiQueryBuilder.class);
+    private final EdgeGroupResolver edgeGroupResolver = mock(EdgeGroupResolver.class);
 
     private final DiscoveryJobService service = serviceWith(props());
 
@@ -141,7 +142,8 @@ class DiscoveryJobServiceTest {
                 lokiQueryBuilder,
                 lokiBudget,
                 objectMapper,
-                p);
+                p,
+                edgeGroupResolver);
     }
 
     private final LogWindow window = new LogWindow(Instant.EPOCH, Instant.EPOCH.plusSeconds(3600));
@@ -224,6 +226,34 @@ class DiscoveryJobServiceTest {
         verify(scanRepo).save(argThat(r -> "a.example.com".equals(r.getHost())));   // 각자 분석·저장
         verify(scanRepo).save(argThat(r -> "b.example.com".equals(r.getHost())));
         verify(watermarkRepo, times(2)).save(argThat(w -> w.getLastEnd().isAfter(wmEnd))); // 각자 전진
+    }
+
+    @Test
+    void effectiveEdgesMapToGroupMasterWhenMainOnlyEnabled() {
+        // D65: 같은 그룹 replica 2개(AAI23,AAI33) → Master(AAI13) 1회 조회로 수렴(치환+distinct).
+        Instant t = Instant.now();
+        DomainConfig cfg = new DomainConfig();
+        cfg.setHost(HOST);
+        cfg.setEnabled(true);
+        cfg.setLastSeenAt(t); // delta-skip 미발동(실조회)
+        cfg.setHostnames(new java.util.ArrayList<>(List.of("AAI23", "AAI33")));
+        when(domainRepo.findById(HOST)).thenReturn(Optional.of(cfg));
+        Watermark w = new Watermark();
+        w.setHost(HOST);
+        w.setLastEnd(t.minus(Duration.ofMinutes(40)));
+        when(watermarkRepo.findById(HOST)).thenReturn(Optional.of(w));
+        when(lokiBudget.hasBudget()).thenReturn(true);
+        when(scanRepo.findById(any())).thenReturn(Optional.empty());
+        when(scanRepo.save(any(ScanResult.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(specStore.activeMeta(any())).thenReturn(Optional.empty());
+        when(edgeGroupResolver.masterOf("AAI23")).thenReturn("AAI13");
+        when(edgeGroupResolver.masterOf("AAI33")).thenReturn("AAI13");
+
+        serviceWith(propsMainOnly()).runScan(HOST, Duration.ofMinutes(10)); // 1 슬라이스
+
+        verify(lokiQueryBuilder, times(1)).build("AAI13", HOST); // ★Master 치환·그룹 중복 1회
+        verify(lokiQueryBuilder, never()).build(eq("AAI23"), any());
+        verify(lokiQueryBuilder, never()).build(eq("AAI33"), any());
     }
 
     @Test
@@ -492,7 +522,7 @@ class DiscoveryJobServiceTest {
                 specStore, apiInventoryService, new EndpointMatcherCache(), new Classifier(new ApiScorer()), resolver,
                 new ReportBuilder(), scanRepo, mock(DomainConfigRepository.class), mock(WatermarkRepository.class),
                 mock(DiscoveredEndpointRepository.class), mock(LokiClient.class), mock(LokiQueryBuilder.class),
-                mock(LokiBudget.class), objectMapper, props());
+                mock(LokiBudget.class), objectMapper, props(), mock(EdgeGroupResolver.class));
         ScanResult active = acrmService.analyze(HOST, lines, window);
         assertThat(active.getReportJson()).contains("\"status\":\"ACTIVE\"");
 
@@ -690,7 +720,7 @@ class DiscoveryJobServiceTest {
                 apiInventoryService, new EndpointMatcherCache(), new Classifier(new ApiScorer()), resolver, new ReportBuilder(), scanRepo,
                 mock(DomainConfigRepository.class), mock(WatermarkRepository.class),
                 mock(DiscoveredEndpointRepository.class), mock(LokiClient.class),
-                mock(LokiQueryBuilder.class), mock(LokiBudget.class), objectMapper, props());
+                mock(LokiQueryBuilder.class), mock(LokiBudget.class), objectMapper, props(), mock(EdgeGroupResolver.class));
 
         ScanResult result = cappedService.analyze(HOST, List.of(
                 line("GET", "/a/x", 200), line("GET", "/a/x", 200), line("GET", "/a/x", 200),
@@ -842,10 +872,19 @@ class DiscoveryJobServiceTest {
 
     /** D62: 제외 엣지 목록 지정 변형. */
     private static ApiDiscoverProperties props(List<String> excludedHostnames) {
-        return props(excludedHostnames, 0);
+        return props(excludedHostnames, 0, false);
+    }
+
+    /** D65: 그룹 Master 치환 켠 변형. */
+    private static ApiDiscoverProperties propsMainOnly() {
+        return props(java.util.List.of(), 0, true);
     }
 
     private static ApiDiscoverProperties props(List<String> excludedHostnames, int queryBatchSize) {
+        return props(excludedHostnames, queryBatchSize, false);
+    }
+
+    private static ApiDiscoverProperties props(List<String> excludedHostnames, int queryBatchSize, boolean mainOnly) {
         return new ApiDiscoverProperties(
                 new ApiDiscoverProperties.Loki("http://192.168.8.100:3200", "access_log",
                         Duration.ofSeconds(30), Duration.ofMinutes(10), 2000, 2, Duration.ofMillis(200)),
@@ -855,6 +894,6 @@ class DiscoveryJobServiceTest {
                 new ApiDiscoverProperties.Discovery(true, Duration.ofMinutes(10), Duration.ofMinutes(12),
                         Duration.ofHours(1), Duration.ofMinutes(2), 200,
                         "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$", excludedHostnames),
-                new ApiDiscoverProperties.Scan(Duration.ofMinutes(5), 100, Duration.ZERO, 0, 0L, true, Duration.ZERO, 0, false, Duration.ofMinutes(30), Duration.ofHours(2), Duration.ofHours(6), Duration.ofHours(24), 500, Duration.ofHours(24), "", Duration.ofDays(14), Duration.ofDays(1), Duration.ZERO, queryBatchSize));
+                new ApiDiscoverProperties.Scan(Duration.ofMinutes(5), 100, Duration.ZERO, 0, 0L, true, Duration.ZERO, 0, false, Duration.ofMinutes(30), Duration.ofHours(2), Duration.ofHours(6), Duration.ofHours(24), 500, Duration.ofHours(24), "", Duration.ofDays(14), Duration.ofDays(1), Duration.ZERO, queryBatchSize, mainOnly));
     }
 }

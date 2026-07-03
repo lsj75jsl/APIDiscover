@@ -31,6 +31,9 @@
 
 - **D64 Phase 3 = 활성 우선 선택**: due 분할(신규트래픽=실조회 우선 / skip-류 K/5 예약=기아·드리프트 방지) 3단 선발. 크로스-엔티티 join 실 PG 가드 포함. build green 517·RED-확인.
 
+- **D64 관측→한계 확인**: 활성 wm 평균 17h·예산 매시 40분만에 소진(deferred 수백) — 활성 수요 22.6k윈도우/h vs 용량 ~4k(6배 부족, gap-free 크롤 구조 한계). 옵션 A(샘플링)/B(예산 상향) 사용자 제시.
+- **D65 엣지 그룹 Main-only(사용자 규칙 4유형·㉮ Master 집계 확정)**: EdgeGroupResolver 치환(고아 6.9k 자연 커버)·활성 매핑 −47%·용량 ~2배. build green 522·RED-확인.
+
 ### 다음 단계
 - D61 재배포 후: 워터마크 평균지연이 빠르게 떨어지는지(빈 도메인 caught-up), 실 Loki 조회 캡 이하·타임아웃 0 유지 확인. 점프 불요(skip 이 자연 catch-up). 매뉴얼(TW)=후속(외부 로그·감속·부하 튜닝·무접속 last_seen_at·delta-driven·now-lag 반영).
 

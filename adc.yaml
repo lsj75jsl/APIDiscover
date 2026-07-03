@@ -61,6 +61,8 @@ spec:
           value: "AAJ11,AAJ12,AAJ13,AAJ14,AAJ21,AAJ22,AAJ23,AAJ24,AAJ31,AAJ32,AAJ33,AAJ34,AAJ41,AAJ42,AAJ43,AAJ44,AAJ51,AAJ52,AAJ53,AAJ54,AAJ61,AAJ62,AAJ63"
         - name: APIDISCOVER_SCAN_QUERYBATCHSIZE       # D63 배칭: 같은 엣지 실조회 도메인 10개→1쿼리(|~ OR, 0=off). 시작값 10, 계측 후 조정
           value: "10"
+        - name: APIDISCOVER_SCAN_EDGEGROUPMAINONLY    # D65: 그룹 Master 엣지만 조회(활성 매핑 -47%, 고아는 Master 치환으로 커버). 사용자 확정 ㉮
+          value: "true"
         - name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE   # 설정값 검증용 configprops 노출(내부)
           value: "health,info,metrics,configprops"
       volumeMounts:

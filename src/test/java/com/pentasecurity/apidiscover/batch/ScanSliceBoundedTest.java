@@ -79,7 +79,7 @@ class ScanSliceBoundedTest {
         });
         DiscoveryJobService svc = new DiscoveryJobService(
                 null, null, null, null, null, null, null, null, null, null, null, null,
-                loki, new LokiQueryBuilder(props), budget, null, props);
+                loki, new LokiQueryBuilder(props), budget, null, props, mock(EdgeGroupResolver.class));
         return svc.collectBounded(cfg, window);
     }
 
@@ -106,6 +106,6 @@ class ScanSliceBoundedTest {
                 new ApiDiscoverProperties.Scan(Duration.ofMinutes(5), 100, Duration.ofMinutes(30),
                         maxQueriesPerHour, 0L, true, Duration.ofMinutes(sliceMin), cap,
                         false, Duration.ofMinutes(30), Duration.ofHours(2), Duration.ofHours(6),
-                        Duration.ofHours(24), 500, Duration.ofHours(24), "", Duration.ofDays(14), Duration.ofDays(1), Duration.ZERO, 0));
+                        Duration.ofHours(24), 500, Duration.ofHours(24), "", Duration.ofDays(14), Duration.ofDays(1), Duration.ZERO, 0, false));
     }
 }
