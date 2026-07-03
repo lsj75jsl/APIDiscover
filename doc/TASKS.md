@@ -39,6 +39,7 @@
 
 #### 분류 (04/16 문서)
 > (OPTIONS preflight·cross-scan recency severity 완료, Done 참조)
+- [ ] **초장문 path_template 인덱스 초과 가드 (신규 2026-07-03 운영 관측)** — `discovered_endpoint` UNIQUE(host,method,path_template) btree 는 인덱스 행 ~2.7KB(압축 후) 한계. 3.3KB~43KB 경로(공격성/블롭 트래픽 추정) INSERT 실패(금일 3건, JpaSystemException — PR #28 text 전환 후 잠복). 정규화/persist 전 경로 길이 상한 필요(예: >2KB 는 DroppedNonApi drop+카운터, 또는 해시 축약 컬럼으로 UNIQUE 이전). 영향=해당 틱 그 도메인 persist 일부 유실(다음 방문 self-heal)·빈도 낮음(~1건/4h).
 - [x] **정적 파일 API 오탐 수정 — 하드 veto + 정적 리소스 파일명 감점** **(구현 완료 — build green 504·실 PG OK·RED-확인·커밋 보류·머지 시 Done. D56, 사용자 요청)** — ① 정적 확장자(.css/.js/.png/.webp… isStaticPath 또는 $type=library=STATIC) → `Gate.DROP_STATIC` 하드 veto(점수·api키워드 무관 비-API). `DroppedNonApi` +staticFile. ② 정적 리소스 파일명 토큰(img/image/thumb/resize/css/download… `hasStaticResourceName`) → `staticAssetPenalty`(-0.6) 발화 → img.php(WEB_PAGE) 오탐 탈락. ★.php 는 정적 확장자 미포함(veto 아님·감점만, 실 API 보존)·모호 토큰 제외. 매뉴얼(TW)=후속.
 
 #### 리포트/출력 (01/12/14 문서)
