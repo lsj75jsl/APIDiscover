@@ -71,6 +71,9 @@ public record ApiDiscoverProperties(Loki loki, Schedule schedule, Central centra
             // D63 배칭: 같은 엣지의 실조회 도메인 N개를 정규식 OR 1쿼리로(0=off 무회귀). Loki 청크 재읽기 1/N.
             int queryBatchSize,
             // D65: 엣지를 그룹 Master 로 치환해 조회(Master 로그=그룹 전체 집계, 사용자 확정 ㉮). false=off 무회귀.
-            boolean edgeGroupMainOnly
+            boolean edgeGroupMainOnly,
+            // D66 롤링 샘플링: 주기 스캔 윈도우를 "최신 sample-window 만"으로(과거 백로그 의도적 skip → 발산 정지,
+            // 신선도=재방문주기). 0/null=off(gap-free 크롤 무회귀). scan-now/온디맨드는 무관.
+            Duration sampleWindow
     ) {}
 }

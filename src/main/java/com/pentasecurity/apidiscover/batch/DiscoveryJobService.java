@@ -658,8 +658,31 @@ public class DiscoveryJobService {
     /** watermark 기반 증분 윈도우 (doc/05 §3). 신규 구간 없으면 empty. per-scan 상한=maxWindow(A, off-peak 시 상향 주입). */
     Optional<LogWindow> nextWindow(String host, Duration maxWindow) {
         Instant lastEnd = watermarkRepo.findById(host).map(w -> w.getLastEnd()).orElse(null);
+        Duration sample = props.scan().sampleWindow();
+        if (sample != null && !sample.isZero()) {
+            return sampleWindowFor(Instant.now(), lastEnd, props.schedule().ingestLag(), sample);
+        }
         return windowFor(Instant.now(), lastEnd,
                 props.schedule().ingestLag(), props.schedule().initialBackfill(), maxWindow);
+    }
+
+    /**
+     * D66 롤링 샘플링 윈도우(순수 함수): {@code [max(lastEnd, end−sample), end)}, end=now−lag.
+     * 항상 "최신 sample 구간"만 조사 — 과거 백로그(워터마크~시작 사이)는 <b>의도적으로 건너뜀</b>(표본화).
+     * 재방문이 sample 보다 빠르면 겹침 없이 [lastEnd, end) 로 축소. 워터마크 최신이면 empty.
+     * ★신규 도메인도 최신 구간만(initial-backfill 미적용 — 샘플링 철학 일관, 과거 1008청크 백필 방지).
+     * 스캔 후 워터마크는 end(=now−lag) 로 전진 → 신선도 = 재방문 주기(active PT30M = 시간당 2회 표본).
+     */
+    static Optional<LogWindow> sampleWindowFor(Instant now, Instant lastEnd, Duration ingestLag, Duration sample) {
+        Instant end = now.minus(ingestLag);
+        Instant start = end.minus(sample);
+        if (lastEnd != null && lastEnd.isAfter(start)) {
+            start = lastEnd;
+        }
+        if (!start.isBefore(end)) {
+            return Optional.empty();
+        }
+        return Optional.of(new LogWindow(start, end));
     }
 
     /**

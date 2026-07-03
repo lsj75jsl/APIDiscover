@@ -89,6 +89,6 @@ class ScanTierTest {
     private static ApiDiscoverProperties.Scan cfg(boolean tiering) {
         return new ApiDiscoverProperties.Scan(Duration.ofMinutes(5), 100, Duration.ofMinutes(30), 0, 0L, true,
                 Duration.ZERO, 0, tiering, ACTIVE, DEFAULT, INACTIVE, ACTIVE_THRESHOLD, 500, Duration.ofHours(24),
-                "", DORMANT_AFTER, DORMANT, Duration.ZERO, 0, false);
+                "", DORMANT_AFTER, DORMANT, Duration.ZERO, 0, false, Duration.ZERO);
     }
 }

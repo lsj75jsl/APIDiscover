@@ -257,6 +257,56 @@ class DiscoveryJobServiceTest {
     }
 
     @Test
+    void sampleWindowForUsesLatestWindowOnly() {
+        // D66 순수함수: 항상 [end−sample, end) — 과거 백로그 의도적 skip. 겹침·최신·신규 케이스.
+        Instant now = Instant.parse("2026-07-03T12:00:00Z");
+        Duration lag = Duration.ofMinutes(10);
+        Duration sample = Duration.ofMinutes(10);
+        Instant end = now.minus(lag);
+        // 워터마크가 한참 과거(5h) → 최신 10분만(백로그 skip)
+        LogWindow w1 = DiscoveryJobService.sampleWindowFor(now, end.minus(Duration.ofHours(5)), lag, sample).orElseThrow();
+        assertThat(w1.from()).isEqualTo(end.minus(sample));
+        assertThat(w1.to()).isEqualTo(end);
+        // 재방문이 빠름(워터마크가 윈도우 안) → [lastEnd, end) 로 축소(중복 없음)
+        LogWindow w2 = DiscoveryJobService.sampleWindowFor(now, end.minus(Duration.ofMinutes(4)), lag, sample).orElseThrow();
+        assertThat(w2.from()).isEqualTo(end.minus(Duration.ofMinutes(4)));
+        // 워터마크 최신 → empty
+        assertThat(DiscoveryJobService.sampleWindowFor(now, end, lag, sample)).isEmpty();
+        // 신규 도메인(워터마크 없음) → 최신 10분(initial-backfill 미적용)
+        LogWindow w3 = DiscoveryJobService.sampleWindowFor(now, null, lag, sample).orElseThrow();
+        assertThat(w3.from()).isEqualTo(end.minus(sample));
+    }
+
+    @Test
+    void samplingModeScansLatestWindowAndJumpsWatermark() {
+        // D66 배선: 워터마크 5h 뒤여도 최신 10분만 조회하고, 스캔 후 워터마크가 now−lag 로 점프.
+        Instant t = Instant.now();
+        DomainConfig cfg = new DomainConfig();
+        cfg.setHost(HOST);
+        cfg.setEnabled(true);
+        cfg.setLastSeenAt(t); // 트래픽 있음 → delta-skip 미발동(실조회)
+        cfg.setHostnames(new java.util.ArrayList<>(List.of("EDGE1")));
+        when(domainRepo.findById(HOST)).thenReturn(Optional.of(cfg));
+        Watermark w = new Watermark();
+        w.setHost(HOST);
+        w.setLastEnd(t.minus(Duration.ofHours(5))); // 5시간 백로그 — gap-free 라면 [wm, wm+30m) 과거를 읽었을 것
+        when(watermarkRepo.findById(HOST)).thenReturn(Optional.of(w));
+        when(lokiBudget.hasBudget()).thenReturn(true);
+        when(scanRepo.findById(any())).thenReturn(Optional.empty());
+        when(scanRepo.save(any(ScanResult.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(specStore.activeMeta(any())).thenReturn(Optional.empty());
+
+        serviceWith(propsSampling(Duration.ofMinutes(10))).runScan(HOST, Duration.ofMinutes(30));
+
+        // 조회 윈도우 = 정확히 최신 10분(끝 ≈ now−lag) — 과거 백로그 미조회
+        verify(lokiClient).queryRange(any(), argThat(win ->
+                Duration.between(win.from(), win.to()).equals(Duration.ofMinutes(10))
+                        && win.to().isAfter(t.minus(Duration.ofMinutes(11)))));
+        // 워터마크 = now−lag 로 점프(5h 백로그 의도적 skip)
+        verify(watermarkRepo).save(argThat(wm2 -> wm2.getLastEnd().isAfter(t.minus(Duration.ofMinutes(11)))));
+    }
+
+    @Test
     void runScanSkipsWhenAllEdgesExcluded() {
         // D62: 도메인의 엣지가 전부 제외 대상이면 Loki 조회·워터마크 전진 없이 skip(hostname-less 폴백 금지).
         DomainConfig cfg = new DomainConfig();
@@ -885,6 +935,15 @@ class DiscoveryJobServiceTest {
     }
 
     private static ApiDiscoverProperties props(List<String> excludedHostnames, int queryBatchSize, boolean mainOnly) {
+        return props(excludedHostnames, queryBatchSize, mainOnly, Duration.ZERO);
+    }
+
+    /** D66: 롤링 샘플링 켠 변형. */
+    private static ApiDiscoverProperties propsSampling(Duration sampleWindow) {
+        return props(java.util.List.of(), 0, false, sampleWindow);
+    }
+
+    private static ApiDiscoverProperties props(List<String> excludedHostnames, int queryBatchSize, boolean mainOnly, Duration sampleWindow) {
         return new ApiDiscoverProperties(
                 new ApiDiscoverProperties.Loki("http://192.168.8.100:3200", "access_log",
                         Duration.ofSeconds(30), Duration.ofMinutes(10), 2000, 2, Duration.ofMillis(200)),
@@ -894,6 +953,6 @@ class DiscoveryJobServiceTest {
                 new ApiDiscoverProperties.Discovery(true, Duration.ofMinutes(10), Duration.ofMinutes(12),
                         Duration.ofHours(1), Duration.ofMinutes(2), 200,
                         "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$", excludedHostnames),
-                new ApiDiscoverProperties.Scan(Duration.ofMinutes(5), 100, Duration.ZERO, 0, 0L, true, Duration.ZERO, 0, false, Duration.ofMinutes(30), Duration.ofHours(2), Duration.ofHours(6), Duration.ofHours(24), 500, Duration.ofHours(24), "", Duration.ofDays(14), Duration.ofDays(1), Duration.ZERO, queryBatchSize, mainOnly));
+                new ApiDiscoverProperties.Scan(Duration.ofMinutes(5), 100, Duration.ZERO, 0, 0L, true, Duration.ZERO, 0, false, Duration.ofMinutes(30), Duration.ofHours(2), Duration.ofHours(6), Duration.ofHours(24), 500, Duration.ofHours(24), "", Duration.ofDays(14), Duration.ofDays(1), Duration.ZERO, queryBatchSize, mainOnly, sampleWindow));
     }
 }
