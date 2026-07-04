@@ -26,8 +26,15 @@ public class ApiScorer {
 
     public enum Profile { HIGH, MIDDLE, LOW }
 
-    /** 게이트 판정 결과 (doc/09 §2.2). DROP 사유 분리 → non_api dropped 메트릭 버킷팅. DROP_STATIC=정적 파일 하드 veto(D55). */
-    public enum Gate { ADMIT, DROP_EXCLUDED, DROP_WEB_FORM, DROP_LOW_SCORE, DROP_STATIC }
+    /** 게이트 판정 결과 (doc/09 §2.2). DROP 사유 분리 → non_api dropped 메트릭 버킷팅. DROP_STATIC=정적 파일 하드 veto(D55). DROP_OVERSIZE=초장문 경로 하드 veto(D68). */
+    public enum Gate { ADMIT, DROP_EXCLUDED, DROP_WEB_FORM, DROP_LOW_SCORE, DROP_STATIC, DROP_OVERSIZE }
+
+    /**
+     * 경로 template 길이 상한(D68) — 초과 시 비-API 확정(DROP_OVERSIZE) + persist 측 가드(upsertDiscovered)도 동일 임계.
+     * 근거: ①정상 API 경로는 실무 URL 한계(~2KB)를 넘지 않음(실관측 초과분=SQLi 페이로드 3.3K~43KB)
+     * ②discovered_endpoint unique(host,method,path_template) btree 인덱스 행 한계(압축 후 2,704B)를 안전 하회해야 INSERT 가능.
+     */
+    public static final int MAX_PATH_TEMPLATE_CHARS = 2048;
 
     /** 신호별 가중치 + 임계값 (doc/08 §4 보정값, doc/09 §6 pathHint 추가, doc/17 §3 responseTypeApi 추가). */
     public record Weights(
@@ -166,7 +173,11 @@ public class ApiScorer {
      * 순서: exclude(최우선) → api 힌트(임계 우회 admit) → web-form 억제 → score 게이트.
      */
     public Gate evaluate(DiscoveredEndpoint d, boolean corsPreflight, ApiHintMatcher hints) {
-        // 1. exclude — 게이트 내 최우선(힌트·점수 무시)
+        // 0. ★초장문 경로 하드 veto (D68) — 힌트·점수 무관 최우선(정상 API 일 수 없는 길이, 공격 페이로드/블롭).
+        if (d.pathTemplate() != null && d.pathTemplate().length() > MAX_PATH_TEMPLATE_CHARS) {
+            return Gate.DROP_OVERSIZE;
+        }
+        // 1. exclude — operator 제외(힌트·점수 무시)
         if (hints.excluded(d.pathTemplate())) {
             return Gate.DROP_EXCLUDED;
         }

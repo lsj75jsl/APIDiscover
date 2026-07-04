@@ -38,7 +38,7 @@ class ReportBuilderTest {
         LogWindow window = new LogWindow(Instant.EPOCH, Instant.EPOCH.plusSeconds(3600));
         var typeDist = new TypeDistribution(List.of(new TypeDistribution.Entry("document", 10L)), 2);
         DiscoveryReport report = builder.build("api.example.com", 7L, window, 4, findings,
-                new DroppedNonApi(2, 1, 3, 0), new DroppedByLimit(4, 5), new DroppedNonExistent(8),
+                new DroppedNonApi(2, 1, 3, 0, 0), new DroppedByLimit(4, 5), new DroppedNonExistent(8),
                 new EndpointKindSignal(SignalStatus.ACTIVE, 0.1, 0.5), typeDist,
                 new PreflightSignal(SignalStatus.ACTIVE, 3),
                 new SpecSource(7L, SpecFormat.OPENAPI, List.of("w1")));
@@ -58,7 +58,7 @@ class ReportBuilderTest {
         assertThat(s.lowConfidence()).isEqualTo(1); // /s2 confidence 0.4<0.5 (doc/25 §A.3)
 
         // dropped 메트릭 임베드 (doc/12 §2, doc/13 §1.2)
-        assertThat(report.droppedNonApi()).isEqualTo(new DroppedNonApi(2, 1, 3, 0));
+        assertThat(report.droppedNonApi()).isEqualTo(new DroppedNonApi(2, 1, 3, 0, 0));
         assertThat(report.droppedNonApi().total()).isEqualTo(6);
         assertThat(report.droppedByLimit()).isEqualTo(new DroppedByLimit(4, 5));
         assertThat(report.droppedByLimit().total()).isEqualTo(9);
@@ -80,7 +80,7 @@ class ReportBuilderTest {
         assertThat(report.summary().shadow()).isZero();
         assertThat(report.summary().zombie()).isZero();
         // null 전달 → 빈 결과 으로 정규화(항상 non-null, doc/12 §3, doc/13 §1.2, doc/19 §4)
-        assertThat(report.droppedNonApi()).isEqualTo(new DroppedNonApi(0, 0, 0, 0));
+        assertThat(report.droppedNonApi()).isEqualTo(new DroppedNonApi(0, 0, 0, 0, 0));
         assertThat(report.droppedByLimit()).isEqualTo(new DroppedByLimit(0, 0));
         assertThat(report.droppedNonExistent()).isEqualTo(DroppedNonExistent.NONE);
         assertThat(report.endpointKindSignal()).isEqualTo(EndpointKindSignal.NONE); // doc/20

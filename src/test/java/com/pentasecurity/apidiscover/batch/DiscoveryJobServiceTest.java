@@ -39,8 +39,13 @@ import com.pentasecurity.apidiscover.ingest.LokiBudget;
 import com.pentasecurity.apidiscover.ingest.LokiClient;
 import com.pentasecurity.apidiscover.match.EndpointMatcherCache;
 import com.pentasecurity.apidiscover.ingest.LokiQueryBuilder;
+import com.pentasecurity.apidiscover.match.EndpointMatcher;
 import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
+import com.pentasecurity.apidiscover.model.DiscoveredEndpoint;
+import com.pentasecurity.apidiscover.model.EndpointKind;
+import com.pentasecurity.apidiscover.model.ParamCandidates;
 import com.pentasecurity.apidiscover.model.ParsedRequest;
+import com.pentasecurity.apidiscover.model.TemplateSource;
 import com.pentasecurity.apidiscover.normalize.CardinalityNormalizer;
 import com.pentasecurity.apidiscover.normalize.EndpointKindClassifier;
 import com.pentasecurity.apidiscover.normalize.InventoryBuilder;
@@ -55,7 +60,9 @@ import com.pentasecurity.apidiscover.spec.SpecFormat;
 import com.pentasecurity.apidiscover.spec.SpecStore;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
@@ -122,6 +129,11 @@ class DiscoveryJobServiceTest {
 
     /** 동일 mock 셋으로 props 만 달리한 서비스(D62 제외 엣지 테스트 등). */
     private DiscoveryJobService serviceWith(ApiDiscoverProperties p) {
+        return serviceWith(p, discoveredRepo);
+    }
+
+    /** discoveredRepo 까지 교체한 서비스 — D68 저장 격리(엔드포인트별 try/catch) 테스트용. */
+    private DiscoveryJobService serviceWith(ApiDiscoverProperties p, DiscoveredEndpointRepository discovered) {
         return new DiscoveryJobService(
                 new LogLineParser(NORM, ParseProperties.defaults()),
                 new InventoryBuilder(new PathNormalizer(), new EndpointKindClassifier(),
@@ -137,7 +149,7 @@ class DiscoveryJobServiceTest {
                 scanRepo,
                 domainRepo,
                 watermarkRepo,
-                discoveredRepo,
+                discovered,
                 lokiClient,
                 lokiQueryBuilder,
                 lokiBudget,
@@ -321,6 +333,65 @@ class DiscoveryJobServiceTest {
 
         verify(lokiClient, never()).queryRange(any(), any());          // 조회 0
         verify(watermarkRepo, never()).save(any());                    // 전진도 없음(대상 아님)
+    }
+
+    @Test
+    void runScanSkipsWhenEdgesExcludedByPrefixWildcard() {
+        // D69: 'P*' 접두 항목 — P 로 시작하는 전 엣지가 제외 대상(사용자 확정: API 검색 로그 대상 아님).
+        DomainConfig cfg = new DomainConfig();
+        cfg.setHost(HOST);
+        cfg.setEnabled(true);
+        cfg.setLastSeenAt(Instant.now());
+        cfg.setHostnames(new java.util.ArrayList<>(List.of("PAI13", "PAIP8"))); // 전부 P* → 제외
+        when(domainRepo.findById(HOST)).thenReturn(Optional.of(cfg));
+        when(lokiBudget.hasBudget()).thenReturn(true);
+
+        serviceWith(props(List.of("P*"))).runScan(HOST, Duration.ofMinutes(30));
+
+        verify(lokiClient, never()).queryRange(any(), any());
+        verify(watermarkRepo, never()).save(any());
+    }
+
+    @Test
+    void upsertSkipsOversizePathTemplateBeforeSave() {
+        // D68 가드: 임계(2,048자) 초과 경로는 identity 생성 없이 스킵 — btree unique 인덱스 행 한계 위반 원천 차단.
+        DiscoveredEndpoint giant = ep("GET", "/a/" + "x".repeat(2100));
+        DiscoveredEndpoint normal = ep("GET", "/api/items/{id}");
+
+        service.upsertDiscovered("h.example.com", new HashMap<>(), List.of(giant, normal),
+                new EndpointMatcher(List.of()), window);
+
+        assertThat(discStore).extracting(DiscoveredEndpointRecord::getPathTemplate)
+                .containsExactly("/api/items/{id}");
+    }
+
+    @Test
+    void upsertIsolatesPerEndpointSaveFailure() {
+        // D68(C안): 한 행 저장 실패(인덱스 한계 등 예상 밖 오류)가 같은 도메인 나머지 행 저장을 막지 않는다.
+        java.util.List<DiscoveredEndpointRecord> saved = new java.util.ArrayList<>();
+        DiscoveredEndpointRepository failing = mock(DiscoveredEndpointRepository.class);
+        when(failing.save(any())).thenAnswer(inv -> {
+            DiscoveredEndpointRecord r = inv.getArgument(0);
+            if (r.getPathTemplate().contains("boom")) {
+                throw new IllegalStateException("simulated index row failure");
+            }
+            saved.add(r);
+            return r;
+        });
+
+        serviceWith(props(), failing).upsertDiscovered("h.example.com", new HashMap<>(),
+                List.of(ep("GET", "/boom"), ep("GET", "/ok/{id}")), new EndpointMatcher(List.of()), window);
+
+        assertThat(saved).extracting(DiscoveredEndpointRecord::getPathTemplate)
+                .containsExactly("/ok/{id}"); // 실패 행만 스킵, 후속 행 저장 지속(예외 미전파)
+    }
+
+    /** D68 테스트용 최소 DiscoveredEndpoint. */
+    private static DiscoveredEndpoint ep(String method, String tmpl) {
+        DiscoveredEndpoint.Metrics m = new DiscoveredEndpoint.Metrics(
+                1L, Instant.EPOCH, Instant.EPOCH, Map.of("2xx", 1L), 1, 1, 10);
+        return new DiscoveredEndpoint(method + " h " + tmpl, method, "h.example.com", tmpl,
+                TemplateSource.INFERRED, EndpointKind.UNKNOWN, 0.0, false, false, m, ParamCandidates.EMPTY);
     }
 
     @Test

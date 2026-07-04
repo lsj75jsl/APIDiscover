@@ -51,7 +51,7 @@ public class ReportBuilder {
 
         var summary = new DiscoveryReport.Summary(discoveredCount, active, shadow, zombie, unused, lowConfidence);
         // droppedNonApi/droppedByLimit 는 항상 non-null(빈 결과) → shape 일관 (doc/12 §3, doc/13 §1.2)
-        DroppedNonApi nonApi = dropped != null ? dropped : new DroppedNonApi(0, 0, 0, 0);
+        DroppedNonApi nonApi = dropped != null ? dropped : new DroppedNonApi(0, 0, 0, 0, 0);
         DroppedByLimit byLimit = droppedByLimit != null ? droppedByLimit : DroppedByLimit.NONE;
         DroppedNonExistent nonExistent = droppedNonExistent != null ? droppedNonExistent : DroppedNonExistent.NONE;
         EndpointKindSignal kindSignal = endpointKindSignal != null ? endpointKindSignal : EndpointKindSignal.NONE;

@@ -96,7 +96,7 @@ class LokiLiveIntegrationTest {
         List<Finding> findings = new Classifier(new ApiScorer()).classify(discovered, List.of(), matcher);
         DiscoveryReport report = new ReportBuilder().build(
                 DOMAIN, 0L, window, discovered.size(), findings,
-                new DroppedNonApi(0, 0, 0, 0), new DroppedByLimit(0, 0), DroppedNonExistent.NONE,
+                new DroppedNonApi(0, 0, 0, 0, 0), new DroppedByLimit(0, 0), DroppedNonExistent.NONE,
                 EndpointKindSignal.NONE, TypeDistribution.NONE, PreflightSignal.NONE, SpecSource.EMPTY);
 
         // 검증

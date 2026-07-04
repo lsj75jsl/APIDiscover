@@ -5,6 +5,21 @@
 
 ---
 
+## 2026-07-04 세션 68 — SQLi 공격 조사 + 초장문 경로 가드·저장 격리(D68) + P* 엣지 제외(D69)
+
+### 한 일
+- **에러 2건 심층 조사(사용자 요청)** — 07-04 05:06Z·07:12Z 모두 keeperlabo.jp: **SQLi 스캐너 공격**(sqlmap 류 MySQL error-based, EXTRACTVALUE/CONCAT 페이로드, `/blog/date/…` WordPress 경로). 공격원 **IP 45.134.142.225**(원시 로그 실물 확인, 엣지 AAI13). 버스트 3회 — **06-22 13:59~14:12 KST · 07-02 18:02~18:19 KST · 07-04 19:15~19:17 KST**. 최근 60분 전체 엣지에서 이 IP 활동 0(버스트 종료형). 이 도메인에 공격 페이로드 identity 2,978행 누적, 초장문(43KB)만 btree 인덱스 한계로 INSERT 실패가 에러의 정체.
+- **D68 구현(사용자 확정 A안+C안)**: `Gate.DROP_OVERSIZE`+`DroppedNonApi.oversizePath`(분류 게이트) + `upsertDiscovered` 길이 하드가드(2,048자) + save 별 try/catch 격리. 기존 >2KB 행 백업(d68_bak) 후 삭제.
+- **D69 구현(사용자 지시 "P 시작 엣지 제외")**: `EdgeExclusions` 접두 와일드카드(`"P*"`) — discovery·scan 공용, 기본값 반영.
+- 조사 부산물: keeperlabo.jp 매핑 엣지 = AAI13/23/33/43/53 + PAI13/23/33/43/53(조회 Master=AAI13·PAI11·PAI21·PAI31·PAI41·PAI51 — 유형4 Master 는 전역 인벤토리 사전순 첫).
+
+### 결과
+- build green **534**(신규 10: PG 2·upsert 2·게이트 2·접두 3식·매처 2)·실 PG RED-확인 2단(가드 off=격리가 흡수+오류 WARN 실증, 가드·격리 off=index row red). 영구 RED 증거 테스트 고정.
+- PR 머지·재배포·기존 행 정리 → 아래 최신 상태 참조.
+
+### 다음 단계
+- 배포 후 keeperlabo.jp 재공격 시 analyze 실패 대신 oversizePath 카운트·가드 WARN 로 흡수되는지 관찰. 매뉴얼(TW) oversizePath·P* 반영=후속.
+
 ## 2026-07-02 세션 67 — Loki 부하 장애 진단 + 안정화(버스트 복귀·타임아웃 감속·외부 파일 로깅) + 스캔 틱 매뉴얼 (D58)
 
 ### 한 일

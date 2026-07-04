@@ -7,12 +7,13 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * 관찰됐지만 spec 미매칭 + 게이트 탈락한 시그니처를 사유별로 집계(doc/12 §1).
  * non-OPTIONS·spec 미매칭·게이트 DROP_* 만 대상(OPTIONS·spec 매칭·ADMIT 은 제외).
  * {@code staticFile}=정적 파일(확장자/$type=library) 하드 veto 탈락(D55 후속, 사용자 요구).
+ * {@code oversizePath}=초장문 경로(>2048자) 하드 veto 탈락(D68 — 공격 페이로드/블롭, 인덱스 한계 초과분).
  */
-public record DroppedNonApi(int excluded, int webForm, int lowScore, int staticFile) {
+public record DroppedNonApi(int excluded, int webForm, int lowScore, int staticFile, int oversizePath) {
 
     /** 사유 합계 (파생, 단일 진실원). JSON 에 "total" 로 출현(Jackson record accessor 직렬화). */
     @JsonProperty("total")
     public int total() {
-        return excluded + webForm + lowScore + staticFile;
+        return excluded + webForm + lowScore + staticFile + oversizePath;
     }
 }

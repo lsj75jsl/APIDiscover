@@ -2,6 +2,7 @@
 package com.pentasecurity.apidiscover.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.not;
@@ -199,6 +200,46 @@ class PostgresIntegrationTest {
         d.setPathTemplate(longPath);
         DiscoveredEndpointRecord saved = discoveredRepo.save(d); // varchar(255)면 여기서 실패했음
         assertThat(discoveredRepo.findById(saved.getId()).orElseThrow().getPathTemplate()).isEqualTo(longPath);
+    }
+
+    @Test
+    void oversizePathTemplateInsertFailsOnRealPgIndexLimit() {
+        // D68 근거 고정(영구 RED 증거): 컬럼(text)은 TOAST 로 임의 길이 저장 가능하지만
+        // unique(host,method,path_template) btree 인덱스 행은 한계(압축 후 2,704B / 최대 8,191B)가 있어
+        // 고엔트로피 초장문 경로는 INSERT 자체가 불가(SQLSTATE 54000, 실배포 keeperlabo.jp SQLi 43KB 재현).
+        DiscoveredEndpointRecord d = new DiscoveredEndpointRecord();
+        d.setHost("oversize.example.com");
+        d.setMethod("GET");
+        d.setPathTemplate("/a/" + randomAlnum(10_000)); // 고엔트로피 → pglz 압축으로도 한계 초과
+        assertThatThrownBy(() -> discoveredRepo.saveAndFlush(d)).hasMessageContaining("index row");
+    }
+
+    @Test
+    void upsertDiscoveredSkipsOversizePathBeforeInsertOnRealPg() {
+        // D68 가드: 임계(2,048자) 초과 경로는 persist 전 차단 — 예외 없이 스킵되고 같은 배치의 정상 경로는 저장.
+        // RED-확인: upsertDiscovered 의 길이 가드를 제거하면 위 인덱스 한계 예외로 red.
+        String host = "oversize-guard.example.com";
+        DiscoveredEndpoint giant = endpoint(host, "GET", "/a/" + randomAlnum(10_000), 1L);
+        DiscoveredEndpoint normal = endpoint(host, "GET", "/api/items/{id}", 1L);
+
+        jobService.upsertDiscovered(host, new HashMap<>(), List.of(giant, normal),
+                new EndpointMatcher(List.of()),
+                new LogWindow(Instant.EPOCH, Instant.parse("2026-07-04T00:00:00Z")));
+
+        assertThat(discoveredRepo.findByHost(host))
+                .extracting(DiscoveredEndpointRecord::getPathTemplate)
+                .containsExactly("/api/items/{id}");
+    }
+
+    /** 시드 고정 의사난수 영숫자(재현 가능·비압축성) — Date/Random 시드 없는 비결정성 회피. */
+    private static String randomAlnum(int n) {
+        java.util.Random r = new java.util.Random(42);
+        String alpha = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        StringBuilder sb = new StringBuilder(n);
+        for (int i = 0; i < n; i++) {
+            sb.append(alpha.charAt(r.nextInt(alpha.length())));
+        }
+        return sb.toString();
     }
 
     @Test
