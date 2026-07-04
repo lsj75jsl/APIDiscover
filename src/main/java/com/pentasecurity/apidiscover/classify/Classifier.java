@@ -215,6 +215,7 @@ public class Classifier {
         int webForm = 0;
         int lowScore = 0;
         int staticFile = 0;
+        int oversizePath = 0;
         // 매칭 키 → 누적 Evidence (severity 입력). host-agnostic spec 은 여러 host d 가 한 키에 합산 (doc/16 §4)
         Map<String, Evidence> observedSpec = new HashMap<>();
 
@@ -306,6 +307,7 @@ public class Classifier {
                 case DROP_WEB_FORM -> webForm++;    // not_api: web form 제출(write-to-WEB_PAGE)
                 case DROP_LOW_SCORE -> lowScore++;  // not_api: 점수 미달
                 case DROP_STATIC -> staticFile++;   // not_api: 정적 파일 하드 veto(D55)
+                case DROP_OVERSIZE -> oversizePath++; // not_api: 초장문 경로 하드 veto(D68)
                 // 향후 Gate 값 추가 시 silent 미카운트 방지 (fail-fast). 현재 5값 완전 처리라 동작 무변경.
                 default -> throw new IllegalStateException("unhandled gate: " + gate);
             }
@@ -368,7 +370,7 @@ public class Classifier {
                 ? new PreflightSignal(SignalStatus.ACTIVE, acrmPresentOptions)
                 : PreflightSignal.NONE;
         return new ClassificationResult(
-                findings, new DroppedNonApi(excluded, webForm, lowScore, staticFile), preflightSignal);
+                findings, new DroppedNonApi(excluded, webForm, lowScore, staticFile, oversizePath), preflightSignal);
     }
 
     /** Shadow 근거(doc/34 §2): 점수 게이트(ADMIT). scoreExplain 으로 신호별 내역·총점·임계 수집(mode=pathless|explicit_hint). */

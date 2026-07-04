@@ -37,8 +37,8 @@ public class DomainDiscoveryService {
     private final DomainUpserter upserter;
     private final ApiDiscoverProperties props;
     private final Pattern hostPattern;
-    /** D62: 대상 제외 엣지(hostname 라벨) — 이 엣지의 관측은 없는 것으로 취급(등록·lastSeen 갱신 안 함). */
-    private final Set<String> excludedHostnames;
+    /** D62·D69: 대상 제외 엣지(hostname 라벨, 정확 일치 + 'X*' 접두) — 이 엣지의 관측은 없는 것으로 취급(등록·lastSeen 갱신 안 함). */
+    private final EdgeExclusions excludedHostnames;
 
     public DomainDiscoveryService(LokiClient loki, DomainConfigRepository repo,
                                   DomainUpserter upserter, ApiDiscoverProperties props) {
@@ -47,8 +47,7 @@ public class DomainDiscoveryService {
         this.upserter = upserter;
         this.props = props;
         this.hostPattern = Pattern.compile(props.discovery().hostPattern());
-        List<String> excl = props.discovery().excludedHostnames();
-        this.excludedHostnames = (excl == null) ? Set.of() : Set.copyOf(excl);
+        this.excludedHostnames = new EdgeExclusions(props.discovery().excludedHostnames());
     }
 
     /** 디스커버리 1회 실행 결과(스케줄러 로그·테스트용). */

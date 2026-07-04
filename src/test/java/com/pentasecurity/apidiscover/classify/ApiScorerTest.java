@@ -48,6 +48,15 @@ class ApiScorerTest {
     }
 
     @Test
+    void oversizePathTemplateIsHardVetoed() {
+        // D68: 초장문 경로(>2,048자, 공격 페이로드/블롭)는 힌트·점수 무관 최우선 비-API —
+        // discovered_endpoint unique btree 인덱스 행 한계(압축 후 ~2.7KB) 이하만 persist 가능.
+        var d = de("api.example.com", "GET", "/blog/" + "x".repeat(ApiScorer.MAX_PATH_TEMPLATE_CHARS),
+                EndpointKind.UNKNOWN, 100, true, true);
+        assertThat(middle.evaluate(d, true, ApiHintMatcher.NONE)).isEqualTo(ApiScorer.Gate.DROP_OVERSIZE);
+    }
+
+    @Test
     void webPageOnNonApiHostIsNotCandidate() {
         // dreampark /m03/{id} 케이스: id + repeat 만 → 0.27
         var d = de("www.example.com", "GET", "/m03/{id}", EndpointKind.UNKNOWN, 100, false, false);

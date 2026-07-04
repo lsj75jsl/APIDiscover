@@ -604,6 +604,19 @@ gap-free 크롤은 활성 수요(~22.6k 윈도우/h) vs 예산 용량(D65 후 ~7
 - **한계(정직)**: 캡 상향 이득 상한 13.7% — 서브배치 39%는 fill=1(틱당 due 1개 엣지), 전체 쿼리 24%는 페이지네이션이라 캡과 무관. 캡 30 은 +4.2%p 추가 — 20 관측(elapsedMs·페이스) 후 단계 적용. excluded-hostnames 기본값은 현 사이트 엣지명 기준 — 다른 WAAP 환경이면 env 로 교체.
 - **검증**: build green(전 테스트)·재배포 후 batchSize=20 틱 요약·fill≤20 elapsedMs·시간당 쿼리 ≤6000 확인.
 
+### D68. 초장문 path_template 하드 veto + 엔드포인트 저장 격리 (2026-07-04, 사용자 확정 A안+C안)
+- **배경(실배포 장애)**: keeperlabo.jp 가 SQLi 스캐너 공격(sqlmap 류, IP 45.134.142.225, 버스트 06-22·07-02·07-04) — 페이로드 URL 이 엔드포인트로 수집되다 3.3K~43KB 초장문 경로가 `discovered_endpoint` unique(host,method,path_template) **btree 인덱스 행 한계(압축 후 2,704B/최대 8,191B) 초과**로 INSERT 실패(SQLSTATE 54000) → 그 틱 해당 도메인 analyze 실패 반복(2~3건/일). 컬럼(text)은 TOAST 로 무제한이나 인덱스 항목은 TOAST 불가가 근본 원인. 저장된 7,414자는 반복패턴 압축 덕(고엔트로피만 실패).
+- **A안(2단 가드)**: ① `ApiScorer.MAX_PATH_TEMPLATE_CHARS`(2,048자) — `Gate.DROP_OVERSIZE`(evaluate 0단계 최우선 하드 veto) + `DroppedNonApi.oversizePath` 카운터(리포트 가시화, additive) ② `upsertDiscovered` persist 하드가드 — 초과 identity skip+집계 warn(DB 제약 위반 원천 차단). truncate 가 아닌 **drop**(2KB 초과=정상 API 불가, 페이로드 반보관 무가치. 공격 흔적은 로그/카운터로 유지).
+- **C안(저장 격리)**: `discoveredRepo.save` 별 try/catch — 한 행 실패(예상 밖 오류)가 같은 도메인 나머지 행 저장을 막지 않음(pathLen/head 로그). 배치 경로는 save 별 개별 tx 라 격리 유효(analyze @Transactional 은 self-invocation 으로 배치 경로 무력 — 알려진 한계, 주석 명시).
+- **기존 데이터 정리(사용자 요청)**: >2,048자 행 백업 테이블(d68_bak) 후 DELETE.
+- **검증**: build green **534**(신규 10)·실 PG RED-확인 2단(가드 off→격리가 흡수해 green+오류 WARN 실증 / 가드+격리 off→index row 초과 red). 영구 RED 증거 = `oversizePathTemplateInsertFailsOnRealPgIndexLimit`(실 PG 한계 재현 고정). 매뉴얼(TW) oversizePath 반영=후속.
+
+### D69. P* 엣지 제외 — excluded-hostnames 접두 와일드카드 (2026-07-04, 사용자 확정)
+사용자: "P 로 시작하는 엣지의 로그는 API 검색용 로그 검색 대상에서 제외해도 된다."
+- **구현**: `EdgeExclusions`(신규) — excluded-hostnames 항목이 `*` 로 끝나면 접두 일치, 아니면 정확 일치(D62 그대로). discovery 등록·출석·스캔 조회 공용. 기본값에 `"P*"` 추가(D67 기본값 승격 위에). 목록 나열 대신 규칙이라 신규 P 엣지 등록에도 자동 적용(노후화 방지).
+- **효과**: PAI/PAIP/PAIL 등 P 계열(관측 27종) 조회 제거 — keeperlabo 류 도메인은 AAI Master 만 조회. P* 에서만 보이던 도메인은 lastSeen 정체→inactive-after 게이트가 자연 제외(D62 소프트 제외 의미 동일, self-healing).
+- **검증**: build green 534 내 신규(접두 매처 2·discovery 접두 1·scan P* skip 1).
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.

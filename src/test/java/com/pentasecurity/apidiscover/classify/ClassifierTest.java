@@ -227,7 +227,7 @@ class ClassifierTest {
         ClassificationResult res = classifier.classifyWithMetrics(
                 discovered, spec, matcher, new ApiScorer(), hints);
 
-        assertThat(res.dropped()).isEqualTo(new DroppedNonApi(1, 1, 1, 0));
+        assertThat(res.dropped()).isEqualTo(new DroppedNonApi(1, 1, 1, 0, 0));
         assertThat(res.dropped().total()).isEqualTo(3);
         assertThat(byClass(res.findings(), Classification.SHADOW))
                 .extracting(Finding::pathTemplate).containsExactly("/api/orders"); // ADMIT 만 Shadow
@@ -241,6 +241,19 @@ class ClassifierTest {
         int specMatched = byClass(res.findings(), Classification.ACTIVE).size()
                 + byClass(res.findings(), Classification.ZOMBIE).size();
         assertThat(nonOptions).isEqualTo(specMatched + shadow + res.dropped().total());
+    }
+
+    @Test
+    void oversizePathIsCountedAsOversizeDrop() {
+        // D68: 초장문 경로(>2,048자)는 DROP_OVERSIZE 버킷 — 보고서 dropped.oversizePath 로 가시화(미보고).
+        List<DiscoveredEndpoint> discovered = List.of(
+                de("GET", "/a/" + "x".repeat(2100), TemplateSource.INFERRED, EndpointKind.UNKNOWN, 10, "2xx", 5));
+
+        ClassificationResult res = classifier.classifyWithMetrics(
+                discovered, List.of(), new EndpointMatcher(List.of()), new ApiScorer(), ApiHintMatcher.NONE);
+
+        assertThat(res.dropped()).isEqualTo(new DroppedNonApi(0, 0, 0, 0, 1));
+        assertThat(res.findings()).isEmpty();
     }
 
     // --- OPTIONS preflight inconclusive (doc/23 M1) ---

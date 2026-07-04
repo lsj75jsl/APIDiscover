@@ -39,7 +39,7 @@
 
 #### 분류 (04/16 문서)
 > (OPTIONS preflight·cross-scan recency severity 완료, Done 참조)
-- [ ] **초장문 path_template 인덱스 초과 가드 (신규 2026-07-03 운영 관측)** — `discovered_endpoint` UNIQUE(host,method,path_template) btree 는 인덱스 행 ~2.7KB(압축 후) 한계. 3.3KB~43KB 경로(공격성/블롭 트래픽 추정) INSERT 실패(금일 3건, JpaSystemException — PR #28 text 전환 후 잠복). 정규화/persist 전 경로 길이 상한 필요(예: >2KB 는 DroppedNonApi drop+카운터, 또는 해시 축약 컬럼으로 UNIQUE 이전). 영향=해당 틱 그 도메인 persist 일부 유실(다음 방문 self-heal)·빈도 낮음(~1건/4h).
+> (초장문 path_template 가드 — D68 로 구현 완료, Done 참조)
 - [x] **정적 파일 API 오탐 수정 — 하드 veto + 정적 리소스 파일명 감점** **(구현 완료 — build green 504·실 PG OK·RED-확인·커밋 보류·머지 시 Done. D56, 사용자 요청)** — ① 정적 확장자(.css/.js/.png/.webp… isStaticPath 또는 $type=library=STATIC) → `Gate.DROP_STATIC` 하드 veto(점수·api키워드 무관 비-API). `DroppedNonApi` +staticFile. ② 정적 리소스 파일명 토큰(img/image/thumb/resize/css/download… `hasStaticResourceName`) → `staticAssetPenalty`(-0.6) 발화 → img.php(WEB_PAGE) 오탐 탈락. ★.php 는 정적 확장자 미포함(veto 아님·감점만, 실 API 보존)·모호 토큰 제외. 매뉴얼(TW)=후속.
 
 #### 리포트/출력 (01/12/14 문서)
@@ -161,6 +161,15 @@
 ---
 
 ## Done
+
+### 초장문 경로 가드·저장 격리(D68) + P* 엣지 제외(D69) (2026-07-04, 사용자 확정 A+C안·P* 지시)
+- [x] **D68-A 분류 게이트**: `Gate.DROP_OVERSIZE`(evaluate 0단계, >2,048자 하드 veto) + `DroppedNonApi.oversizePath`(리포트 가시화, additive). 근거=keeperlabo.jp SQLi 페이로드(IP 45.134.142.225)의 43KB 경로가 btree 인덱스 행 한계 초과 INSERT 실패.
+- [x] **D68-A persist 가드**: `upsertDiscovered` 길이 초과 identity skip+집계 warn — DB 제약 위반 원천 차단.
+- [x] **D68-C 저장 격리**: save 별 try/catch — 한 행 실패가 같은 도메인 나머지 저장을 안 막음(pathLen/head 로그).
+- [x] **기존 데이터 정리**: >2,048자 행 백업 테이블(d68_bak) 후 DELETE(사용자 요청).
+- [x] **D69 P* 제외**: `EdgeExclusions` 접두 와일드카드 — excluded-hostnames 에 `"P*"` 기본 추가(discovery·scan 공용, D62 의미 유지).
+- [x] 검증: build green 534(신규 10)·실 PG RED-확인 2단·영구 RED 증거 테스트(`oversizePathTemplateInsertFailsOnRealPgIndexLimit`).
+- [ ] 매뉴얼(TW)=후속: /result `droppedNonApi.oversizePath` 필드·P* 제외 규칙 반영(api-rest·scan-tick).
 
 ### 스캔 실시간화 D59~D67 — 무접속 게이트·delta-skip·엣지 제외/배칭/Main-only·활성 우선·롤링 샘플링·기본값 승격 (2026-07-02~03, 사용자 요청·확정)
 - [x] **D59 무접속 게이트 전환**: `lastSeenAt`(discovery 실시간) 기준 + 배포 P3D — 소프트 제외·self-healing. RED-확인.

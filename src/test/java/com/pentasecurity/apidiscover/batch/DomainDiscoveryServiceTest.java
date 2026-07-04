@@ -68,6 +68,21 @@ class DomainDiscoveryServiceTest {
         assertThat(mixed.getHostnames()).containsExactly("AHJ11"); // 제외 엣지 매핑 미등록
     }
 
+    @Test
+    void prefixWildcardExcludesWholeEdgeFamily() {
+        // D69: 'P*' 접두 항목 = P 로 시작하는 전 엣지 제외(신규 P 엣지 등록돼도 자동 커버).
+        when(loki.queryInstant(any(), any())).thenReturn(List.of(
+                sample("p-only.example.com", "PAI13", 100),   // P* 에서만 관측 → 미등록
+                sample("mixed2.example.com", "PAIP8", 50),    // 혼합: P* 관측 drop
+                sample("mixed2.example.com", "AAI13", 30)));  //       비제외 엣지 관측만 반영
+
+        DomainDiscoveryService.DiscoveryResult r = serviceWithExcluded(List.of("P*")).discover(NOW);
+
+        assertThat(r.inserted()).isEqualTo(1);
+        assertThat(db.stream().map(DomainConfig::getHost)).doesNotContain("p-only.example.com");
+        assertThat(find("mixed2.example.com").getHostnames()).containsExactly("AAI13");
+    }
+
     // --- FQDN 거름: 변조/비FQDN Host 자동등록 차단 ---
 
     @Test

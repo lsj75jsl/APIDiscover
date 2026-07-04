@@ -3,6 +3,7 @@ package com.pentasecurity.apidiscover.batch;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pentasecurity.apidiscover.classify.ApiScorer;
 import com.pentasecurity.apidiscover.classify.ClassificationResult;
 import com.pentasecurity.apidiscover.classify.Classifier;
 import com.pentasecurity.apidiscover.classify.EffectiveClassification;
@@ -76,8 +77,8 @@ public class DiscoveryJobService {
     private final ObjectMapper objectMapper;
     private final ApiDiscoverProperties props;
 
-    /** D62: 대상 제외 엣지 — 스캔 조회에서 이 엣지 매핑을 뺀다(디스커버리 필터와 동일 목록). */
-    private final Set<String> excludedEdges;
+    /** D62·D69: 대상 제외 엣지(정확 일치 + 'X*' 접두) — 스캔 조회에서 이 엣지 매핑을 뺀다(디스커버리 필터와 동일 목록). */
+    private final EdgeExclusions excludedEdges;
     /** D65: 엣지 그룹 Master 해석기 — edge-group-main-only 시 조회 엣지를 Master 로 치환. */
     private final EdgeGroupResolver edgeGroups;
 
@@ -116,8 +117,7 @@ public class DiscoveryJobService {
         this.budget = budget;
         this.objectMapper = objectMapper;
         this.props = props;
-        List<String> excl = props.discovery().excludedHostnames();
-        this.excludedEdges = (excl == null) ? Set.of() : Set.copyOf(excl);
+        this.excludedEdges = new EdgeExclusions(props.discovery().excludedHostnames());
         this.edgeGroups = edgeGroups;
     }
 
@@ -494,7 +494,15 @@ public class DiscoveryJobService {
         Instant scanEnd = (window != null) ? window.to() : null;
         long count = prior.size();
         int dropped = 0;
+        int oversize = 0;
+        int saveFailed = 0;
         for (DiscoveredEndpoint d : discovered) {
+            // ★D68 길이 하드가드: unique(host,method,path_template) btree 인덱스 행 한계(압축 후 ~2.7KB) 초과 경로는
+            //   INSERT 자체가 불가(SQLSTATE 54000, 실관측=SQLi 페이로드 43KB) — persist 전 차단. 분류 게이트(DROP_OVERSIZE)와 동일 임계.
+            if (d.pathTemplate() != null && d.pathTemplate().length() > ApiScorer.MAX_PATH_TEMPLATE_CHARS) {
+                oversize++;
+                continue;
+            }
             // dedup 키 = 영속 identity 와 동일(host=파라미터, prior 적재 키도 동일) — d.host() 발산해도 기존 행/배치 중복 매칭.
             // ★host 는 d.host() 아닌 host 파라미터: 신규 rec 가 setHost(host)로 영속되므로 키도 host 여야 prior·DB 와 일치(reviewer 발견).
             String key = identityKey(d.method(), host, d.pathTemplate());
@@ -524,11 +532,28 @@ public class DiscoveryJobService {
             rec.setEndpointKind((d.endpointKind() != null) ? d.endpointKind().name() : null);
             rec.setKindConfidence(d.kindConfidence());
             rec.setVersion(deriveVersion(d, matcher));
-            discoveredRepo.save(rec);
+            try {
+                discoveredRepo.save(rec);
+            } catch (RuntimeException ex) {
+                // ★D68 엔드포인트 격리(C): 한 행의 저장 실패가 같은 도메인 나머지 행 저장을 막지 않게 한다
+                //   (배치 틱 경로는 save 별 개별 tx 라 격리 유효. 프록시 경유 외부 tx 활성 시엔 rollback-only 로 후속도 실패하나 로그는 남음).
+                saveFailed++;
+                String pt = d.pathTemplate();
+                log.warn("discovered_endpoint save failed host={} method={} pathLen={} pathHead={} : {}",
+                        host, d.method(), (pt != null) ? pt.length() : -1,
+                        (pt != null) ? pt.substring(0, Math.min(120, pt.length())) : null, ex.getMessage());
+            }
         }
         if (dropped > 0) {
             log.warn("discovered_endpoint cap {} reached for host={} — {} new identities dropped",
                     TEMPLATE_CAP, host, dropped);
+        }
+        if (oversize > 0) {
+            log.warn("oversize path_template dropped for host={} — {} identities (>{} chars, D68)",
+                    host, oversize, ApiScorer.MAX_PATH_TEMPLATE_CHARS);
+        }
+        if (saveFailed > 0) {
+            log.warn("discovered_endpoint save failures isolated for host={} — {} rows skipped", host, saveFailed);
         }
     }
 
