@@ -169,7 +169,8 @@
 - [x] **기존 데이터 정리**: >2,048자 행 백업 테이블(d68_bak) 후 DELETE(사용자 요청).
 - [x] **D69 P* 제외**: `EdgeExclusions` 접두 와일드카드 — excluded-hostnames 에 `"P*"` 기본 추가(discovery·scan 공용, D62 의미 유지).
 - [x] 검증: build green 534(신규 10)·실 PG RED-확인 2단·영구 RED 증거 테스트(`oversizePathTemplateInsertFailsOnRealPgIndexLimit`).
-- [ ] 매뉴얼(TW)=후속: /result `droppedNonApi.oversizePath` 필드·P* 제외 규칙 반영(api-rest·scan-tick).
+- [x] 매뉴얼 반영(api-discovery-manual.html, 07-06 사용자 요청) — §2.1 현재 스캔 정책(D58~D69)·§7.7 스캔 정책이 버리는 데이터·§7.8 검출 파이프라인이 버리는 데이터(`DROP_OVERSIZE`·P* 포함)·§7.6 낡은 한계(디스커버리 미구현 등) 정정. HTML 정합성 검증(태그 균형·앵커).
+- [ ] 매뉴얼(TW)=후속: api-rest-manual `/result` 응답 예시에 `droppedNonApi.oversizePath` 필드 반영(스키마 측).
 
 ### 스캔 실시간화 D59~D67 — 무접속 게이트·delta-skip·엣지 제외/배칭/Main-only·활성 우선·롤링 샘플링·기본값 승격 (2026-07-02~03, 사용자 요청·확정)
 - [x] **D59 무접속 게이트 전환**: `lastSeenAt`(discovery 실시간) 기준 + 배포 P3D — 소프트 제외·self-healing. RED-확인.
