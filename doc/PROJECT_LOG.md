@@ -17,8 +17,14 @@
 - build green **534**(신규 10: PG 2·upsert 2·게이트 2·접두 3식·매처 2)·실 PG RED-확인 2단(가드 off=격리가 흡수+오류 WARN 실증, 가드·격리 off=index row red). 영구 RED 증거 테스트 고정.
 - PR 머지·재배포·기존 행 정리 → 아래 최신 상태 참조.
 
+### 결과2 — 배포 후 운영 확인 + 일시 과부하 대응 + 12h 추격 검증
+- **재배포(07-04 14:35Z, b73464f)**: P-엣지 스캔쿼리 0(D69)·oversize 에러 0(D68)·틱당 쿼리 ~110→~55-64(P* 제외로 용량 여유)·excludedEdge 4263→14287.
+- **일시 과부하(자책 학습)**: 매니저의 주간 SQLi 조사 광역쿼리(24h·주간 집계 등, 전부 30-110s 타임아웃)가 운영 Loki 과부하 유발 → 앱 discovery 집계 쿼리 타임아웃(throttle 1→3)·last_seen 정체 → 스캔 전건 delta-skip(파이프라인 유휴). 앱 쿼리량은 되레 바닥(1/10분)이라 앱 무관 확인. **교훈**: 운영 Loki 광역 조사는 30분 청크·스로틀 야간배치로만. [[scan-freshness-ops]]
+- **대응**: discovery 임시 중지(`DISCOVERY_ENABLED=false` env·재배포)로 앱 Loki 쿼리 0화 → 조사 중단 후 **8분 만에 Loki 회복**(30s→0.02s) → discovery 재개(env 제거·재배포, 집계 5.7s·throttle 0·active 0→8889).
+- **12h 추격 검증(07-05 13:24 KST, DB·로그만)**: **잘 따라감** — 활성 평균 워터마크 지연 44→**36분**(중앙값 35)·활성 fresh(45m) 37%→**70%**·saves/h 1202→10583·deferred 0·scan/Loki 실패 0·discovery 성공 5/실패 0·시간당 쿼리 1218(캡 6000)·throttle 0·oversize drop 1(D68 가드 실동작). 밀림 없음.
+
 ### 다음 단계
-- 배포 후 keeperlabo.jp 재공격 시 analyze 실패 대신 oversizePath 카운트·가드 WARN 로 흡수되는지 관찰. 매뉴얼(TW) oversizePath·P* 반영=후속.
+- 매뉴얼(TW) oversizePath·P* 반영=후속. 안정 운영 관찰만 잔존.
 
 ## 2026-07-02 세션 67 — Loki 부하 장애 진단 + 안정화(버스트 복귀·타임아웃 감속·외부 파일 로깅) + 스캔 틱 매뉴얼 (D58)
 
