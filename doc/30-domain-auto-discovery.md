@@ -1,7 +1,17 @@
 # 도메인 자동 디스커버리 — 인프로세스 @Scheduled + Loki 서버측 집계 (P3, A)
 
-> 브랜치 `feature/domain-discovery-deploy`. P3 'Loki 도메인 목록 추출'(TASKS) 구체화. 근거: doc/02 §1.1(필드 레이아웃)·doc/05 §2.4/§6(Loki 부하보호)·doc/06(배포모델)·doc/26(DomainConfig). 근거 결정 **DECISIONS D42**.
-> **설계만. 코드는 dev.** dev 항목은 TASKS subitem(D26). 사용자 확정(재논의 금지): coalesce full fidelity(host 비었/`-`→real_host), 부트스트랩 1h 1회 후 롤링.
+> 수집 중 access log 에서 API 도메인(Host)을 자동 열거해 `DomainConfig` 를 부트스트랩/증분 갱신한다(수동 등록 부담 제거). Loki 서버측 메트릭 집계로 (도메인×엣지) 카운트만 수신하고 coalesce·검증은 클라이언트에서 한다. 근거 [02](02-log-parsing-and-normalization.md) §1.1(필드 레이아웃)·[05](05-log-ingestion-from-loki.md) §2.4/§6(부하보호)·[06](06-implementation-stack.md)(배포)·[26](26-multi-spec-merge.md)(DomainConfig), 결정 [DECISIONS](DECISIONS.md) **D42**.
+> 사용자 확정(재논의 금지): coalesce full fidelity(host 비었/`-`→real_host), 부트스트랩 1h 1회 후 롤링.
+
+**구현 위치**
+
+| 대상 | 소스 |
+|---|---|
+| 집계·coalesce·검증 | `batch/DomainDiscoveryService`(LogQL 빌드·instant 쿼리·client coalesce·hostPattern·maxDomainsPerRun 캡) |
+| 스케줄러 | `batch/DomainDiscoveryScheduler`(@Scheduled, 스캔과 분리·stagger) |
+| 업서트(무삭제·설정보존) | `batch/DomainUpserter`(@Transactional·@DynamicUpdate managed 엔티티) |
+| 설정 | `config/ApiDiscoverProperties.Discovery`(`apidiscover.discovery.*`) |
+| DB 가산 | `domain/DomainConfig.discoveredAt`/`lastSeenAt` |
 
 ## 0. 목적 / 범위
 
@@ -22,9 +32,21 @@ sum by (host, real_host, hostname) (
 ```
 - **pattern**: `<_>^|^` ×15(인덱스 0–14 skip) → `<host>`(15) `^|^` `<real_host>`(16) → `^|^<_>`(나머지 흡수). `|` 는 따옴표 안 리터럴(파이프 아님). 필드 미달 라인은 미매칭→제외(LogLineParser FIELD_COUNT 동형).
 - **★서버 `label_format` coalesce 제거(성능 — 실 Loki 측정)**: `count_over_time(...|pattern [5m])` = **2.2s** 인데 `| label_format domain="{{coalesce}}"` 를 붙이면 **20.2s(10배)** — Go 템플릿이 라인마다 평가돼 과중 → 1h 부트스트랩·12m 롤링 모두 query-timeout(30s) 초과 → 디스커버리 실패. 따라서 서버에선 `host`·`real_host`·`hostname` 으로만 `group by` 하고, **coalesce(host 빈/`-`→real_host)·도메인 필터·FQDN 검증은 클라이언트**(`DomainDiscoveryService` 루프)에서 수행. 운영 Loki CPU 부하도 감소.
-- **클라이언트 coalesce(충실도 동일)**: `domain = firstNonEmpty(normalizeDomain(host), normalizeDomain(real_host))` — `normalizeDomain` 이 trim·소문자·빈/`-`→null. = **LogLineParser line 83 `firstNonEmpty(nullIfDash(host), nullIfDash(real_host))` 와 동일**(host(15)+real_host(16) 폴백, 사용자 확정 full fidelity). null(둘 다 부재)·FQDN 미일치는 제외(rejected).
+- **클라이언트 coalesce(충실도 동일)**: `domain = firstNonEmpty(normalizeDomain(host), normalizeDomain(real_host))` — `normalizeDomain` 이 trim·소문자·빈/`-`→null. = **LogLineParser 의 `firstNonEmpty(nullIfDash(host), nullIfDash(real_host))` 와 동일**(host(15)+real_host(16) 폴백, 사용자 확정 full fidelity). null(둘 다 부재)·FQDN 미일치는 제외(rejected).
 - **`by (host, real_host, hostname)`**: 같은 도메인이 여러 (host,real_host)·여러 hostname 으로 나올 수 있어, 클라이언트가 **coalesce 후 domain 키로 합산**(hostnames 합집합·count 합) → `DomainConfig.hostnames` 자동 채움. 응답 = 집계 벡터(라인 미전송).
 - **부하 인식(정직)**: `count_over_time(...|pattern...)` 은 W 내 전 라인을 **서버에서 파싱** → Loki CPU 비용 실재(단 label_format 제거로 ~10배 경감). W 작게(롤링), 부트스트랩 1h 는 1회·off-peak 권장, throttle/concurrency 준수(§3·§4).
+
+```mermaid
+flowchart TD
+    Q["Loki instant: sum by(host, real_host, hostname) count_over_time(...|pattern [W])"] --> V["집계 벡터 수신 (라인 미전송)"]
+    V --> C["클라이언트 coalesce: firstNonEmpty(norm(host), norm(real_host))"]
+    C --> F{"FQDN host-pattern 일치?"}
+    F -->|"아니오"| REJ["reject (변조/랜덤 Host 차단)"]
+    F -->|"예"| A["domain 키로 합산 (hostnames 합집합·count 합)"]
+    A --> CAP["maxDomainsPerRun 캡(0=무제한)"]
+    CAP --> U["DomainUpserter: INSERT / 합집합 UPDATE (설정 보존·무삭제)"]
+```
+
 
 ## 2. LokiClient 확장 — instant 메트릭 쿼리
 
@@ -87,18 +109,7 @@ apidiscover.discovery:
 - **리스크③(서버측 파싱 CPU)**: 대용량 W 의 라인 전수 파싱은 Loki 부하 → W 작게·부트스트랩 off-peak·throttle 준수.
 - **리스크④(자동등록 범위)**: 가드(§6)에도 정상 트래픽의 신규 도메인은 등록됨 — 의도된 동작. 과등록 우려 시 max-domains/host-pattern 강화로 운영 조정(삭제 없이).
 
-## 9. dev 구현 체크리스트 (TASKS subitem, D26)
-
-- [x] `LokiClient` instant 벡터 쿼리 메서드(`/loki/api/v1/query`, vector 파싱) — `requestWithRetry` URL 인자형 추출로 throttle/concurrency/backoff/timeout 재사용(queryRange 불변). `MetricSample(labels,value)` 반환.
-- [x] `ApiDiscoverProperties.Discovery` nested 레코드 + application.yml 기본값(§7).
-- [x] `DomainDiscoveryService` — LogQL(§1) 빌드·instant 쿼리·벡터→(domain→hostnames) 집계·host-pattern 검증·max-domains 상한(카운트 desc).
-- [x] 업서트(§5, 무삭제·설정보존·hostnames 합집합) + `DomainConfig.discoveredAt`/`lastSeenAt` 가산(ddl-auto). `DomainConfigRepository` 기존 메서드로 충분(findById/save/count) — 추가 메서드 불요.
-- [x] `DomainDiscoveryScheduler`(@Scheduled fixedDelay+initialDelay, enabled 토글, 예외 격리) — 스캔과 분리·stagger.
-- [x] 윈도우(롤링 + 부트스트랩 1h 1회, 빈 도메인 DB=`repo.count()==0` 감지. 영속 플래그 YAGNI).
-- [x] 테스트 — 벡터 파싱/coalesce LogQL/host-pattern 거름/max-domains 상한/업서트 머지(합집합·설정보존·무삭제)/부트스트랩 vs 롤링/필드포지션 교차검증, 13건 green. 실 Loki 검증=`DomainDiscoveryLiveIntegrationTest`(LokiLive 게이트 `-Dloki.live`, 기본 빌드 미실행).
-- [ ] doc/18 sync(technical_writer): `domain_config.discovered_at`/`last_seen_at` 컬럼.
-
-## 10. 범위 밖 / 후속
+## 9. 범위 밖 / 후속
 
 - **hostname 라벨별 셀렉터 폴백 실구현** — §6, Loki 타임아웃 측정 후.
 - **SchedulingConfigurer 런타임 동적 주기** — 재기동 허용이라 현재 불요(YAGNI).
