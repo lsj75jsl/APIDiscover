@@ -1,8 +1,8 @@
 # 내부 DB 테이블 스키마 (엔티티 역설계)
 
-> 범위: `domain` 패키지의 JPA `@Entity` 7종에서 역설계한 **실제 DB 테이블 스키마** 참고 문서.
+> 범위: `domain` 패키지의 JPA `@Entity` 9종에서 역설계한 **실제 DB 테이블 스키마** 참고 문서.
 > 코드(엔티티 애너테이션)가 단일 진실원이며, 이 문서는 그것을 1:1 로 기술한다. 마이그레이션 스크립트는 없다(아래 §1).
-> 근거 설계: doc/06(스택)·doc/10(분류 설정 저장)·DECISIONS **D11/D17**. 작성 기준 브랜치: `docs/tasks-sync-and-db-schema`.
+> 근거 설계: [06-implementation-stack](06-implementation-stack.md)(스택)·[10-classification-config-store](10-classification-config-store.md)(분류 설정 저장)·[DECISIONS](DECISIONS.md) **D11/D17**.
 
 ---
 
@@ -19,7 +19,7 @@
 
 | 항목 | dev | prod | 비고 |
 |------|-----|------|------|
-| DBMS | H2 in-memory | PostgreSQL | `build.gradle.kts` 41행 `org.postgresql:postgresql` runtimeOnly |
+| DBMS | H2 in-memory | PostgreSQL | `build.gradle.kts` `org.postgresql:postgresql` runtimeOnly |
 | 접속 | `jdbc:h2:mem:apidiscover;DB_CLOSE_DELAY=-1` (application.yml) | 운영 프로파일에서 주입(확인 필요 — prod 프로파일 yml 은 현재 리포에 없음, 런타임 주입 전제) | — |
 
 이식성을 위해 **벤더 전용 JSON 타입(PostgreSQL JSONB)을 쓰지 않는다.** JSON 데이터는 모두 `String` 필드에 `@Column(columnDefinition = "text")` 를
@@ -54,7 +54,7 @@
 | `boolean` (primitive) | `BOOLEAN` | `boolean` | **NOT NULL** |
 | `@Enumerated(STRING)` enum | `VARCHAR(255)` | `varchar(255)` | nullable(필드 기준) |
 
-**nullable 규칙**: 어떤 필드에도 `@Column(nullable=false)` 가 없다. 따라서 nullable 은 전적으로 타입으로 결정된다 —
+**nullable 규칙**: `static_classify_rule`(§2.10, `kind`/`rule_value` 에 `@Column(nullable=false)`)를 제외하면 어떤 필드에도 명시 `nullable=false` 가 없다. 그 나머지는 nullable 이 전적으로 타입으로 결정된다 —
 원시 타입(`long`/`int`/`boolean`)은 NOT NULL, 래퍼/객체 타입(`String`/`Long`/`Double`/`Instant`/enum/`byte[]`)은 nullable.
 `@Id` 컬럼은 PK 이므로 묵시적 NOT NULL.
 
@@ -77,7 +77,7 @@ INSERT 에는 이 기본값이 적용되지 않는다.
 
 ## 2. 테이블별 스키마
 
-총 8개 테이블 — 엔티티 7종이 직접 매핑하는 7개 + `DomainConfig.hostnames` 의 `@ElementCollection` 자식 테이블 1개(`domain_hostnames`).
+총 10개 테이블 — 엔티티 9종이 직접 매핑하는 9개 + `DomainConfig.hostnames` 의 `@ElementCollection` 자식 테이블 1개(`domain_hostnames`).
 
 ### 2.1 `domain_config` — 분석 대상 도메인 설정
 
@@ -243,6 +243,46 @@ H2/PG 이식성이 떨어져 채택하지 않았다(엔티티 주석·doc/10 §1
 - **`ddl-auto: update` 로 신규 생성** — 기존 테이블/데이터 무영향(doc/26 §8).
 - 리포지토리: `DiscoveredEndpointRepository extends JpaRepository<DiscoveredEndpointRecord, Long>` — `findByHost`·`findByHostAndVersion`·`findByHostAndMethodAndPathTemplate`(upsert)·`deleteByHostAndLastSeenBefore`(prune).
 
+### 2.9 `documented_api` — 영속 API 인벤토리 (문서화 API 의 현재 상태)
+
+엔티티 `DocumentedApiRecord` (`@Table(name = "documented_api")`, `@DynamicUpdate`). 설계 출처 doc/37 §1(reconcile)·doc/38(breaking 판정).
+스펙 업로드마다 reconcile 되는 **문서화(spec) API 카탈로그** — `discovered_endpoint`(트래픽 관측 SoT)의 스펙-측 대응. 캡슐화(private+접근자, D41).
+
+| 컬럼 | 필드 | JPA 타입 | SQL 타입 | PK | nullable | 비고 |
+|------|------|----------|----------|----|----------|------|
+| `id` | `id` | `@Id @GeneratedValue(IDENTITY) Long` | BIGINT (IDENTITY) | ✔ | NOT NULL | DB 자동 채번(setter 미노출, doc/29 §4) |
+| `host` | `host` | `String` | VARCHAR(255) | | nullable | 도메인 조회 키(**indexed**). 논리 FK → `domain_config.host` |
+| `spec_name` | `specName` | `String` | VARCHAR(255) | | nullable | 문서 식별(filename 도출, 미전달=default). reconcile 이 항상 비-null 정규화 |
+| `method` | `method` | `String` | VARCHAR(255) | | nullable | unique 키 일부 |
+| `path_template` | `pathTemplate` | `@Column(columnDefinition="text") String` | text | | nullable | unique 키 일부. 임의 길이 경로 → text |
+| `params_json` | `paramsJson` | `@Column(columnDefinition="text") String` | text | | nullable | `List<SpecParam>` 직렬화. `@Lob` 금지(oid 함정). PG `text` |
+| `status` | `status` | `@Enumerated(STRING) ApiStatus` | VARCHAR(255) | | nullable | 값: `ACTIVE`/`DELETED`(직전 reconcile 결과·현재 상태, doc/37 §6) |
+| `last_change` | `lastChange` | `@Enumerated(STRING) ApiChangeKind` | VARCHAR(255) | | nullable | 값: `ADDED`/`UPDATED`/`UNCHANGED` |
+| `last_change_breaking` | `lastChangeBreaking` | `boolean` | BOOLEAN | | NOT NULL | 직전 UPDATED 의 breaking 여부(doc/38 §3). `ddl-auto` 가산·기본 false |
+| `last_change_detail_json` | `lastChangeDetailJson` | `@Column(columnDefinition="text") String` | text | | nullable | UPDATED 의 param delta(`ParamChange`) 직렬화(doc/38 §3.4). `@Lob` 금지. PG `text` |
+| `deprecated` | `deprecated` | `boolean` | BOOLEAN | | NOT NULL | 스펙 deprecated 표기(Zombie 입력, doc/37 §6) |
+| `version` | `version` | `String` | VARCHAR(255) | | nullable | 스펙 version |
+| `source_spec_version` | `sourceSpecVersion` | `long` | BIGINT | | NOT NULL | 이 행을 마지막 갱신한 `spec_record.specVersion` |
+| `first_documented_at` | `firstDocumentedAt` | `Instant` | TIMESTAMP(6) | | nullable | 이 문서에 처음 등장한 시각(트래픽 아님) |
+| `last_documented_at` | `lastDocumentedAt` | `Instant` | TIMESTAMP(6) | | nullable | 마지막 업로드에서 문서에 존재한 시각 |
+| `changed_at` | `changedAt` | `Instant` | TIMESTAMP(6) | | nullable | status/param 마지막 변경 시각 |
+
+**제약/인덱스**: **UNIQUE(`host`, `spec_name`, `method`, `path_template`)**(reconcile upsert 키) + **INDEX(`host`)**, **INDEX(`host`,`spec_name`)**, **INDEX(`host`,`status`)**.
+`@DynamicUpdate` 로 reconcile 이 변경 컬럼만 UPDATE. `ddl-auto: update` 로 신규 생성(무손실).
+
+### 2.10 `static_classify_rule` — 정적 분류 규칙 (관리자 편집·reload)
+
+엔티티 `StaticClassifyRule` (`@Table(name = "static_classify_rule")`). 설계 출처 DECISIONS **D56**.
+`EndpointKindClassifier` 의 하드코드(정적 확장자·파일명 토큰)를 DB 로 외부화 — 관리자가 REST(`/api/v1/config/static-classify`)로 추가/삭제 후 `StaticClassifyRules.reload()` 로 런타임 반영. 첫 기동 시 빈 테이블이면 기본값 seed. **전역 규칙(host 무관)**.
+
+| 컬럼 | 필드 | JPA 타입 | SQL 타입 | PK | nullable | 비고 |
+|------|------|----------|----------|----|----------|------|
+| `id` | `id` | `@Id @GeneratedValue(IDENTITY) Long` | BIGINT (IDENTITY) | ✔ | NOT NULL | DB 자동 채번 |
+| `kind` | `kind` | `@Enumerated(STRING) StaticRuleKind` `@Column(nullable=false, length=20)` | VARCHAR(20) | | **NOT NULL** | 값: `EXTENSION`(확장자 endsWith→하드 veto)/`NAME_TOKEN`(파일명 토큰 contains→감점) |
+| `rule_value` | `value` | `String` `@Column(name="rule_value", nullable=false, length=100)` | VARCHAR(100) | | **NOT NULL** | 규칙 값. 컬럼명 `rule_value`(`value` 예약어 회피, H2/PG 안전) |
+
+**제약**: **UNIQUE(`kind`, `rule_value`)**(`uk_static_rule`). 본 문서에서 `@Column(nullable=false)` 를 명시하는 **유일한 테이블**(그 외는 타입으로 nullable 결정, §1.3). `ddl-auto: update` 로 신규 생성(무손실).
+
 ---
 
 ## 3. 테이블 관계
@@ -260,17 +300,18 @@ H2/PG 이식성이 떨어져 채택하지 않았다(엔티티 주석·doc/10 §1
 
 `host` 를 허브로 한 방사형 구조다. 모두 `domain_config.host` 를 논리적으로 가리키지만 DB FK 는 없다.
 
-```
-                         classification_config (전역 단일 행, host 무관)
-                                   │ (전역→도메인 상속, 앱 레벨 병합)
-                                   ▼
-   domain_config (host, PK)  ◄── 논리 FK(host) ──┐
-        ▲   ▲   ▲   ▲   ▲                        │
-        │   │   │   │   │                        │
-spec_record │   │   │   domain_classification_config(host, PK·1:1)
- (host 컬럼)│   │   discovered_endpoint(host idx, 1:N)
-            │   watermark(host, PK)
-            scan_result(host, PK)
+```mermaid
+flowchart TD
+    DC["domain_config (host, PK)"]
+    DC -. "논리 FK(host)" .- SR["spec_record (host, 1:N)"]
+    DC -. "논리 FK(host)" .- SCAN["scan_result (host, PK, 1:1)"]
+    DC -. "논리 FK(host)" .- WM["watermark (host, PK, 1:1)"]
+    DC -. "논리 FK(host)" .- DCC["domain_classification_config (host, PK, 1:1)"]
+    DC -. "논리 FK(host)" .- DE["discovered_endpoint (host idx, 1:N)"]
+    DC -. "논리 FK(host)" .- DA["documented_api (host idx, 1:N)"]
+    DC == "실 FK (@ElementCollection)" ==> DH["domain_hostnames (host)"]
+    CC["classification_config (전역 단일 행, PK=1)"] -. "전역→도메인 상속(앱 레벨 병합)" .-> DCC
+    SCR["static_classify_rule (전역, host 무관)"]
 ```
 
 | 관계 | 카디널리티 | 키 | 종류 |
@@ -280,7 +321,9 @@ spec_record │   │   │   domain_classification_config(host, PK·1:1)
 | `domain_config` ↔ `watermark` | 1 : 1 | `host`(양쪽 PK) | 논리 FK |
 | `domain_config` ↔ `domain_classification_config` | 1 : 1 (희소) | `host`(양쪽 PK) | 논리 FK |
 | `domain_config` ↔ `discovered_endpoint` | 1 : N (host당 검출 endpoint 행 다수) | `host`(자식 indexed, 부모 PK) | 논리 FK |
+| `domain_config` ↔ `documented_api` | 1 : N (host당 문서화 API 행 다수) | `host`(자식 indexed, 부모 PK) | 논리 FK |
 | `classification_config` | 전역 단일 행(싱글톤) | 고정 PK=1 | 도메인 무관, 전역 기본값. 도메인 override 와 앱 레벨 병합(doc/10 §3) |
+| `static_classify_rule` | 전역 규칙 집합 | UNIQUE(kind, rule_value) | 도메인 무관, `EndpointKindClassifier` 전역 적용(D56) |
 
 > 역방향 조회: 한 엣지 서버(hostname)가 서빙하는 도메인은 `DomainConfigRepository.findByHostname` 이 `domain_hostnames`
 > 자식 테이블을 조인해 찾는다(doc/05 §2.3).
@@ -301,6 +344,8 @@ spec_record │   │   │   domain_classification_config(host, PK·1:1)
 | `classification_config` | `ClassificationConfig` | doc/10 §1.1 |
 | `domain_classification_config` | `DomainClassificationConfig` | doc/10 §1.2 |
 | `discovered_endpoint` | `DiscoveredEndpointRecord` | doc/26 §2·§4·§7, DECISIONS D35·D36 (구 `endpoint_history`/doc/24 D33 흡수·제거) |
+| `documented_api` | `DocumentedApiRecord` | [37-spec-inventory-reconcile](37-spec-inventory-reconcile.md) §1, [38-spec-inventory-p2](38-spec-inventory-p2.md) §3(breaking) |
+| `static_classify_rule` | `StaticClassifyRule` | DECISIONS **D56**(정적 분류 규칙 DB 외부화) |
 | (전반 영속 컨벤션) | — | doc/06(스택), doc/10 §2·§4, DECISIONS D11·D17 |
 
 ---
