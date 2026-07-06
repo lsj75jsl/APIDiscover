@@ -35,7 +35,7 @@ MatcherConfig (record, com.pentasecurity.apidiscover.model) — 실제 6필드
   List<String> excludePathRegexes      // 강제 제외 regex        예: ".*\.(js|css|map)$"
   List<String> optionsOperationPrefixes// "OPTIONS 가 진짜 operation" operator 선언 (23 문서 §8, M2)
   Boolean      includeWebForms         // null=상속, 기본 false (§5)
-  + MatcherConfig NONE               // 빈값 + includeWebForms=true. 매처 비활성 센티넬(레거시/미배선)
+  + MatcherConfig NONE               // 빈값 + includeWebForms=true. 매처 비활성 센티넬(레거시/미연결)
   + static merge(global, domain)     // §4 — 6개 list 전역∪도메인 union
 ```
 > 초기 설계는 5필드였으나 doc/23(M2)에서 `optionsOperationPrefixes` 가 추가돼 현재 6필드다. 하위호환 5-arg 생성자가 남아 있다(기존 stored matcherJson 무변경).
@@ -47,7 +47,7 @@ MatcherConfig (record, com.pentasecurity.apidiscover.model) — 실제 6필드
   `/api` 가 `/apidocs` 를 매칭하지 않게 한다.
 - **regex 는 full-match(`matches()`)**. spec EndpointMatcher 와 동일 앵커 정책. 부분 매칭은 operator 가 `.*` 명시.
 - prefix/regex 모두 **pathTemplate** 기준 매칭(ApiScorer·Classifier 가 다루는 값과 동일, 정적 prefix 보존됨).
-- `NONE` = 모든 list 빈값 + `includeWebForms=true`. 레거시 오버로드·미배선 파이프라인이 쓰면 **현행 동작과 100% 동일**.
+- `NONE` = 모든 list 빈값 + `includeWebForms=true`. 레거시 오버로드·미연결 파이프라인이 쓰면 **현행 동작과 100% 동일**.
 
 ## 2. ApiScorer 게이트 통합 / 우선순위
 
@@ -156,5 +156,5 @@ flowchart LR
 ## 6. 한계 / 후속
 
 - body/Content-Type 부재로 폼 POST vs JSON POST 완벽 구분 불가 → `include_web_forms` 는 best-effort + override 가능.
-- 저장(전역 레코드/도메인 override)·중앙 API·메트릭 배선은 후속(TASKS API 점수화 섹션).
+- 저장(전역 레코드/도메인 override)·중앙 API·메트릭 연결은 후속(TASKS API 점수화 섹션).
 - doc/08 §7 의 `exclude_path_prefixes` 표기는 `exclude_path_regexes` 추가로 보완 필요.

@@ -94,7 +94,7 @@ $server_port ^|^ $type
 
 ## 3. 경로 정규화 (핵심)
 
-고카디널리티 concrete path(`/users/1`, `/users/2`, …)를 **하나의 템플릿**(`/users/{id}`)으로 수렴시켜야 인벤토리와 Shadow 탐지가 의미를 가진다. 정규화는 아래 **3단계 우선순위**로 진행한다(§3.1 스펙 매칭 → §3.2 휴리스틱 → §3.3 통계 보정). 배선은 `InventoryBuilder.resolveTemplate()`(1·2단계) + `CardinalityNormalizer.normalize()`(3단계).
+고카디널리티 concrete path(`/users/1`, `/users/2`, …)를 **하나의 템플릿**(`/users/{id}`)으로 수렴시켜야 인벤토리와 Shadow 탐지가 의미를 가진다. 정규화는 아래 **3단계 우선순위**로 진행한다(§3.1 스펙 매칭 → §3.2 휴리스틱 → §3.3 통계 보정). 연결은 `InventoryBuilder.resolveTemplate()`(1·2단계) + `CardinalityNormalizer.normalize()`(3단계).
 
 ```mermaid
 flowchart TD
