@@ -1,7 +1,16 @@
 # cross-scan recency 로 Zombie severity 보강 — 설계
 
-> 브랜치 `feature/cross-scan-recency-zombie-severity`. 근거 doc/16(D23 버전 Zombie + severity)·doc/18(DB 스키마)·doc/07 §8(ETag 내용기반)·doc/20(dormant/무증거 선례).
-> 근거 결정 doc/DECISIONS.md **D33**. dev 항목은 TASKS 부모 'cross-scan recency Zombie severity' 아래 subitem(D26).
+> deprecated endpoint 의 **누적 lifespan(entrenchment)** 을 cross-scan 이력으로 재서 doc/16 base severity 에 가산 보너스로 더한다(`now()` 불사용·ETag 는 band 투영). 근거 [16-version-zombie-severity](16-version-zombie-severity.md)(D23)·[18-db-schema](18-db-schema.md)·[07-msa-and-central-integration](07-msa-and-central-integration.md) §8(ETag)·[20-endpoint-kind-referer](20-endpoint-kind-referer.md)(dormant 선례), 결정 [DECISIONS](DECISIONS.md) **D33**.
+> **이력 저장 변경(D36)**: 초기 `EndpointHistory`(@Lob) 는 검출 SoT `discovered_endpoint` 로 흡수·제거됨([26](26-multi-spec-merge.md) §8). recency 는 이제 `discovered_endpoint.firstSeen` 에서 조회한다(§3·§7).
+
+**구현 위치**
+
+| 대상 | 소스 |
+|---|---|
+| entrenchment 보너스 | `classify/ZombieSeverity.of(Evidence, historicalFirstSeen)`(W=0.2/GRACE=7d/SAT=90d) |
+| 이력상 firstSeen | `classify/Evidence.entrenchedFirstSeen`(priorFirstSeen min) |
+| 이력 조회·주입 | `batch/DiscoveryJobService.analyze()` — `DiscoveredEndpointRepository` → `priorFirstSeen: Map<sig,Instant>` → `classifyWithMetrics` |
+| ETag band 투영 | `DiscoveryJobService`(findings Zombie severity → band) |
 
 ## 0. 현 상태 / 문제
 
@@ -26,7 +35,18 @@ lifespanDays   = (lastSeen − historicalFirstSeen) / 1d        // 데이터 ts 
 entrenchmentBonus = W·clamp01( (log10(lifespanDays+1) − log10(GRACE+1))
                                 / (log10(SAT+1) − log10(GRACE+1)) )   // GRACE 미만 → 0
 ```
-- **1차값(캐비엇)**: `W=0.2`(최대 보너스)·`GRACE=7d`·`SAT=90d`. 예: 7d→0, 14d→+0.05, 30d→+0.11, ≥90d→+0.20. 실데이터 보정은 D24 보류(severity 1차값)와 함께.
+- **1차값(캐비엇)**: `W=0.2`(최대 보너스)·`GRACE=7d`·`SAT=90d`(`ZombieSeverity` 코드 상수). 예: 7d→0, 14d→+0.05, 30d→+0.11, ≥90d→+0.20. 실데이터 보정은 D24 보류(severity 1차값)와 함께.
+
+```mermaid
+flowchart LR
+    L["lifespanDays = lastSeen − historicalFirstSeen<br/>(둘 다 데이터 ts, now 미사용)"] --> G{"lifespan?"}
+    G -->|"< GRACE(7d)"| Z["보너스 0 (콜드스타트 자동 흡수 = base 현행)"]
+    G -->|"GRACE ~ SAT(7~90d)"| B["log 보간 → + (0 ~ W)"]
+    G -->|"≥ SAT(90d)"| M["+ W(0.2) 포화"]
+    Z --> S["severity = clamp(base + bonus)"]
+    B --> S
+    M --> S
+```
 - **대체 아닌 보강 이유**: ① 대체 시 cold-start(window span)와 cross-scan(일 단위) 척도 불일치로 **불연속(cliff)** 발생(1h window spanScore 0.89 ↔ 동일 zombie 2번째 스캔 recencyScore ~0). ② 보강은 base 불변 → 콜드스타트 무회귀(§4)·연속(보너스 0에서 시작). entrenched zombie 만 band 상향(MED→HIGH 가능).
 - **GRACE 가 콜드스타트를 자동 흡수**: 이력 없으면 `historicalFirstSeen = 현재 firstSeen` → lifespan = window span(≪ GRACE) → 보너스 0 → **base=현행**. 별도 분기 불요.
 
@@ -59,31 +79,20 @@ entrenchmentBonus = W·clamp01( (log10(lifespanDays+1) − log10(GRACE+1))
 - 이력 = host당 @Lob blob 1행, spec 크기 bound. 로드 = 스캔당 `EndpointHistory.findById(host)` 1회(신규 쿼리 1), merge O(관측 spec endpoint), save 1행. 배치 스캔 빈도라 무시 가능.
 - 정규화 테이블 미채택(엔드포인트당 행) — 현 규모(spec bound)엔 @Lob 가 단순·이식적. 대량(수만 endpoint)·독립 쿼리 필요 시 정규화 전환(후속 seam).
 
-## 7. 통합 흐름
+## 7. 통합 흐름 (현재 — discovered_endpoint 기반, D36)
 
 ```text
 analyze:
-  priorFirstSeen = EndpointHistory.load(host) → Map<specKey, firstSeen>   // 이번 스캔 전 이력
-  classified = classifier.classifyWithMetrics(..., priorFirstSeen)        // Zombie severity = base + bonus(lastSeen − prior firstSeen)
+  priorFirstSeen = discoveredRepo.findByHost(host) → Map<sig, firstSeen>   // sig = "METHOD host template" (스캔 전 누적 이력)
+  classified = classifier.classifyWithMetrics(..., priorFirstSeen)         // Zombie severity = base + bonus(lastSeen − prior firstSeen)
   ... report ...
 persist:
-  history.merge(classified.observedTimes())   // specKey→{min(firstSeen), max(lastSeen)}
-  EndpointHistory.save(host, history)          // ddl-auto 테이블
+  discovered_endpoint upsert: firstSeen = min(prior, current), lastSeen = max   // 검출 SoT 누적(doc/26 §2)
 ```
-- `Classifier.classifyWithMetrics` +`Map<String,Instant> priorFirstSeen` 인자(빈 map 오버로드=현행). Zombie 생성 시 `ZombieSeverity.of(ev, priorFirstSeen.getOrDefault(key, ev.firstSeen))`.
-- `ClassificationResult` +`observedTimes`(specKey→{firstSeen,lastSeen}, observedSpec 투영) — persist 의 이력 merge 입력(3-arg 편의 ctor 하위호환).
-- merge: `firstSeen=min(prior, current)`, `lastSeen=max(prior, current)`. (firstSeen 단조 비감소 → lifespan 단조 비감소.)
+- `Classifier.classifyWithMetrics` +`Map<String,Instant> priorFirstSeen` 인자(빈 map 오버로드=현행). `Evidence.entrenchedFirstSeen` = 매칭 검출 signature 의 누적 firstSeen(여러 d 합산 시 min). Zombie 생성 시 `ZombieSeverity.of(ev, ev.entrenchedFirstSeen ?: ev.firstSeen)`.
+- 이력 갱신은 별도 저장이 아니라 **검출 SoT `discovered_endpoint` upsert**(firstSeen min / lastSeen max)로 흡수됨(D36). firstSeen 단조 비감소 → lifespan 단조 비감소.
 
-## 8. dev 구현 체크리스트 (TASKS subitem, D26)
-
-- [x] `domain/EndpointHistory`(@Id host, @Lob historyJson, updatedAt) + repository. `model/EndpointObservation(Instant firstSeen, Instant lastSeen)`(Map 왕복).
-- [x] `ZombieSeverity.of(Evidence, Instant historicalFirstSeen)` — base(doc/16 불변) + `entrenchmentBonus`(W=0.2/GRACE=7d/SAT=90d, 1차값·코드상수, seam=@ConfigurationProperties). `of(Evidence)` 오버로드(→ ev.firstSeen 위임=현행).
-- [x] `Classifier.classifyWithMetrics` +`priorFirstSeen` 인자(빈 map 5-arg 오버로드 하위호환) → Zombie severity 에 prior firstSeen 전달. `ClassificationResult` +`observedTimes`(3-arg 편의 ctor).
-- [x] `DiscoveryJobService.analyze` — 스캔 전 `EndpointHistory` 로드→priorFirstSeen 주입, persist 후 observedTimes merge→save. ETag 입력 findings 의 Zombie severity→`band` 투영(churn 버킷화).
-- [x] 테스트 — 콜드스타트(보너스 0=현행·기존 단언 green) / entrenched(lifespan≥SAT→band 상향) / GRACE 미만(보너스 0) / **ETag: 재스캔→동일 version(now 무의존), 미세 creep 무bump** / spec-only(observedTimes). → 완료 2026-06-24.
-- [ ] (doc/18 sync, technical_writer) 신규 `endpoint_history` 테이블 스키마 반영.
-
-## 9. 범위 밖 / 후속
+## 8. 범위 밖 / 후속
 
 - severity 가중치·entrenchment(W/GRACE/SAT) **실데이터 보정** — D24 보류(severity 1차값)와 함께.
 - entrenchment 임계 중앙 API 튜닝 — P4(분석 파라미터 중앙 API 묶음, doc/16 후속과 동일).
