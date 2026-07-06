@@ -40,7 +40,7 @@
 #### 분류 (04/16 문서)
 > (OPTIONS preflight·cross-scan recency severity 완료, Done 참조)
 > (초장문 path_template 가드 — D68 로 구현 완료, Done 참조)
-- [ ] **Swagger 2.0 스펙 업로드 실패 수정 (2026-07-06 샘플 검증 중 발견)** — `SpecFormatDetector` 는 `swagger` 키를 OPENAPI 로 감지하나, `OpenApiSpecParser` 가 **`OpenAPIV3Parser`(3.x 전용)** 로 파싱해 2.0 문서는 `api==null` → `IllegalArgumentException: attribute openapi is missing` → **500**. ①파서를 통합 진입점 **`OpenAPIParser`**(2.0→3.0 자동 변환, swagger-parser 아티팩트에 포함)로 교체 ②파싱 실패(IllegalArgumentException)를 **400 으로 매핑**(현재 upload 경로에서 500, `SpecController`/advice 에 BAD_REQUEST 처리 필요). 검증: 실제 Swagger 2.0 export 업로드 → 엔드포인트 추출. ★OpenAPI 3.x(YAML/JSON, verbose export 포함)·Postman·CSV 는 정상 확인됨.
+> (Swagger 2.0 업로드 지원 — D70 구현 완료, Done 참조)
 - [x] **정적 파일 API 오탐 수정 — 하드 veto + 정적 리소스 파일명 감점** **(구현 완료 — build green 504·실 PG OK·RED-확인·커밋 보류·머지 시 Done. D56, 사용자 요청)** — ① 정적 확장자(.css/.js/.png/.webp… isStaticPath 또는 $type=library=STATIC) → `Gate.DROP_STATIC` 하드 veto(점수·api키워드 무관 비-API). `DroppedNonApi` +staticFile. ② 정적 리소스 파일명 토큰(img/image/thumb/resize/css/download… `hasStaticResourceName`) → `staticAssetPenalty`(-0.6) 발화 → img.php(WEB_PAGE) 오탐 탈락. ★.php 는 정적 확장자 미포함(veto 아님·감점만, 실 API 보존)·모호 토큰 제외. 매뉴얼(TW)=후속.
 
 #### 리포트/출력 (01/12/14 문서)
@@ -162,6 +162,11 @@
 ---
 
 ## Done
+
+### API 문서 업로드 샘플 3종 + Swagger 2.0 지원(D70) (2026-07-06, 사용자 요청)
+- [x] **업로드 샘플 3종**: `sample/upload_api_doc/`(openapi-sample.yaml·postman-sample.json·spec-sample.csv + README) — 배포 파서로 파싱 검증(OpenAPI 5·Postman 4·CSV 5, deprecated 플래그). README 에 감지규칙·업로드(Content-Type 헤더 필수)·분류 매핑.
+- [x] **스펙 업로드→reconcile E2E 실검증**: messenger-api.everhrm.com 발견 API 를 OpenAPI 로 문서화→업로드→scan-now. 4분류(Active 4·Zombie 1·Unused 2·Shadow 81) 설계대로. 실 도메인이라 검증 후 원복.
+- [x] **D70 Swagger 2.0 지원**: `OpenAPIV3Parser`→`OpenAPIParser`(2.0 v2-converter 자동 변환)·`toOrigin()` protocol-relative(`//host/base`) 처리·`SpecController` 파싱실패 400 매핑. build green 536(신규 2)·RED-확인. OpenAPI 3.x·Postman·CSV 무회귀.
 
 ### 초장문 경로 가드·저장 격리(D68) + P* 엣지 제외(D69) (2026-07-04, 사용자 확정 A+C안·P* 지시)
 - [x] **D68-A 분류 게이트**: `Gate.DROP_OVERSIZE`(evaluate 0단계, >2,048자 하드 veto) + `DroppedNonApi.oversizePath`(리포트 가시화, additive). 근거=keeperlabo.jp SQLi 페이로드(IP 45.134.142.225)의 43KB 경로가 btree 인덱스 행 한계 초과 INSERT 실패.

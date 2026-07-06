@@ -617,6 +617,11 @@ gap-free 크롤은 활성 수요(~22.6k 윈도우/h) vs 예산 용량(D65 후 ~7
 - **효과**: PAI/PAIP/PAIL 등 P 계열(관측 27종) 조회 제거 — keeperlabo 류 도메인은 AAI Master 만 조회. P* 에서만 보이던 도메인은 lastSeen 정체→inactive-after 게이트가 자연 제외(D62 소프트 제외 의미 동일, self-healing).
 - **검증**: build green 534 내 신규(접두 매처 2·discovery 접두 1·scan P* skip 1).
 
+### D70. Swagger 2.0 스펙 업로드 지원 + 파싱 실패 400 매핑 (2026-07-06, 사용자 요청)
+- **배경**: 업로드 샘플 검증 중 Swagger 2.0(`swagger:"2.0"`) 업로드가 **500**(`attribute openapi is missing`). `SpecFormatDetector` 는 `swagger` 키를 OPENAPI 로 감지하나 `OpenApiSpecParser` 가 `OpenAPIV3Parser`(3.x 전용)로 파싱 → 2.0 미변환(주석은 "2.0 내부 변환"이라 했으나 호출 클래스 오선택).
+- **수정 3건**: ① `OpenAPIV3Parser` → 통합 **`OpenAPIParser`**(io.swagger.parser, swagger-parser 아티팩트 포함) — 2.0 은 v2-converter 로 3.0 자동 변환·3.x 는 그대로. ② `toOrigin()` **protocol-relative(`//host/base`) 처리** — 2.0→3.0 변환이 schemes 부재 시 servers.url 을 `//host/basePath` 로 내보내 host 가 경로에 접히던 것(`/api.example.com/v1/products`) 교정. ③ `SpecController.upload` **IllegalArgumentException→400 매핑**(무효/미인식 문서는 클라이언트 오류, 종전 uncaught 500).
+- **검증**: build green **536**(신규 2: swagger2 host+basePath+deprecated 파싱·컨트롤러 400 매핑)·RED-확인(OpenAPIV3Parser 원복 시 2.0 테스트 red). 재배포 후 실 Swagger 2.0 문서 업로드로 라이브 확인. OpenAPI 3.x(verbose export 포함)·Postman·CSV 무회귀.
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.
