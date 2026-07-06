@@ -1,10 +1,18 @@
 # 검출/업로드 데이터 모델 통합 + 멀티 스펙 병합 전략 — 설계
 
-> 브랜치 `feature/multi-spec-merge`. doc/14(D21) 후속에서 **데이터 모델 재설계로 확장**(사용자 신규 요구). 근거 doc/03(canonical)·doc/04(분류)·doc/13(ParamCandidates)·doc/14·doc/15(매처캐시)·doc/24(EndpointHistory/recency)·doc/25(SpecSource/warnings).
-> 근거 결정 doc/DECISIONS.md **D35**(멀티스펙·모드)·**D36**(검출 SoT 테이블·version 차원·host 조회·EndpointHistory 통합).
-> **전체 범위 A~E. 제안·사용자 확인 대기(dev 미착수). 각 선택에 권장안 명시.** dev 항목은 TASKS 부모 아래 subitem(D26).
+> 검출(discovered)·업로드(spec) 를 대칭 SoT 테이블로 분리하고, host 당 멀티 스펙 문서 + 병합 모드(MERGE/SEPARATE/VERSION_GROUPED)를 지원한다. 근거 [03](03-spec-formats-and-canonical-model.md)(canonical)·[04](04-matching-and-classification.md)(분류)·[13](13-normalization-cardinality.md)(ParamCandidates)·[14](14-spec-parsers.md)·[15](15-matcher-cache.md)(매처캐시)·[24](24-cross-scan-recency-zombie-severity.md)(recency)·[25](25-report-output-enhancements.md)(SpecSource/warnings). 결정 [DECISIONS](DECISIONS.md) **D35**(멀티스펙·모드)·**D36**(검출 SoT 테이블·version 차원·host 조회·EndpointHistory 통합).
 
-통합 범위: **A** 검출 전용 테이블(`discovered_endpoint`) ↔ `spec_record` 대칭 분리 · **B** 멀티 스펙 + 병합 모드 · **C** API version 차원(DB 반영) · **D** 비교·결합(불변) · **E** 마이그레이션·무회귀·ETag. **전 테이블 host(도메인) 기준 조회 필수**(신규 제약, §7).
+통합 범위: **A** 검출 전용 테이블(`discovered_endpoint`) ↔ `spec_record` 대칭 분리 · **B** 멀티 스펙 + 병합 모드 · **C** API version 차원(DB 반영) · **D** 비교·결합(불변) · **E** 마이그레이션·무회귀·ETag. **전 테이블 host(도메인) 기준 조회**(§7).
+
+**구현 위치**
+
+| 대상 | 소스 |
+|---|---|
+| 검출 SoT | `domain/DiscoveredEndpointRecord`(host+method+path_template unique) + `DiscoveredEndpointRepository` |
+| 업로드 SoT·멀티문서 | `domain/SpecRecord.specName` + `spec/SpecStore.upload()`(모드 분기) |
+| 병합 | `spec/SpecCanonicalizer.merge()` + `spec/SpecStore.loadActiveCanonical()`·`syntheticVersion()` |
+| 병합 모드 | `model/SpecMergeStrategy`(MERGE/SEPARATE/VERSION_GROUPED) + `domain/DomainConfig.specMergeStrategy` |
+| 결합 뷰 | `batch/CombinedDiscoveryService.forHost()` → `api/CombinedDiscoveryController`(GET `/domains/{host}/discovery`) |
 
 ## 0. 현 상태 / 문제
 
@@ -16,11 +24,13 @@
 ## 1. 통합 데이터 모델 개요 (host 중심)
 
 **두 SoT 테이블(대칭) + 파생 분류 뷰**, 전부 host 키.
-```
- [업로드 SoT] spec_record(host, specName, specVersion, canonicalJson, version…)  ─┐
- [검출  SoT] discovered_endpoint(host, method, pathTemplate, version, recency…)  ─┤→ Classifier(불변)
-                                                                                   │   → findings(Shadow/Active/Zombie/Unused)
- [분류 뷰]  scan_result.reportJson (파생·ETag, /result)  ←───────────────────────┘   → 결합 Discovery 목록(host, 버전그룹)
+```mermaid
+flowchart LR
+    S["업로드 SoT: spec_record<br/>(host, specName, specVersion, canonicalJson)"] --> C["Classifier (불변)"]
+    D["검출 SoT: discovered_endpoint<br/>(host, method, pathTemplate, version, recency)"] --> C
+    C --> F["findings: Shadow / Active / Zombie / Unused"]
+    F --> RJ["분류 뷰(파생): scan_result.reportJson (/result, ETag)"]
+    F --> CV["결합 Discovery 목록 (host, 버전그룹)"]
 ```
 - **SoT 역할 분담(사용자 요구 명시)**:
   - `spec_record` = **업로드 SoT**(canonical, 멀티 문서).
@@ -42,8 +52,8 @@ class DiscoveredEndpointRecord {
   String endpointKind;             // WEB_PAGE/STATIC/API_CANDIDATE/UNKNOWN + double kindConfidence
   String version;                  // 버전 태그(nullable, §4)
   Instant firstSeen; Instant lastSeen; Instant lastScanAt;   // 누적 recency (EndpointHistory 흡수)
-  long hits; @Lob String statusDistJson;                     // 최신 윈도우 스냅샷(카탈로그 표시)
-  boolean hadQuery; boolean nonBrowserUa; @Lob String paramsJson;   // ParamCandidates(doc/13)
+  long hits; @Column(text) String statusDistJson;                     // 최신 윈도우 스냅샷(카탈로그 표시). @Lob 아님(oid 회피, D40)
+  boolean hadQuery; boolean nonBrowserUa; @Column(text) String paramsJson;   // ParamCandidates(doc/13). @Lob 아님(oid 회피, D40)
 }
 ```
 - **PK/조회**: 생성 id PK + **host 인덱스** + unique(host,method,pathTemplate). `findByHost(host)`(카탈로그), `findByHostAndVersion`(그룹), upsert=`findByHostAndMethodAndPathTemplate`. spec_record(id PK+host) 스타일 일치.
@@ -125,26 +135,7 @@ class DiscoveredEndpointRecord {
 | host 조회 | 전 테이블 host 키/인덱스, host 단위 결합 응답 |
 | 무회귀 | 기본 MERGE=현행, EndpointHistory 재구축 이관(콜드스타트=현행) |
 
-## 10. dev 구현 체크리스트 (TASKS subitem, D26 — staged)
-
-**1단계 데이터 모델(A/C)** → 완료 2026-06-25 (커밋 보류·리뷰 대기)
-- [x] `domain/DiscoveredEndpointRecord`(host index+unique(host,method,path_template)+version) + repository(findByHost/findByHostAndVersion/findByHostAndMethodAndPathTemplate/deleteByHostAndLastSeenBefore). 카디널리티 cap(5000)+retention prune(180d, 데이터 ts 기준).
-- [x] `DiscoveryJobService` — 스캔 discovered → discovered_endpoint 누적 upsert(firstSeen min/lastSeen max/최신 윈도우 스냅샷). severity recency 를 discovered_endpoint.firstSeen 로 전환(Evidence entrenchedFirstSeen, signature 키), **EndpointHistory 엔티티/repository/observedTimes/EndpointObservation 제거**(재구축 이관=콜드스타트 현행 무회귀).
-- [x] `spec_record` +`specName`(null→"default", 스키마/컬럼만 — 멀티문서 upsert 는 2단계) + `discovered_endpoint.version` 도출(path `^v\d+$` 세그먼트 → 매칭 spec.version → null).
-
-**2단계 멀티스펙+모드(B)** → 완료 2026-06-25 (커밋 보류·리뷰 대기)
-- [x] `model/SpecMergeStrategy`(MERGE/SEPARATE/VERSION_GROUPED) + `DomainConfig.specMergeStrategy`(기본 MERGE, ddl-auto null→읽을 때 MERGE) + `DomainController`/`DomainDtos` DTO 가산(엔드포인트 0). `SpecStore` 모드 분기 — `upload(host,name,content)`: SEPARATE=host 전체 비활성(교체), MERGE/VERSION_GROUPED=같은 specName 만 비활성(형제 유지). `upload(host,content)`=default 위임(현행 무회귀). null specName(기존행)=default 해석.
-- [x] `SpecCanonicalizer.merge(List<VersionedCanonical>)` 결정적 — dedupe(method,host,template)+deprecated OR+비-deprecated latest-upload-wins(최신 specVersion, tie sourceRef). group+max+OR 교환법칙→순서 무관. 단일 문서=canonicalize 동치(무회귀). `loadActiveCanonical`=∪ active docs merge. 합성 spec 버전=`SpecStore.syntheticVersion`(merged canonical SHA-256, EtagUtil 앞 16hex=64bit→long·ETag 와 동일 알고리즘)→`DiscoveryJobService` report.specVersion/SpecSource/matcherCache 키(동일 콘텐츠=동일 버전). 멀티문서 SpecSource format/warnings union·documents[] 은 3단계.
-
-**3단계 결합·버전그룹(C/D)** → 완료 2026-06-25 (커밋 보류·리뷰 대기)
-- [x] host 결합 Discovery 뷰 — `CombinedDiscoveryService.forHost` 가 누적 discovered_endpoint(재구성) ∪ active spec 을 Classifier(불변, 5-arg classify·게이트 동일)로 분류 → 결합 findings. VERSION_GROUPED 모드면 version 라벨(path `^v\d+$` ∪ spec endpoint version, `model/VersionTag`)별 그룹(`CombinedDiscovery.VersionGroup`), 그 외 flat. `model/CombinedDiscovery` + `GET /api/v1/domains/{host}/discovery`. `SpecSource`+documents/format-union/warnings-union(`SpecStore.specSourceFrom`) — 2단계 이월분 완료(per-scan 리포트도 동일 적용). per-scan /result 분류 불변(누적 뷰는 별도). 한계: 카탈로그는 distinctClients/p50·p95/acrm 미보유(§2)→결합 뷰 Shadow confidence 근사(분류 자체 무영향).
-- [ ] (선택) `/discovered`·`/spec` 원 카탈로그 list 엔드포인트 — 결합 뷰(`/discovery`)로 자체조회 충족, 원 카탈로그 REST·중앙 노출은 P4(D25)로 생략.
-
-**공통**
-- [x] 테스트 — discovered_endpoint upsert/recency/cap·prune(1단계) / 모드 case×mode·결정성·합성버전(2단계) / 단일=현행 무회귀(전 단계) / EndpointHistory 이관 severity 콜드스타트=현행(1단계) / host 결합 조회·버전그룹(3단계) / ETag 결정적·시간非의존(전 단계). tests=310.
-- [ ] (doc/18 sync, technical_writer) `discovered_endpoint`·`spec_record.spec_name`·`endpoint_history` 제거 반영.
-
-## 11. 범위 밖 / 후속
+## 10. 범위 밖 / 후속
 
 - **누적 카탈로그 기반 분류**(per-scan 대신, staleness 주석) — 확인 후 별도.
 - **완전 독립 병렬 인벤토리**(버전 그룹별 별도 매칭/ETag) — heavy, 경량(§5 그룹 뷰)로 충분 → 격리 필요 시 후속.
