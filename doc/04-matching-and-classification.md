@@ -123,7 +123,7 @@ Shadow/Zombie 는 오탐 비용이 크므로 0~1 신뢰도를 부여한다.
 > **Zombie 는 문서의 `deprecated` 기반**이라 endpoint_kind 와 무관(영향 없음).
 
 ### 4.2 Zombie 신뢰도·severity
-- **confidence**(진짜 Zombie 인가)와 **severity**(조치 시급성)는 직교한다.
+- **confidence**(진짜 Zombie 인가)와 **severity**(조치 시급성)는 **서로 독립적이다**(별개 축 — 한쪽이 다른 쪽에 영향 없음).
   - 문서 deprecated 명시 + 트래픽 매칭 → confidence **1.0**.
   - DELETED-from-spec(문서에서 삭제됐으나 트래픽 지속) → **0.8**([37-spec-inventory-reconcile](37-spec-inventory-reconcile.md) §6).
   - 버전 추정 Zombie(§5) → **0.6**, `estimated=true`.

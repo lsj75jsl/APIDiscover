@@ -134,7 +134,7 @@ flowchart TD
       "method": "GET",
       "pathTemplate": "/v1/orders/{orderId}",
       "confidence": 1.0,           // 명시 deprecated=1.0 / 버전 추정=0.6
-      "severity": { "score": 0.7, "band": "HIGH" }, // 조치 시급성(트래픽 메트릭 기반, confidence 와 직교, 16 문서)
+      "severity": { "score": 0.7, "band": "HIGH" }, // 조치 시급성(트래픽 메트릭 기반, confidence 와 독립, 16 문서)
       "estimated": false,          // 버전 추정 Zombie 여부
       "specRef": "openapi#getOrderV1",
       "reason": "문서에 deprecated 표기, 그러나 최근까지 트래픽 발생",
