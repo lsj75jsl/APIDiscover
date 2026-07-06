@@ -1,8 +1,20 @@
 # REST API 대규모 변경 배치 — 삭제·수정·신규 종합 설계 (사용자 요청)
 
-> 브랜치 단계별 배정(매니저). 근거: doc/07(REST)·doc/26(멀티스펙·CombinedDiscovery)·doc/10·11(분류설정)·doc/34(rationale 재사용)·doc/30(DomainRegistrar). 근거 결정 **DECISIONS D50**.
-> **진행 상태**: PR1(D1+M1+M3) #39·PR2(filename+M2+M4+M6) #40·PR3(M5+A2) #41 머지. **PR4(P3 A1 즉시스캔) 구현 완료**(브랜치 feat/api-batch-p3-scannow, build green 486·커밋 보류). **P1·P3 전부 완료**(A1 이 마지막 기능 PR). **P2(M7)=보류**만 잔존(§P2, 추후 access-log 파라미터 추출과 함께). 운영 Loki 미호출(정적/mock).
-> 사용자 확정: **GET /domains/{host}=유지+보강**(삭제 아님), **/result rationale=조회시 재계산**(report_json·ETag·중앙계약 불변, /discovery 메커니즘 재사용).
+> 도메인/스펙/분류설정 REST 를 3 phase 로 확장 — P1(D1 삭제·M1~M6 보강·A2 가중치 PATCH), P2(M7 멀티문서 관리 + API 상태추적), P3(A1 즉시 스캔). 근거 [07](07-msa-and-central-integration.md)(REST)·[26](26-multi-spec-merge.md)(멀티스펙)·[10](10-classification-config-store.md)·[11](11-classification-rest-api.md)(분류설정)·[34](34-api-rationale-exposure.md)(rationale 재사용)·[30](30-domain-auto-discovery.md)(DomainRegistrar), 결정 [DECISIONS](DECISIONS.md) **D50**.
+> **진행**: P1(D1·M1~M6·A2)·P3(A1 `POST /scan-now`) 구현 완료. **P2(M7 멀티문서·API 상태추적)은 이후 [37-spec-inventory-reconcile](37-spec-inventory-reconcile.md)(reconcile·`GET /spec/apis`)·[38-spec-inventory-p2](38-spec-inventory-p2.md)(breaking 판정)로 구현**됨. 운영 Loki 미호출(정적/mock).
+> 사용자 확정: GET /domains/{host}=유지+보강, /result rationale=조회시 재계산(report_json·ETag·중앙계약 불변).
+
+**구현 위치**
+
+| 항목 | 소스 |
+|---|---|
+| M1 페이지네이션 | `api/DomainController.list()`(배열 body + `X-Total-Count`/`X-Total-Pages`/`X-Current-Page`) |
+| M2/M3 상세·부분수정 | `api/DomainController`(`DomainDetailView`·`DomainUpsert` nullable) |
+| M4/M5 scan-status·result | `api/ScanController`(`ScanStatusView.latestSpec`·serve-time rationale 주입) |
+| M6 GET /spec | `api/SpecController`(`List<SpecMetaView>`) |
+| A2 가중치 PATCH | `api/ClassificationController`(`PATCH .../classification/weights`) |
+| A1 즉시 스캔 | `api/ScanController`(`POST /domains/{host}/scan-now`, 동기) |
+| P2 후속 구현 | `spec/ApiInventoryService`·`api/ApiInventoryController`(`GET /spec/apis`, doc/37·38) |
 
 ## 0. 단계 분할(phase) — 위험·의존도 기준
 
@@ -104,7 +116,7 @@
 
 # P2 — M7 멀티문서 관리 + API 상태추적 (고위험·★최대)
 
-> **★이번 보류(사용자 확정)** — M7(멀티문서 관리 + ADDED/DELETED/UPDATED 상태추적)은 추후 진행. access-log 파라미터 추출(canonical query/param 강화)과 함께 다루는 것이 자연스러움(UPDATED param-level diff 가 canonical 강화에 의존, §M7.2 한계). P1 머지 후 별도 PR.
+> **✅ 이후 구현됨** — 아래 M7(멀티문서 관리 + ADDED/DELETED/UPDATED 상태추적)은 [37-spec-inventory-reconcile](37-spec-inventory-reconcile.md)(영속 인벤토리 `DocumentedApiRecord` + reconcile + `GET /spec/apis`)과 [38-spec-inventory-p2](38-spec-inventory-p2.md)(breaking 판정·param delta)로 실현됐다. 아래는 설계 당시 안(compute-on-read 권장은 영속 테이블로 진화 — doc/37 §1 참조).
 
 ## M7.1 멀티문서 업로드 관리
 
@@ -142,6 +154,18 @@
 ## A1. 즉시 스캔
 
 - 미스캔/미등록 도메인을 **즉시 동기 스캔**해 API 목록 반환. DB 미존재면 **자동 등록 후 스캔**.
+
+```mermaid
+flowchart TD
+    P["POST /domains/{host}/scan-now?window="] --> N{"host 정규화"}
+    N -->|"blank"| E400["400"]
+    N -->|"ok"| R["DomainRegistrar.registerIfAbsent (미등록 자동등록·discoveredAt=null)"]
+    R --> W["onDemandWindow (?window, 상한=scan.max-window)"]
+    W --> S["scanOnDemand(host, window, null) — Loki 동기, watermark 미전진"]
+    S -->|"Loki 실패"| E502["502"]
+    S -->|"성공"| C["CombinedDiscoveryService.forHost → findings + rationale + effectiveClassification"]
+```
+
 - 경로: **`POST /api/v1/domains/{host}/scan-now`**(동기·결과 반환). 기존 `POST .../scan`(비동기 202, `runScan` 스케줄 트리거)와 **명확 구분**.
 - 동작: `requireNormalizedHost` → `DomainRegistrar.registerIfAbsent(host)`(미등록 자동등록, CLI `-scan` 자동등록과 일관·discoveredAt=null) → `DiscoveryJobService.scanOnDemand(host, window, null)`(**watermark 미전진**, doc/33 §7) → `CombinedDiscoveryService.forHost(host)` 로 findings+rationale 반환(/discovery 일관).
 - 파라미터: `?window=PT1H`(기본=`scan.max-window` 상한). **Loki 동기 호출** — LokiClient 부하보호(slice·throttle·동시·백오프·LokiBudget) 준수, window 상한으로 폭주 차단(doc/33 PR1.1 재사용).
@@ -170,28 +194,11 @@ architect 가 의미만 정리(아래), TW 가 §2.5 편집:
 - **리스크⑤(M2/M6 filename 폴백)**: 기존 spec(filename=null)·legacy 업로드 → 표시 폴백("—"/specName). 중앙이 filename 전송하도록 PUT /spec 갱신 필요(M7).
 - HA 단일 인스턴스 전제(기존).
 
-## dev 구현 체크리스트 (TASKS subitem, D26 / P 버킷)
+## 구현 상태 (현재 동작)
 
-**P1 (저위험·additive)** — ★PR1(도메인 엔드포인트 D1+M1+M3) 구현 완료(브랜치 feat/api-batch-p1-domain, build green 464·커밋 보류). 나머지(filename·M2·M4·M5·M6·A2)는 후속 PR.
-- [x] D1 `HostQueryController` 제거(+`GET /hostnames/{}/domains`·`POST .../query`) + `findByHostname` orphan 정리(전용·타 사용처 0 확인 후 삭제). 매뉴얼 `/hostnames` 절=TW 후속.
-- [x] M1 GET /domains 페이지네이션 — ★body=JSON 배열 유지 + 헤더(X-Total-Count/Pages·X-Current-Page), page 0-based·size [1,1000] clamp·host asc. N+1 은 page-bounded(≤1000/page) 완화 + batch meta 로드 후속(ponytail 주석). non-breaking.
-- [x] **PR2** `spec_record.filename`(ADD-only·ddl-auto·기존행 null) + `SpecRecord` 접근자 + PUT /spec 옵션 `?filename=`(SpecStore.upload 오버로드, M2/M6/M7 공유). ★머지 후 재배포 필요(컬럼).
-- [x] **PR2** M2 GET /domains/{host} 보강(`DomainDetailView`: `lastScanAt`·spec`{filename,uploadedAt,...}`·`effectiveClassification`). ★목록(M1)은 경량 `DomainView` 유지=성능 회귀 방지(단건만 scan/resolver 조회). effective 빌더=`EffectiveClassification.toView()` 공유(/discovery 와 중복 제거).
-- [x] M3 PUT /domains 부분수정(`DomainUpsert` enabled Boolean nullable·present-only apply, []=비우기·null=유지, 전항목=무회귀·create 무회귀).
-- [x] **PR2** M4 GET /scan-status 보강(`latestSpec`=SpecMetaView{filename·uploadedAt·endpointCount(추출 API수)} 재사용, 없으면 null).
-- [x] **PR3** M5 GET /result rationale 가산 — serve-time 에 report_json 파싱→`rationale` 주입→재직렬화(`CombinedDiscoveryService.forHost(host).rationale()` 재사용). report_json 기존 필드·ETag(r.version) 불변, 304 경로 보존(rationale 미재계산), report null=204.
-- [x] **PR2** M6 GET /spec 목록 — flat `List<SpecMetaView>`(specName·filename·active 가산, activeRecords·specName/version 정렬, 무스펙=[]). `?history` 옵션은 후속.
-- [x] **PR3** A2 PATCH /classification/weights(도메인·전역) — 현 effective 14 스냅샷(`resolver.resolve`/신규 `resolveGlobal`) ∪ 요청 부분 → profile CUSTOM·편집 안 한 키 유지(MIDDLE 리셋 방지). threshold·matcher 미터치. validateWeightOverrides→400. 기존 PUT /classification 불변(가산).
-- [ ] 테스트(각 항목 + 무회귀: M3 전항목 동일·M5 report_json 불변·페이지네이션 경계).
-
-**P2 (M7, 고위험) — ★이번 보류**(추후 access-log 파라미터 추출과 함께, §P2)
-- [ ] M7.1 멀티문서 업로드(filename→specName 도출·버전관리·기존 merge 정합).
-- [ ] M7.2 API 상태추적(compute-on-read diff: specName N vs N-1, method+path_template 키, ADDED/DELETED/UPDATED[deprecated·version 한정]) + 노출(GET /spec 또는 /api-status). ★UPDATED 한계 명시.
-- [ ] 테스트(ADDED/DELETED/UPDATED·최초업로드 전부 ADDED·param-diff 범위밖 확인).
-
-**P3 (A1) — ★구현 완료(PR4)**
-- [x] **PR4** A1 `POST /domains/{host}/scan-now`(ScanController) — 정규화(null→400) → `DomainRegistrar.registerIfAbsent`(미등록 자동등록) → `onDemandWindow`(?window·상한 scan.max-window) → `scanOnDemand`(★watermark 미전진) → `CombinedDiscoveryService.forHost`(findings+rationale+effectiveClassification) 반환. Loki 실패=502, 정규화=400. 기존 비동기 `POST /scan`(202) 와 구분(둘 다 유지).
-- [x] **PR4** 테스트(미등록 자동등록·멱등·정규화·window 위임·scanOnDemand 502·blank 400, 전부 mock=운영 Loki 미호출).
+- **P1** 전부 구현 완료 — D1(`HostQueryController` 제거·`findByHostname` orphan 정리), M1(배열 body + X-Total-* 헤더·page/size clamp), M2(`DomainDetailView`), M3(`DomainUpsert` nullable present-only), M4(`ScanStatusView.latestSpec`), M5(serve-time rationale·report_json·ETag 불변), M6(`List<SpecMetaView>`·무스펙 `[]`), A2(`PATCH .../classification/weights` profile 자동 CUSTOM), `spec_record.filename`(ADD-only).
+- **P3(A1)** 구현 완료 — `POST /domains/{host}/scan-now`(동기, 자동등록·watermark 미전진·Loki 실패 502).
+- **P2(M7)** 은 [37](37-spec-inventory-reconcile.md)·[38](38-spec-inventory-p2.md)로 구현됨(영속 인벤토리 + ADDED/DELETED/UPDATED + breaking 판정).
 
 ## 범위 밖 / 후속
 
