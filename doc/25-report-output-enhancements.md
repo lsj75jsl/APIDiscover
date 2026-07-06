@@ -1,7 +1,16 @@
 # 리포트/출력 보강 3항목 — 설계
 
-> 브랜치 `feature/report-output-enhancements`. **1 PR, 3항목 분리 가능**(A/B/C 독립 커밋). 근거 doc/12(dropped 메트릭)·doc/13(ParamCandidates)·doc/14(SpecParseResult seam)·doc/07 §8(ETag)·doc/21·24(ETag 버킷화 선례).
-> 근거 결정 doc/DECISIONS.md **D34**. dev 항목은 TASKS 부모 3항목 각각 아래 subitem(D26).
+> A·B·C 세 독립 보강 — (A) low_confidence 분리 + `spec_source.warnings`, (B) Active/Zombie param 후보, (C) scan-status `total_dropped`. 근거 [12-non-api-dropped-metric](12-non-api-dropped-metric.md)(dropped 메트릭)·[13-normalization-cardinality](13-normalization-cardinality.md)(ParamCandidates)·[14-spec-parsers](14-spec-parsers.md)(SpecParseResult seam)·[07-msa-and-central-integration](07-msa-and-central-integration.md) §8(ETag)·[21](21-type-taxonomy-sampling.md)·[24](24-cross-scan-recency-zombie-severity.md)(ETag 버킷화 선례). 결정 [DECISIONS](DECISIONS.md) **D34**.
+
+**구현 위치**
+
+| 대상 | 소스 |
+|---|---|
+| A: warnings seam | `spec/SpecParseResult(endpoints, warnings)` ← 3 파서, `SpecStore.upload` 영속 |
+| A: spec_source 노출 | `model/SpecSource(specVersion, format, warnings, documents)` → `DiscoveryReport.specSource` |
+| A: low_confidence | `model/Finding` Shadow/Zombie `@JsonProperty("low_confidence")`(confidence<0.5) + `Summary.lowConfidence` |
+| B: param 노출 | `model/Finding.Active`/`Zombie` `+params`(편의 ctor) ← `classify/Evidence` query union + spec 템플릿 path |
+| C: total_dropped | `domain/ScanResult.totalDropped`(`@Column(integer default 0)`) → `ScanStatusView` |
 
 공통 원칙: **가산 노출(additive)·하위호환(편의 ctor)·무회귀**. ETag 는 **데이터 ts 만(now 불사용)·버킷/명칭집합 투영**(doc/21·24 선례)으로 churn 억제.
 
@@ -9,16 +18,24 @@
 
 ## A. low_confidence 분리 노출 + spec_source.warnings
 
-### A.1 SpecParseResult seam — **신설**(doc/14 에서 deferred)
-- 현재 `SpecParser.parse(byte[]) → List<CanonicalEndpoint>`, recoverable 경고(skip 행/item)는 **`log.warn` 만**(doc/14/D21 이 seam 만 명시·미구현).
-- **신설**: `spec/SpecParseResult(List<CanonicalEndpoint> endpoints, List<String> warnings)`. `SpecParser.parse → SpecParseResult`. 3 파서(OpenApi/Postman/Csv)가 기존 log.warn 메시지를 **warnings 에 수집**(로그도 유지 가능). fatal 은 현행대로 예외(→400).
+### A.1 SpecParseResult seam — **신설**(doc/14 에서 deferred → 이 작업에서 구현)
+- 설계 당시 `SpecParser.parse(byte[]) → List<CanonicalEndpoint>`, recoverable 경고(skip 행/item)는 **`log.warn` 만**(doc/14/D21 이 seam 만 명시·미구현).
+- **신설(구현 완료)**: `spec/SpecParseResult(List<CanonicalEndpoint> endpoints, List<String> warnings)`. `SpecParser.parse → SpecParseResult`. 3 파서(OpenApi/Postman/Csv)가 기존 log.warn 메시지를 **warnings 에 수집**(로그도 유지). fatal 은 현행대로 예외(→400).
 - 인터페이스 변경은 **내부 한정**(파서 ↔ SpecStore). 외부 REST 무변경. 기존 파서 테스트는 `.endpoints()` 로 소폭 갱신.
 
 ### A.2 warnings 전파·영속 (SpecParser→SpecStore→리포트)
 경고는 **업로드(파싱) 시점** 생성, 리포트는 **스캔 시점** 생성 → 경고를 **spec 에 영속**해 스캔이 로드.
-- `SpecRecord` +`@Lob String warningsJson`(`List<String>` 직렬화). `SpecStore.upload` 가 `SpecParseResult.warnings` 저장(canonical 과 함께). 스캔 재파싱 없음(doc/10) → 영속 필수.
+
+```mermaid
+flowchart LR
+    U["업로드: parse → SpecParseResult.warnings"] --> P["SpecStore.upload: SpecRecord.warningsJson (text) 저장"]
+    P --> S["스캔: analyze 가 active SpecRecord.warningsJson 로드"]
+    S --> R["DiscoveryReport.specSource.warnings 노출"]
+```
+
+- `SpecRecord` +`@Column(columnDefinition="text") String warningsJson`(`List<String>` 직렬화). **`@Lob` 아님** — PG `oid` 함정 회피(doc/28 D40/D37). `SpecStore.upload` 가 `SpecParseResult.warnings` 저장(canonical 과 함께). 스캔 재파싱 없음(doc/10) → 영속 필수.
 - 스캔(`DiscoveryJobService.analyze`)이 active `SpecRecord.warningsJson` 로드 → 리포트 `specSource.warnings`.
-- 노출: `model/SpecSource(long specVersion, SpecFormat format, List<String> warnings)` → `DiscoveryReport` top-level `specSource`(항상 non-null, 무스펙=EMPTY/0). 기존 top-level `specVersion` 은 **유지**(가산, 호환). 형제 패턴.
+- 노출: `model/SpecSource(long specVersion, SpecFormat format, List<String> warnings, List<SpecDocument> documents)` → `DiscoveryReport` top-level `specSource`(항상 non-null, 무스펙=EMPTY). `documents`(문서별 메타)는 이후 멀티 스펙(doc/26 §4)에서 추가된 4번째 필드. 기존 top-level `specVersion` 은 **유지**(가산, 호환). 형제 패턴.
 
 ### A.3 low_confidence 노출 형태 — **파생 플래그 + 요약 카운트**(별도 섹션 아님)
 - findings 는 이미 `confidence` 보유(Shadow·Zombie). **별도 리스트 분리 대신**: ① Shadow/Zombie 에 **파생** `@JsonProperty("low_confidence")` = `confidence < THRESHOLD`(단일 진실원=confidence, `Severity.band`·`Unused.preflightAmbiguous` 선례), ② `DiscoveryReport.Summary` +`lowConfidence` 카운트(at-a-glance). 
@@ -63,28 +80,6 @@
 - ddl-auto: `SpecRecord.warningsJson`·`ScanResult.totalDropped` 컬럼 자동 추가(기존 데이터 무영향, null/0 기본). doc/18 sync=technical_writer.
 - ETag: 시간非의존(데이터 ts) + 버킷/명칭집합 투영(doc/21·24) → 신규 churn 없음. 무스펙/무params/무dropped 경로 = 현행 동일.
 - 기존 테스트: 파서(`SpecParseResult.endpoints()`)·Finding 생성(편의 ctor→무변경)·ETag(투영 확장분) 갱신. findings 리스트/Summary 카운트 단언 가산 갱신.
-
-## dev 구현 체크리스트 (TASKS subitem, D26)
-
-**A** → 완료 2026-06-24
-- [x] `spec/SpecParseResult(endpoints, warnings)` 신설 + `SpecParser.parse` 반환형 변경 + 3 파서 warnings 수집(log.warn→수집).
-- [x] `SpecRecord` +`@Lob warningsJson`; `SpecStore.upload` warnings 영속; `DiscoveryJobService` active 스펙 warnings 로드.
-- [x] `model/SpecSource(specVersion, format, warnings)` + `DiscoveryReport.specSource`(non-null, EMPTY) + `ReportBuilder` 인자 + ETag 입력(안정).
-- [x] Shadow/Zombie 파생 `@JsonProperty("low_confidence")`(confidence<THRESHOLD=0.5 1차값) + `Summary.lowConfidence` 카운트(`ReportBuilder` 집계).
-- [x] 테스트 — 파서 warnings 수집/스캔 로드→specSource.warnings/ low_confidence 플래그·카운트/ETag(specSource 안정 편승).
-
-**B** → 완료 2026-06-24
-- [x] `Finding.Active`·`Finding.Zombie` +`ParamCandidates params`(편의 ctor=EMPTY 하위호환).
-- [x] `Evidence` query params 이름단위 union(매칭 d.params) → `Classifier` 2차 Active/Zombie 에 ev.queryCandidates + spec 템플릿 path param.
-- [x] ETag findings-투영(doc/24)에 params→정렬 이름집합+path 토큰(count/buckets 제외) 확장(Shadow·Active·Zombie 균일).
-- [x] 테스트 — Active/Zombie params 노출(관측 query+spec path)/EMPTY 하위호환/멀티host union/ETag 이름집합(count 변동 무bump).
-
-**C** → 완료 2026-06-24
-- [x] `ScanResult` +`int totalDropped`; `persist()` 합계 저장; `ScanStatusView` +`totalDropped`.
-- [x] 테스트 — scan-status totalDropped = 3종 합·/result 사유별 상세 불변.
-
-**공통**
-- [ ] (doc/18 sync, technical_writer) `spec_record.warnings_json`·`scan_result.total_dropped` 컬럼 반영.
 
 ## 범위 밖 / 후속
 
