@@ -1,8 +1,14 @@
 # Testcontainers(PostgreSQL) 통합 테스트 — @Lob→TEXT 실검증 + JPA/REST/304 e2e
 
-> 브랜치 `feature/testcontainers-pg-integration`. TASKS P2 L52(`@Lob String`→PG TEXT 실검증)+L53(통합 테스트) **묶음 단일 PR**.
-> 근거: doc/07 §3(REST·조건부GET)·doc/11 §6(MockMvc e2e 선례)·doc/18(DB 스키마)·doc/26(discovered_endpoint). 근거 결정 **DECISIONS D40**.
-> **설계만. 코드는 dev.** dev 항목은 TASKS 부모 아래 subitem(D26).
+> 운영 DB(PostgreSQL)의 실매핑·실동작을 podman Testcontainers 로 검증한다. 초기 `@Lob String` JSON 컬럼이 PG 에서 실제 어떤 타입으로 나는지(`information_schema` 단언)와 REST 조회·조건부 GET 304 e2e. 근거 [07](07-msa-and-central-integration.md) §3(REST·조건부GET)·[11](11-classification-rest-api.md) §6(MockMvc e2e 선례)·[18](18-db-schema.md)(DB 스키마)·[26](26-multi-spec-merge.md)(discovered_endpoint), 결정 **DECISIONS D40**.
+
+**구현 위치**
+
+| 대상 | 소스 |
+|---|---|
+| 통합 테스트 | `test .../integration/PostgresIntegrationTest`(`@Testcontainers(disabledWithoutDocker=true)`·`postgres:16-alpine`·ddl-auto=create-drop·`@MockBean LokiClient`) |
+| podman 연결·게이팅 | `build.gradle.kts` `tasks.withType<Test>`(DOCKER_HOST / RYUK_DISABLED 가드) |
+| 검증 대상 | 9개 `@Column(text)` JSON 컬럼(구 `@Lob String`→D40 전환) + `GET /discovery`·`GET /result` 304 |
 
 ## 0. 목적 / 범위
 
@@ -49,7 +55,19 @@ if (System.getenv("DOCKER_HOST") == null) {
 
 ## 4. 게이팅 (D40 — 권장: `@Testcontainers(disabledWithoutDocker = true)`)
 
-**무회귀 최우선**: docker/podman 없는 환경의 `./gradlew build` 를 깨면 안 된다. 기존 319 단위테스트는 H2 로 그대로 돌고, PG 통합테스트만 docker 가용 시 **추가**로 돈다.
+**무회귀 최우선**: docker/podman 없는 환경의 `./gradlew build` 를 깨면 안 된다. 기존 H2 단위테스트는 그대로 돌고, PG 통합테스트만 docker 가용 시 **추가**로 돈다.
+
+```mermaid
+flowchart TD
+    B["./gradlew build/test"] --> G{"DOCKER_HOST 기설정?"}
+    G -->|"예"| USE["그대로 사용 (CI/실docker override 존중)"]
+    G -->|"아니오"| P{"XDG_RUNTIME_DIR/podman/podman.sock 존재?"}
+    P -->|"예"| INJ["DOCKER_HOST 주입 + RYUK_DISABLED"]
+    P -->|"아니오"| SKIP["미주입 → @Testcontainers(disabledWithoutDocker) → PG 클래스 auto-skip (build green)"]
+    USE --> RUN["PostgresIntegrationTest 실행 (H2 단위테스트는 항상)"]
+    INJ --> RUN
+```
+
 
 - **권장 — JUnit5 `@Testcontainers(disabledWithoutDocker = true)`**: 목적 빌트인 플래그. docker/podman 미가용 시 **클래스 전체 자동 skip(disabled)** → 빌드 green. gradle/sourceSet 변경 0, 단일 `./gradlew build`/`test` 유지, 319건 무영향.
 - **대안(미채택/후속)**:
@@ -66,7 +84,7 @@ if (System.getenv("DOCKER_HOST") == null) {
 @Testcontainers(disabledWithoutDocker = true)
 class PostgresIntegrationTest {
     @Container
-    @ServiceConnection                                   // datasource 자동 배선(Spring Boot 3.1+)
+    @ServiceConnection                                   // datasource 자동 연결(Spring Boot 3.1+)
     static PostgreSQLContainer<?> pg =
         new PostgreSQLContainer<>("postgres:16-alpine"); // 로컬 pull 확인됨
 
@@ -79,7 +97,7 @@ class PostgresIntegrationTest {
     // @Autowired MockMvc / JdbcTemplate / repositories ...
 }
 ```
-- **`@ServiceConnection`(권장)** — 컨테이너 jdbc url/user/pw 를 datasource 로 자동 배선. 수동 `@DynamicPropertySource`(url/username/password 3줄)보다 린. (수동 방식은 동등 대안.)
+- **`@ServiceConnection`(권장)** — 컨테이너 jdbc url/user/pw 를 datasource 로 자동 연결. 수동 `@DynamicPropertySource`(url/username/password 3줄)보다 린. (수동 방식은 동등 대안.)
 - **`static @Container`(싱글톤)** — 컨테이너 1회 기동·컨텍스트 캐시 재사용. 컨테이너·context 곱셈 회피.
 - **`@MockBean LokiClient`** — 컨텍스트 부팅 시 `DiscoveryScheduler` 1회 실행이라도 **운영 Loki(192.168.8.100:3200) 실호출 차단**(doc/11 ClassificationControllerTest 확립 패턴). **운영 주의 필수 준수**.
 - **ddl-auto = `create-drop`(권장)**:
@@ -113,10 +131,12 @@ class PostgresIntegrationTest {
 
 > **기대값 = `text`** (프로젝트 이식성 의도·엔티티 NOTE). 단, **`oid`/`bytea`/길이제한 `varchar` 로 나오면 그것이 실결함**(과거 Hibernate `@Lob String`→PG `oid` 대형객체 매핑 → auto-commit 에러 전례 때문에 이 검증이 존재) → **테스트를 느슨하게 고치지 말고**(현행 버그 고정 금지, D37 원칙) 엔티티 레벨 수정(`@Column(columnDefinition="text")` 또는 `@JdbcTypeCode(SqlTypes.LONGVARCHAR)`)으로 해소. 테스트의 가치 = 이 분기를 드러내는 것.
 
-### 6.2 `@Lob byte[]` rawDoc — 별도(범위 명시)
+### 6.2 `@Lob byte[]` rawDoc — **이후 컬럼 제거됨** (doc/37 §7)
 
-- `SpecRecord.rawDoc`(`@Lob byte[]`, 컬럼 `raw_doc`) 는 **String 과 매핑이 다름** — Hibernate 6/PG 에서 통상 `oid`(대형객체) 매핑(byte[] LOB gotcha). 매니저 지정 범위는 "@Lob **String** JSON" 이라 `text` 단언 대상 아님.
-- 권장: **round-trip 1건만**(bytes save→load equal)로 실동작 확인 + **실 타입 기록(정보성, oid/bytea)** + **auto-commit 한계 플래그**(§10). `text` 단언 금지(오기대).
+> **갱신**: `SpecRecord.rawDoc`(`@Lob byte[]`, 컬럼 `raw_doc`)는 **저장 전용·프로덕션 read 0** 이라 [37](37-spec-inventory-reconcile.md) §7 에서 **컬럼·필드 제거**됐다 → PG `oid`(대형객체) 매핑 함정 클래스가 **구조적으로 소멸**. 아래는 제거 전 실측 기록(historical).
+
+- (제거 전) `rawDoc` 는 `@Lob String` 과 매핑이 달라 Hibernate 6/PG 에서 통상 `oid`(대형객체) 매핑(byte[] LOB gotcha). round-trip 확인 + 실타입 기록(실측 `oid`)했고 `text` 단언은 하지 않았다.
+- 관련 auto-commit 결함(§10)의 트리거였으나, 제거 후 해당 경로의 oid materialize 자체가 사라졌다(§10 의 tx/projection 방어는 잔존·유효).
 
 ### 6.3 REST e2e (L53) — 1~2 엔드포인트
 
@@ -146,15 +166,11 @@ class PostgresIntegrationTest {
 - **운영 영향 0**: 신규 의존성 전부 testImplementation. `@MockBean LokiClient` 로 운영 Loki 실호출 차단. 컨테이너는 로컬 pull 된 `postgres:16-alpine` 사용(외부 네트워크 의존 최소).
 - **소스 무변경**: 순수 테스트 추가 + build.gradle.kts 테스트 설정. (단 §6.1 에서 `text` 아닌 실결함 발견 시 엔티티 수정은 **별도 보고 후** 진행 — 테스트로 현행 버그 고정 금지.)
 
-## 9. dev 구현 체크리스트 (TASKS subitem, D26)
+## 9. 검증 결과 (핵심 발견)
 
-- [x] build.gradle.kts — Testcontainers 3종 의존(§1, 버전 미명시) + `tasks.withType<Test>` `DOCKER_HOST`/`RYUK_DISABLED` 가드 주입(§2·§3).
-- [x] `PostgresIntegrationTest`(`@SpringBootTest @AutoConfigureMockMvc @Testcontainers(disabledWithoutDocker=true)`, `@Container @ServiceConnection postgres:16-alpine`, `ddl-auto=create-drop`, `@MockBean LokiClient`) — §5.
-- [x] (L52) `@Lob String` 9컬럼 `information_schema.data_type='text'` 단언 + 대용량 round-trip(§6.1). **실결함 발견·수정**: 9컬럼 전부 `oid` 매핑(text 아님) → 5엔티티 `@Lob`→`@Column(columnDefinition="text")` 수정(D37 원칙, §6.1·D40 갱신) → text 통과.
-- [x] (L52 별도) `raw_doc`(byte[]) round-trip + 실타입 기록(실측 `oid`, text 단언 안 함, §6.2).
-- [x] (L53) `GET /discovery` e2e(실 PG, 시드→200·필드, §6.3).
-- [x] (L53) `GET /result` 조건부 GET — 1차 200+ETag → 2차 If-None-Match 304(§6.4).
-- [x] 회귀 — `./gradlew build`(podman): PG 통합테스트 13건 실행 green(skip 0) / bogus `DOCKER_HOST` 로 auto-skip 확인(클래스 skipped, build green) / 기존 319 무영향(총 332·실패 0·skip 1=LokiLive).
+- **L52 실결함 발견·수정**: 9개 JSON 컬럼이 실 PG 에서 전부 `oid` 매핑(text 아님)으로 나옴 → 5엔티티 `@Lob String`→`@Column(columnDefinition="text")` 로 수정(D37 원칙: 테스트로 버그 고정 금지, D40 갱신) → `information_schema.data_type='text'` 통과.
+- L53 e2e: `GET /discovery`·`GET /result`(304 조건부 GET) 실 PG 백엔드로 green.
+- 이후 §10 에 기록된 일련의 auto-commit oid 결함(메타 조회·forHost·재업로드 self-invocation)이 실 PG 통합테스트로 발현·수정됐고, `rawDoc` 컬럼 제거(doc/37 §7)로 oid 함정 클래스가 구조적으로 소멸.
 
 ## 10. 범위 밖 / 후속 / 한계
 
