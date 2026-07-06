@@ -1,0 +1,50 @@
+# APIDiscover 업로드 샘플 — OpenAPI 3.0.3 (감지 키: openapi/swagger)
+# 업로드: PUT /api/v1/domains/{host}/spec  (Content-Type 무관, 본문=이 파일)
+# servers.url 로 host·basePath 도출(없으면 host-agnostic). operation deprecated:true → Zombie 후보.
+openapi: 3.0.3
+info:
+  title: Example API (OpenAPI 업로드 샘플)
+  version: "1.0.0"
+  description: APIDiscover 스펙 업로드/파싱/대조 데모용 최소 OpenAPI 문서.
+servers:
+  - url: https://api.example.com
+paths:
+  /api/v1/users:
+    get:
+      summary: 사용자 목록
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema: { type: integer }
+      responses:
+        "200": { description: OK }
+    post:
+      summary: 사용자 생성
+      responses:
+        "201": { description: Created }
+  /api/v1/users/{id}:
+    get:
+      summary: 사용자 상세
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200": { description: OK }
+    delete:
+      summary: 사용자 삭제
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "204": { description: No Content }
+  /api/v1/legacy/ping:
+    get:
+      summary: 레거시 헬스체크 (폐기 예정)
+      deprecated: true
+      responses:
+        "200": { description: OK }

@@ -1,0 +1,72 @@
+{
+  "info": {
+    "name": "Example API (Postman 업로드 샘플)",
+    "version": "1.0.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "APIDiscover 스펙 업로드/파싱/대조 데모용 Postman Collection v2.1 문서. 폴더/요청 트리·url 객체(host·path·query·variable)·[deprecated] 이름 규칙 예시."
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "https://api.example.com" }
+  ],
+  "item": [
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "List Users",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users?page=1",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "api", "v1", "users" ],
+              "query": [ { "key": "page", "value": "1" } ]
+            }
+          }
+        },
+        {
+          "name": "Get User",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/:id",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "api", "v1", "users", ":id" ],
+              "variable": [ { "key": "id", "value": "123" } ]
+            }
+          }
+        },
+        {
+          "name": "Create User",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users",
+              "host": [ "{{baseUrl}}" ],
+              "path": [ "api", "v1", "users" ]
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "name", "value": "alice" },
+                { "key": "email", "value": "a@example.com" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Get Legacy Report [deprecated]",
+      "request": {
+        "method": "GET",
+        "description": "구버전 리포트 API. deprecated.",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/legacy/report",
+          "host": [ "{{baseUrl}}" ],
+          "path": [ "api", "v1", "legacy", "report" ]
+        }
+      }
+    }
+  ]
+}

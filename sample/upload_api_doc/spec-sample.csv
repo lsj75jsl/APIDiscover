@@ -1,0 +1,6 @@
+method,path,host,deprecated,version,params,description
+GET,/api/v1/orders,api.example.com,false,v1,,주문 목록
+GET,/api/v1/orders/{id},api.example.com,false,v1,id:path:true:integer,주문 상세
+POST,/api/v1/orders,api.example.com,false,v1,,주문 생성
+GET,/api/v1/orders/search,api.example.com,false,v1,q:query:false:string;limit:query:false:integer,주문 검색
+GET,/api/v1/legacy/report,api.example.com,true,v1,,레거시 리포트(폐기 예정)
