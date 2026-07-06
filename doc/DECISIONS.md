@@ -622,6 +622,12 @@ gap-free 크롤은 활성 수요(~22.6k 윈도우/h) vs 예산 용량(D65 후 ~7
 - **수정 3건**: ① `OpenAPIV3Parser` → 통합 **`OpenAPIParser`**(io.swagger.parser, swagger-parser 아티팩트 포함) — 2.0 은 v2-converter 로 3.0 자동 변환·3.x 는 그대로. ② `toOrigin()` **protocol-relative(`//host/base`) 처리** — 2.0→3.0 변환이 schemes 부재 시 servers.url 을 `//host/basePath` 로 내보내 host 가 경로에 접히던 것(`/api.example.com/v1/products`) 교정. ③ `SpecController.upload` **IllegalArgumentException→400 매핑**(무효/미인식 문서는 클라이언트 오류, 종전 uncaught 500).
 - **검증**: build green **536**(신규 2: swagger2 host+basePath+deprecated 파싱·컨트롤러 400 매핑)·RED-확인(OpenAPIV3Parser 원복 시 2.0 테스트 red). 재배포 후 실 Swagger 2.0 문서 업로드로 라이브 확인. OpenAPI 3.x(verbose export 포함)·Postman·CSV 무회귀.
 
+### D71. 설계문서(doc/NN)에서 'dev 구현 체크리스트' 제거 — 작업 히스토리는 TASKS/PROJECT_LOG 로 일원화 (2026-07-06, 사용자 지시)
+- **배경**: doc/NN 문서 현행화 중, 27개 설계문서가 'dev 구현 체크리스트'(구현 항목·PR 완료 `[x]`·테스트 건수) 섹션을 보유. 이는 **작업 히스토리**지 **설계 근거**가 아니며, 이미 `TASKS.md`(Done)·`PROJECT_LOG.md`(세션 로그)에 동일 기록이 있어 **중복**이다. 설계문서가 완료 표기까지 안고 가면 코드 변화 시 또 하나의 동기 대상이 된다.
+- **결정**: 설계문서는 **설계·근거·현재 동작**만 담는다. 구현 체크리스트·PR 완료·테스트 건수 등 **작업 히스토리는 `TASKS.md`/`PROJECT_LOG.md` 로 일원화**한다. doc 현행화 패스에서 각 문서의 'dev 구현 체크리스트' 섹션을 삭제하고, 누락 시에만 히스토리 문서로 옮긴다(대개 이미 존재).
+- **영향**: CLAUDE.md 의 'D28 — PR 머지 시 설계문서 dev 체크리스트 동기 갱신' 관행을 대체한다(설계문서에 체크리스트가 없으므로 동기 대상 아님). 설계문서↔TASKS 매핑표·우선순위(D25)는 유지.
+- **적용**: doc/09 §6 삭제(§7→§6)부터 시작, 나머지 26개는 각 문서 현행화 차례에 삭제.
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.

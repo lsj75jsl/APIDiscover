@@ -3,7 +3,19 @@
 > 범위: explicit hint 모드(`api_path_prefixes`/`api_path_regexes`) + 매처 설정(prefixes/regexes/exclude),
 > ReDoS 방어, 전역/도메인 병합, `include_web_forms`, ApiScorer 게이트 통합까지.
 > **범위 밖(후속)**: DB 저장(전역 classification 레코드 / 도메인 override), 중앙 API `GET/PUT /classification`.
-> 이번 설계는 **effective 매처 객체가 주입된다고 가정**한다. 근거 결정은 doc/DECISIONS.md **D16**.
+> 이번 설계는 **effective 매처 객체가 주입된다고 가정**한다. 근거 결정은 [DECISIONS](DECISIONS.md) **D16**.
+
+> **용어** — 이 문서의 "매처(matcher)"는 경로 매칭 규칙(prefix/regex)을 컴파일·평가하는 컴포넌트 `ApiHintMatcher` 를 가리킨다.
+
+연결 문서 → [08-api-scoring-and-profiles](08-api-scoring-and-profiles.md)(게이트·점수), [04-matching-and-classification](04-matching-and-classification.md)(분류 오케스트레이션), [23-options-preflight-detection](23-options-preflight-detection.md)(optionsOperationPrefixes), [10-classification-config-store](10-classification-config-store.md)(설정 저장·병합).
+
+**구현 위치**
+
+| 대상 | 소스 · 함수 |
+|---|---|
+| 매처 설정 shape·병합 | `model/MatcherConfig`(record) · `merge()` |
+| 힌트/제외 판정·ReDoS 가드 | `match/ApiHintMatcher.apiHinted()` / `excluded()` / `genuineOptions()` |
+| 게이트 통합 | `classify/ApiScorer.evaluate()` (게이트 순서 Mermaid = [08](08-api-scoring-and-profiles.md) §6) |
 
 ## 0. 배경 (doc/08 연계)
 
@@ -16,15 +28,17 @@
 ## 1. 설정 객체 shape — `MatcherConfig`
 
 ```text
-MatcherConfig (record, com.pentasecurity.apidiscover.model)
-  List<String> apiPathPrefixes      // 양성 힌트 prefix      예: "/api", "/internal/v2"
-  List<String> apiPathRegexes       // 양성 힌트 regex(full)  예: "/svc/[a-z]+/data"
-  List<String> excludePathPrefixes  // 강제 제외 prefix       예: "/legacy", "/debug"
-  List<String> excludePathRegexes   // 강제 제외 regex        예: ".*\.(js|css|map)$"
-  Boolean      includeWebForms      // null=상속, 기본 false (§5)
-  + MatcherConfig NONE              // 빈값 + includeWebForms=true. 매처 비활성 센티넬(레거시/미배선)
-  + static merge(global, domain)    // §4
+MatcherConfig (record, com.pentasecurity.apidiscover.model) — 실제 6필드
+  List<String> apiPathPrefixes         // 양성 힌트 prefix      예: "/api", "/internal/v2"
+  List<String> apiPathRegexes          // 양성 힌트 regex(full)  예: "/svc/[a-z]+/data"
+  List<String> excludePathPrefixes     // 강제 제외 prefix       예: "/legacy", "/debug"
+  List<String> excludePathRegexes      // 강제 제외 regex        예: ".*\.(js|css|map)$"
+  List<String> optionsOperationPrefixes// "OPTIONS 가 진짜 operation" operator 선언 (23 문서 §8, M2)
+  Boolean      includeWebForms         // null=상속, 기본 false (§5)
+  + MatcherConfig NONE               // 빈값 + includeWebForms=true. 매처 비활성 센티넬(레거시/미배선)
+  + static merge(global, domain)     // §4 — 6개 list 전역∪도메인 union
 ```
+> 초기 설계는 5필드였으나 doc/23(M2)에서 `optionsOperationPrefixes` 가 추가돼 현재 6필드다. 하위호환 5-arg 생성자가 남아 있다(기존 stored matcherJson 무변경).
 
 설계 결정.
 - exclude 는 doc/08 §7 에선 `exclude_path_prefixes`(prefix only)였으나, regex 엔진을 양성 힌트용으로 어차피 만들므로
@@ -50,17 +64,19 @@ doc/08 §4 표는 path_prefix/regex 를 weight 0.55 로 적지만, middle 임계
 ### 2.2 게이트 순서 (d 가 spec 미매칭, OPTIONS 아님)
 
 ```text
-0. spec 매칭됨          → 게이트 우회. Active/Zombie (스펙 권위, doc/08 §6 불변)
-1. exclude 매치         → DROP_EXCLUDED      [게이트 내 최우선. 힌트·점수 모두 무시]
-2. api 힌트 매치        → ADMIT              [explicit operator allow. 임계 우회]
-3. web-form 억제 조건   → DROP_WEB_FORM      [§5. host_api·cors·hint 있으면 미적용]
-4. score >= threshold ? → ADMIT : DROP_LOW_SCORE
+0.  spec 매칭됨            → 게이트 우회. Active/Zombie (스펙 권위, doc/08 §6 불변)
+0.5 경로 길이 > 2048       → DROP_OVERSIZE     [최우선 하드 veto, D68 — 이후 추가]
+1.  exclude 매치           → DROP_EXCLUDED     [힌트·점수 모두 무시]
+2.  api 힌트 매치          → ADMIT             [explicit operator allow. 임계 우회]
+2.5 endpoint_kind = STATIC → DROP_STATIC       [정적 파일 하드 veto, D55 — 이후 추가]
+3.  web-form 억제 조건     → DROP_WEB_FORM     [§5. host_api·cors·hint 있으면 미적용]
+4.  score >= threshold ?   → ADMIT : DROP_LOW_SCORE
 ```
 
 - **exclude vs spec**: exclude 는 게이트(미문서 분기)에만 작용. spec 매칭은 exclude 보다 위(operator 가 스펙으로 API 라 명시).
   드문 충돌(문서화된 경로를 exclude)은 스펙 우선 해소 + WARN 권장.
-- 반환은 enum `Gate {ADMIT, DROP_EXCLUDED, DROP_WEB_FORM, DROP_LOW_SCORE}`.
-  DROP 사유 분리 → TASKS "non_api dropped observation 메트릭" 이 그대로 버킷팅 가능(메트릭 배선은 범위 밖).
+- 반환은 enum `Gate {ADMIT, DROP_EXCLUDED, DROP_WEB_FORM, DROP_LOW_SCORE, DROP_STATIC, DROP_OVERSIZE}` (초기 4값 → D55/D68 로 `DROP_STATIC`·`DROP_OVERSIZE` 추가돼 현재 **6값**).
+  DROP 사유 분리 → 비-API dropped 메트릭이 사유별로 버킷팅된다([12-non-api-dropped-metric](12-non-api-dropped-metric.md)).
 
 ### 2.3 explicit-hint 모드 점수 (doc/08 §4 line 59)
 
@@ -100,9 +116,17 @@ doc/08 §4 표는 path_prefix/regex 를 weight 0.55 로 적지만, middle 임계
 
 ## 4. 전역/도메인 병합 — `MatcherConfig.merge(global, domain)`
 
-doc/08 §7 "include/exclude 매처는 전역+도메인 합집합, exclude 최우선".
+[08](08-api-scoring-and-profiles.md) §7 "include/exclude 매칭 규칙은 전역+도메인 합집합, exclude 최우선".
 
-- 4개 list = **전역 ∪ 도메인** (distinct).
+```mermaid
+flowchart LR
+    G["전역 MatcherConfig<br/>(GET/PUT /classification)"] --> M["MatcherConfig.merge(global, domain)"]
+    D["도메인 override<br/>(/domains/{host}/classification)"] --> M
+    M --> E["effective MatcherConfig<br/>5개 list = 전역 ∪ 도메인(dedup)<br/>includeWebForms = 도메인 → 전역 → false"]
+    E --> H["ApiHintMatcher (compile · ReDoS 가드)"]
+```
+
+- 5개 list = **전역 ∪ 도메인** (순서 보존 dedup).
 - `includeWebForms` = 도메인 non-null → 도메인 값, 아니면 전역, 그래도 null → **false**.
   (단일 플래그라 상속 시맨틱 → 도메인 override 는 nullable `Boolean`.)
 - "exclude 최우선" 은 **병합 규칙이 아니라 게이트 결정 규칙**(§2 order 1). 병합은 단순 합집합이고,
@@ -129,42 +153,7 @@ doc/08 §7 "include/exclude 매처는 전역+도메인 합집합, exclude 최우
 요약: web_page penalty 는 없어졌고, `include_web_forms=false` 는 그 자리에
 **write-to-web_page 한정 + 강신호 override 가능한 hard-drop** 을 둔다.
 
-## 6. dev 구현 체크리스트 (12건)
-
-> ✅ **구현 완료 (PR 머지)** — 아래는 historical 체크리스트(2026-06-24 실제 머지 코드 대조 후 완료 표기). 잔여는 §'범위 밖/후속'·TASKS 참조.
-
-### 신규
-- [x] `model/MatcherConfig.java` (record) — 5필드 + `NONE` + `static merge(global, domain)`(§4).
-- [x] `match/ApiHintMatcher.java` — effective `MatcherConfig` 로 생성, 빌드 시 상한 검증 + regex 컴파일(§3).
-      메서드 `isExplicitHintMode()`, `apiHinted(template)`, `excluded(template)`, `includeWebForms()`.
-      내부 ReDoS-guarded `matches()` 헬퍼 + 타임아웃 카운터(`AtomicLong`). 세그먼트-경계 prefix 매칭. `NONE` 상수.
-- [x] `DeadlineCharSequence`(ApiHintMatcher private static) — `charAt()` 에서 nanoTime deadline 검사 → 초과 시 내부 예외.
-      `match()` 가 그 예외를 잡아 no-match 처리.
-
-### 수정
-- [x] `ApiScorer.Weights` — `pathHint` 필드 추가, MIDDLE 0.55 / HIGH 0.50 / LOW 0.65 (path_prefix=path_regex 동일 → 단일).
-- [x] `ApiScorer.score(d, cors, ApiHintMatcher)` — explicit-hint 분기(§2.3). 기존 `score(d, cors)` 2-arg 는 `…, NONE` 위임
-      (pathless = 현행 동일, 기존 테스트 보존).
-- [x] `ApiScorer.evaluate(d, cors, ApiHintMatcher) -> Gate` — §2.2 order 1~4. `isApiCandidate` 들은 evaluate==ADMIT 위임.
-      `Gate {ADMIT, DROP_EXCLUDED, DROP_WEB_FORM, DROP_LOW_SCORE}` 추가.
-- [x] `Classifier.classify(discovered, spec, specMatcher, ApiHintMatcher)` — 게이트를 evaluate 로 교체, ADMIT 만 Shadow.
-      3-arg 레거시 오버로드는 `NONE` 위임(기존 테스트·호출부 보존).
-- [x] `DiscoveryJobService` — effective `MatcherConfig` → `ApiHintMatcher` 생성·주입 지점. **설정 저장 전까지 `NONE`** 사용
-      (현행 불변) + TODO 주석.
-
-### 테스트
-- [x] `ApiHintMatcherTest`(신규) — 세그먼트 경계 prefix(`/api`✓ `/api/x`✓ `/apixyz`✗), regex full-match, exclude prefix/regex,
-      `isExplicitHintMode`(exclude만 설정 시 false), 상한 위반 throw, 잘못된 regex throw,
-      **ReDoS**(`(a+)+$` + 긴 입력 → `assertTimeout` 무행, no-match + 카운터), 입력 길이 상한, `NONE` 동작.
-- [x] `MatcherConfigMergeTest`(신규) — list 합집합·dedup, includeWebForms 상속(도메인 null→전역, set→override).
-- [x] `ApiScorerTest` 추가 — explicit-hint 모드 path-shape 비활성(이중계상 없음), **힌트 force-admit**(www `/api/x`, score<0.70 → ADMIT),
-      **exclude force-drop**(api.* 고득점인데 DROP_EXCLUDED), exclude ∩ hint → DROP_EXCLUDED. 기존 2-arg 테스트 green 확인.
-- [x] `ClassifierTest` 추가/점검 — exclude 미문서 경로 미보고, 힌트 미문서 경로 Shadow,
-      **spec 매칭 경로는 exclude/web-form/hint 우회**(Active),
-      web-form(false+WEB_PAGE+POST, host/cors/hint 없음→DROP / 있으면 ADMIT / GET 은 drop 안 됨 / true 면 score 게이트),
-      레거시 3-arg 오버로드 동작 불변.
-
-## 7. 한계 / 후속
+## 6. 한계 / 후속
 
 - body/Content-Type 부재로 폼 POST vs JSON POST 완벽 구분 불가 → `include_web_forms` 는 best-effort + override 가능.
 - 저장(전역 레코드/도메인 override)·중앙 API·메트릭 배선은 후속(TASKS API 점수화 섹션).
