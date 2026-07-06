@@ -1,10 +1,9 @@
 # M7 — spec 멀티문서 관리 + API 상태추적 (ADDED/DELETED/UPDATED) 상세 설계
 
-> ## ★ SUPERSEDED — doc/37 로 대체 (M7 재설계)
-> 본 문서의 **compute-on-read 문서버전 diff 모델**(현 active vs 직전 inactive `canonicalJson` 조회 시점 비교·`SpecDiffService`·`GET /spec/changes`)은 **사용자 의도와 불일치**로 폐기됐다. 사용자 의도 = **영속 API 인벤토리 + 업로드마다 문서별 reconcile**(파라미터 보유·ADDED/UPDATED/DELETED 를 현재 상태 속성으로 관리·DELETED 를 Zombie 입력으로). 재설계는 **doc/37 — 영속 API 인벤토리 + reconcile** 참조. M7a 구현(PR #44/#45)은 doc/37 §5 롤백 경계에 따라 제거·이관된다. 본 문서는 이력 보존용(삭제 안 함).
+> ## ★ SUPERSEDED — [37-spec-inventory-reconcile](37-spec-inventory-reconcile.md) 로 대체 (M7 재설계)
+> 본 문서의 **compute-on-read 문서버전 diff 모델**(현 active vs 직전 inactive `canonicalJson` 조회 시점 비교·`SpecDiffService`·`GET /spec/changes`)은 **사용자 의도와 불일치**로 폐기됐다. 사용자 의도 = **영속 API 인벤토리 + 업로드마다 문서별 reconcile**(파라미터 보유·ADDED/UPDATED/DELETED 를 현재 상태 속성으로 관리·DELETED 를 Zombie 입력으로). 재설계는 **[37-spec-inventory-reconcile](37-spec-inventory-reconcile.md) — 영속 API 인벤토리 + reconcile** 참조. **M7a 구현(`SpecDiffService`·`GET /spec/changes`)은 doc/37 §5 롤백 경계에 따라 이미 제거·이관됐다**(현 소스에 존재하지 않음). 본 문서는 이력 보존용(삭제 안 함).
 
-> doc/35 P2(고위험) 상세화. 근거: doc/26(멀티스펙·specMergeStrategy·SpecStore)·doc/03(canonical)·doc/28 §10·DECISIONS D51(rawDoc oid 교훈)·doc/35 M6(filename·projection). 근거 결정 **DECISIONS D52**.
-> **M7a 구현 완료**(브랜치 feat/m7a-spec-changes, build green 496·PostgresIntegrationTest 28·커밋 보류). **M7b(param-level UPDATED)=후속**(별도 PR·access-log param 묶음). 운영 Loki 미호출. 스키마 변경 0·재배포 불요.
+> doc/35 P2(고위험) 상세화. 근거: [26](26-multi-spec-merge.md)(멀티스펙·specMergeStrategy·SpecStore)·[03](03-spec-formats-and-canonical-model.md)(canonical)·[28](28-testcontainers-pg-integration.md) §10·**DECISIONS D51**(rawDoc oid 교훈)·[35](35-rest-api-batch.md) M6(filename·projection). 근거 결정 **DECISIONS D52**.
 
 ## 0. 목적 / 현 구조 / 보류 맥락
 
@@ -105,7 +104,7 @@
 
 ## 9. dev 구현 체크리스트 (TASKS subitem, D26 / P3 — doc/35 2단계)
 
-**M7a (우선·0 스키마) — ★구현 완료(브랜치 feat/m7a-spec-changes, build green 496·커밋 보류·머지 시 Done)**
+**M7a (우선·0 스키마) — ★한때 구현됐으나 doc/37 재설계로 제거됨**(아래는 이력 기록 — 현 소스에 `SpecDiffService`·`/spec/changes` 없음)
 - [x] `upload(host,content,filename)` specName 도출(filename→trim·소문자 specName, 미전달/빈=default) — 멀티문서 거동, 하위호환(filename 미전달=현행).
 - [x] `domain/SpecCanonicalProjection`(specName·specVersion·canonicalJson·uploadedAt·filename·active, **rawDoc 미선택**) + `SpecRecordRepository.findCanonicalVersions`(JPQL 생성자식·`coalesce(specName,'default')` 매칭(레거시 null)·specVersion desc).
 - [x] `spec/SpecDiffService`(compute-on-read: 현 active vs 직전 inactive canonicalJson 역직렬화·method+path_template 맵·ADDED/DELETED/UPDATED[deprecated/version], TreeMap 정렬 결정적) — **projection only(loadVersions 단일 지점, oid 회피)**.
