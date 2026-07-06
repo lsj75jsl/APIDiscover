@@ -32,7 +32,7 @@
 사용 중인 JPA 매핑 컨벤션은 다음과 같다.
 
 - `String` + `@Column(columnDefinition = "text")` → 큰 JSON 문자열. H2/PG 모두 `text`(과거 `@Lob String` 은 PG `oid` 결함 → D40 에서 전환, §1.3).
-- `@Lob byte[]` → 원본 바이너리(BLOB / PG `oid`). `spec_record.raw_doc` 한정.
+- `@Lob byte[]` → 원본 바이너리(BLOB / PG `oid`). **현재 사용처 없음** — 유일했던 `spec_record.raw_doc` 가 제거됨(doc/37 §7). 아래 §1.3·§5 의 `@Lob byte[]` 항목은 역사적 기록.
 - `@Enumerated(EnumType.STRING)` → enum 을 이름 문자열(VARCHAR)로 저장. 숫자 ordinal 미사용(순서 변경 안전).
 - `@ElementCollection` + `@CollectionTable` → 컬렉션 필드를 **자식 테이블로 분리**.
 - public 필드(스캐폴딩 단순화, 캡슐화는 후속 TODO — 엔티티 주석 참조).
@@ -45,7 +45,7 @@
 |------------|--------|----------------|---------------|
 | `String` (length 미지정) | `VARCHAR(255)` | `varchar(255)` | nullable |
 | `String` + `@Column(columnDefinition="text")` (JSON) | `text` | `text` (PR #20/D40 실측 확정) | nullable |
-| `@Lob byte[]` | `BLOB` | `oid` (PR #20/D40 실측 확정 — `spec_record.raw_doc` 한정, 범위 밖·그대로 유지) | nullable |
+| `@Lob byte[]` | `BLOB` | `oid` (PR #20/D40 실측) — **유일 컬럼 `spec_record.raw_doc` 는 이후 제거됨(doc/37 §7), 현재 미사용** | nullable |
 | `Instant` | `TIMESTAMP(6)` | `timestamp(6)` | nullable (UTC 저장) |
 | `long` (primitive) | `BIGINT` | `bigint` | **NOT NULL** |
 | `Long` (wrapper) | `BIGINT` | `bigint` | nullable |
@@ -128,7 +128,6 @@ INSERT 에는 이 기본값이 적용되지 않는다.
 | `spec_name` | `specName` | `String` | VARCHAR(255) | | nullable | host 내 문서 식별(멀티 스펙). null → `"default"` 로 해석. `specName` 별 최신 active = host active set (doc/26 §3) |
 | `format` | `format` | `@Enumerated(STRING) SpecFormat` | VARCHAR(255) | | nullable | 값: `OPENAPI` / `POSTMAN` / `CSV` |
 | `spec_version` | `specVersion` | `long` | BIGINT | | NOT NULL | 도메인별 증가 버전 |
-| `raw_doc` | `rawDoc` | `@Lob byte[]` | BLOB (PG `oid`) | | nullable | 원본 문서(감사/재파싱용). PG 실측 타입 `oid` 확정(범위 밖, 그대로 유지·round-trip 검증, PR #20/D40) |
 | `canonical_json` | `canonicalJson` | `@Column(columnDefinition="text") String` | text | | nullable | Canonical 엔드포인트 집합 JSON(매칭의 진실원). PG `text`(D40) |
 | `warnings_json` | `warningsJson` | `@Column(columnDefinition="text") String` | text | | nullable | 파싱 recoverable 경고 `List<String>` 직렬화. 스캔이 `specSource.warnings` 로 로드(doc/25 §A.2). PG `text`(D40) |
 | `endpoint_count` | `endpointCount` | `int` | INTEGER | | NOT NULL | |
@@ -137,6 +136,8 @@ INSERT 에는 이 기본값이 적용되지 않는다.
 
 > 본 엔티티만 `@GeneratedValue(IDENTITY)` 합성 키를 쓴다(나머지는 자연키 `host` 또는 고정 PK). 같은 host 의 여러 버전을 행으로
 > 보관하므로 host 는 PK 가 아니다. 활성 1건 조회는 `findFirstByHostAndActiveIsTrueOrderBySpecVersionDesc`(리포지토리).
+>
+> **`raw_doc`(`@Lob byte[]`) 컬럼은 제거됨**(doc/37 §7) — 저장 전용·프로덕션 read 0 이라 삭제해 PG `oid` 함정 클래스를 구조적으로 없앴다. 재파싱은 원본 대신 **재업로드**(go-forward). `ddl-auto` 는 컬럼을 자동 DROP 하지 않으므로 기존 PG 의 잔존 `raw_doc` 물리 컬럼·LO 는 운영에서 수동 정리(`lo_unlink`/`DROP COLUMN`).
 
 ### 2.4 `scan_result` — 도메인별 최신 스캔 결과
 
@@ -356,7 +357,7 @@ flowchart TD
 
 - ✅ **검증 완료(PR #20/D40, doc/28)** — 9개 JSON 컬럼(`canonical_json`/`report_json`/`custom_weights_json`/`matcher_json`/`warnings_json`/`status_dist_json`/`params_json`):
   실 PostgreSQL(Testcontainers) 실측에서 초기 `@Lob String` 이 `oid` 로 매핑돼 실결함(auto-commit LOB)이 확인됐고, `@Column(columnDefinition = "text")` 로 전환해 **PG 타입 `text` 확정**(`information_schema.data_type='text'` 단언 통과). TASKS 의 "@Lob String JSON 컬럼 PostgreSQL TEXT 매핑 실검증" 항목 Done.
-- ✅ **검증 완료(PR #20/D40)** — `@Lob byte[]`(`spec_record.raw_doc`)의 PG 실제 타입은 **`oid` 확정**(범위 밖, 그대로 유지·round-trip 만 검증).
+- ✅ **검증 완료(PR #20/D40) → 이후 컬럼 제거** — `@Lob byte[]`(`spec_record.raw_doc`)의 PG 실제 타입은 `oid` 로 확정됐고, 그 뒤 저장 전용·read 0 이라 **컬럼째 제거**(doc/37 §7)돼 `oid` 함정 클래스가 소멸했다.
 - `domain_hostnames` 의 PK/UNIQUE 제약 정확한 형태(Hibernate 버전 의존).
 - prod(PostgreSQL) 프로파일 yml — 현재 리포에는 H2 `application.yml` 만 존재. PG 접속값은 운영 환경에서 주입되는 전제.
 
