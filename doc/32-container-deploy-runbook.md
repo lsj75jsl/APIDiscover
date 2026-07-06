@@ -1,9 +1,21 @@
-# 컨테이너 배포·실행·CLI 런북 (테스트 배포, doc/31 C4)
+# 컨테이너 배포·실행·CLI 런북 (테스트 배포, [31](31-cli-export-and-deploy.md) §C4)
 
-> app + postgres 2컨테이너 1 pod(podman). 산출물: `Dockerfile`·`wait-for-db.sh`·`adc.yaml`·`application-container.yml`(container 프로파일).
+> app + postgres 2컨테이너 1 pod(podman). 산출물: `Dockerfile`·`wait-for-db.sh`·`adc.yaml`·`application-container.yml`(container 프로파일). 스캔 튜닝 env 는 [33](33-scan-load-policy.md).
 > ★대상 Loki(192.168.8.100:3200)는 **운영 서버** — 컨테이너 스캔·디스커버리도 LokiClient 부하보호(윈도우·page-limit·throttle·동시성) 준수, 대용량은 **off-peak**(01:00–06:00). 임시 확인도 창/limit 작게.
 > ★네트워크: `adc.yaml` 은 **hostNetwork: true** — 기본 bridge 는 LAN 운영 Loki 에 egress 불가(connect timeout)라, pod 가 host 네트워크를 써야 Loki 도달(§3). app↔db 는 동일 host netns 의 `localhost:5432`.
 > ★기동 순서: app 컨테이너는 **`wait-for-db.sh`** 로 DB(`localhost:5432`) 준비를 대기한 뒤 기동 — 동시 기동(pod) 시 DB initdb 지연으로 인한 **재시작 폭주(크래시 루프) 방지**(§2).
+
+```mermaid
+flowchart LR
+    B["podman build (멀티스테이지 bootJar→JRE)"] --> S["podman save 개별 tar (app.tar / pg.tar)"]
+    S --> L["scp + podman load (VM, 이미지 ID 분리 확인)"]
+    L --> P["podman play kube adc.yaml (hostNetwork)"]
+    P --> DB["postgres: /opt/adc/pgdata initdb"]
+    P --> APP["app: wait-for-db.sh (localhost:5432 대기) → java -jar"]
+    DB -.->|"준비 완료"| APP
+    APP --> H["/actuator/health UP + ddl-auto 스키마 생성"]
+    H --> D["initial-delay 후 디스커버리·스캔 (운영 Loki, 부하보호)"]
+```
 
 ## 0. 사전 준비 (host, rootful=root 로그인 기준)
 
