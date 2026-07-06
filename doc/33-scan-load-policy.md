@@ -1,7 +1,18 @@
 # 엔드포인트 스캔 Loki 부하 운영정책 (A–F) + 운영자 온디맨드 스캔 CLI (P3)
 
-> 브랜치 `feature/scan-load-policy`. 근거: doc/05 §2.4/§3/§6(Loki 부하보호·watermark)·doc/30(디스커버리·DomainConfig)·doc/06(배포모델)·doc/12·13(dropped 카운트=메트릭 재사용). 근거 결정 **DECISIONS D45**.
-> **설계만. 코드는 dev.** dev 항목은 TASKS subitem(D26). 사용자 승인 정책 A–F + 매니저 추가요구(온디맨드 스캔 CLI) 구현화.
+> ~14k 도메인 전수 스캔의 운영 Loki 과부하를 6개 정책(A~F)으로 제어하고, 운영자 온디맨드 스캔 CLI 를 제공한다. 근거 [05](05-log-ingestion-from-loki.md) §2.4/§3/§6(부하보호·watermark)·[30](30-domain-auto-discovery.md)(디스커버리·DomainConfig)·[06](06-implementation-stack.md)(배포)·[12](12-non-api-dropped-metric.md)·[13](13-normalization-cardinality.md)(dropped 카운트=메트릭 재사용), 결정 [DECISIONS](DECISIONS.md) **D45**·**D48**(due 모델)·**D46**(PR1.1)·**D47**(CLI 통일).
+
+**구현 위치**
+
+| 대상 | 소스 |
+|---|---|
+| 틱 선택(LRS+티어+off-peak) | `batch/ScanSelector`(`findDueForScan`) + `batch/ScanTier.effectiveInterval` + `batch/OffPeakWindow` |
+| 스케줄 루프 | `batch/DiscoveryScheduler.scanTick()`(@Scheduled tick-interval, touchScanSchedule) |
+| per-scan 하드캡·부분 watermark | `batch/DiscoveryJobService.collectBounded()`(슬라이스 외부·hostname 내부, PR1.1) |
+| 전역 레이트 가드 | `ingest/LokiBudget`(시간당 쿼리/바이트 캡) + LokiClient 적응형 throttle |
+| due 커서 | `domain/DomainConfig.lastScanAttemptAt`·`nextScanDueAt`(@Index) |
+| 온디맨드 CLI | `cli/CliScanRunner`(`-domain -scan`) → `DiscoveryJobService.scanOnDemand`(watermark 미전진) |
+| 설정 | `config/ApiDiscoverProperties.Scan`(`apidiscover.scan.*`) |
 
 ## 0. 배경 / 문제
 
@@ -37,7 +48,7 @@
 - **★커서 전진은 attempt 마다**(skip 포함): 한 도메인을 picked 하면 **runScan 전/후로 `lastScanAttemptAt=now` 갱신** — `nextWindow` 가 empty(watermark 최신)라 runScan 이 조기 skip 해도 큐 뒤로 회전. 안 그러면 up-to-date 도메인을 매 틱 재선택해 예산 낭비.
 - **이월**: 틱은 K(또는 E 예산 소진)까지만 처리, 나머지는 다음 틱이 이어받음(커서가 자연 진행). `fixedDelay` 전수순회 → **슬라이스 순회**로 교체.
 - **기아 방지**: `lastScanAttemptAt` asc = FIFO → 최악 대기 = 전수 1회 커버리지 시간(유한). 영구 기아 없음.
-- **watermark 관계**: watermark(`lastEnd`)=데이터 윈도우 진행(무엇을 수집했나), `lastScanAttemptAt`=스케줄 공정성 커서(언제 차례를 줬나). **직교**(둘 다 필요).
+- **watermark 관계**: watermark(`lastEnd`)=데이터 윈도우 진행(무엇을 수집했나), `lastScanAttemptAt`=스케줄 공정성 커서(언제 차례를 줬나). **서로 독립적**(둘 다 필요).
 
 ## 2. A. watermark 증분 확정 + per-scan 윈도우 상한
 
@@ -59,7 +70,7 @@ LokiClient 보호(동시 2·200ms·page-limit·MAX_ATTEMPTS 백오프) **위에*
 
 ---
 
-# C + D + F — PR2/PR3 상세 (브랜치 `feature/scan-policy-pr2-pr3`)
+# C + D + F — 티어링·off-peak·dormant 상세
 
 > PR1(B+A+E, 머지·실배포 검증) 토대 위. **C(티어)·F(dormant)·intervalOverride 를 단일 due 모델로 통합**하고, D(off-peak)는 그 위의 **파라미터 스위치**. 근거 결정 **DECISIONS D48**.
 
@@ -86,6 +97,23 @@ effectiveInterval(domain, now):
   if age >  dormant-after  (P14D):     return dormant-interval  (P1D)             // F dormant(최장)
   else:                                return inactive-interval (PT6H)            // C inactive
 ```
+```mermaid
+flowchart TD
+    E["effectiveInterval(domain, now)"] --> O{"intervalOverride 있음?"}
+    O -->|"예"| OV["Duration.parse(override) (최우선)"]
+    O -->|"아니오"| L{"lastSeenAt == null?"}
+    L -->|"예"| DEF["default-interval (신호 부재·보수적)"]
+    L -->|"아니오"| AGE{"now − lastSeenAt"}
+    AGE -->|"≤ active-threshold(24H)"| ACT["active-interval (30M)"]
+    AGE -->|"> dormant-after(14D)"| DOR["dormant-interval (1D, F·삭제 아님)"]
+    AGE -->|"그 외"| INA["inactive-interval (6H)"]
+    OV --> DUE["nextScanDueAt = now + interval → findDueForScan(due≤now ORDER BY due asc) LIMIT K"]
+    DEF --> DUE
+    ACT --> DUE
+    DOR --> DUE
+    INA --> DUE
+```
+
 - **C**: active(최근 트래픽=자주)·inactive(뜸=드물게)·default(신호 없음). 신호=`lastSeenAt`(디스커버리 갱신, doc/30). 검출활동(discovered_endpoint.lastSeen) 가중은 join 필요 → 후속(§범위 밖), 1차는 lastSeenAt.
 - **F**: dormant = `age > dormant-after` → **최장 주기**(스캔 우선순위 강등). **★삭제 아님**(무삭제 일관, doc/30 D42) — interval 만 최장. C 의 최하 band 로 자연 통합(별도 로직 아님).
 - **override**: `DomainConfig.intervalOverride`(기존 String, 미배선) → 파싱해 최우선. 잘못된 형식=무시+로그(폴백 tier).
@@ -137,7 +165,7 @@ off-peak 는 **due 술어를 바꾸지 않고** 예산·윈도우만 스위치(d
 ## 6.2 PR 구조 권고 (매니저 결정)
 
 - **★권장 = C+D+F 한 PR**. 셋이 **단일 due 모델 공유**(F=C 의 1 band, D=그 위 파라미터 스위치) — 분리 시 `ScanSelector`/`scanTick` 을 2~3회 재수술. F 는 너무 작아(1 band+설정) 단독 PR 은 오버헤드.
-- **분리 시(차선)**: 매니저 원안 `PR2=C+D / PR3=F` 보다 **`(C+F)=due 모델 / D=off-peak 스위치`** 가 더 응집적(F 는 due 모델 일부, D 는 직교 스위치). C+D 를 묶고 F 를 떼면 due 모델이 두 PR 에 걸침(비응집).
+- **분리 시(차선)**: 매니저 원안 `PR2=C+D / PR3=F` 보다 **`(C+F)=due 모델 / D=off-peak 스위치`** 가 더 응집적(F 는 due 모델 일부, D 는 독립 스위치). C+D 를 묶고 F 를 떼면 due 모델이 두 PR 에 걸침(비응집).
 - 셋 다 사용자 요청·소규모·고응집 → **1 PR** 권장. 분리 원하면 (C+F)+(D).
 
 ## 6.3 리스크 (정직)
@@ -213,21 +241,10 @@ apidiscover.scan:
 - **리스크④(메트릭 정확도)**: 바이트 근사·시간창 경계 오차(§3) — 가시화 충분, 정밀 과금용 아님.
 - **리스크⑤(HA)**: 단일 인스턴스 전제(§9). 복수 시 중복·예산초과 — 기존 HA TODO 와 함께 해결.
 
-## 12. dev 구현 체크리스트 (TASKS subitem, D26)
+## 12. 구현 상태 (현재 동작)
 
-**PR1 — 필수 (B+A+E) + 온디맨드 CLI** — *구현 완료(PR, build green 374·실패 0·skip 2=live 게이트)*
-- [x] (A) `windowFor` max-window 상한 인자(5-arg) + 적용(백필 슬라이스, 0/null=무제한 무회귀), line 105 TODO 주석 해소. `nextWindow` 가 `scan.max-window` 전달.
-- [x] (B) `DomainConfig.lastScanAttemptAt`(ddl-auto) + `DomainConfigRepository.findByEnabledIsTrue(Pageable)`(호출측 Sort asc NULLS FIRST) + `touchLastScanAttempt`(@Modifying 단일 컬럼=lost-update 무관).
-- [x] (B) `ScanSelector`(LRS K, PR2 확장점) + `DiscoveryScheduler.scanTick()`(@Scheduled scan.tick-interval, K 선택·attempt 마다 커서 전진[skip·실패 포함]·예산 소진 break 이월) — 전수순회 대체.
-- [x] (E) `LokiBudget`(시간당 쿼리/바이트 하드캡, 초과=hasBudget false 이월, 0=무제한) + `LokiClient` Micrometer 계측(loki.queries·response.bytes·errors{status}) + 적응형 throttle(429/5xx level+1·성공 −1, throttle-on-error 게이트, ≤16×).
-- [x] (§7) `CliScanRunner`(@Profile cli, `--adc.cli.scan-domain`/`--window`/`--edge`) + `scanOnDemand`(edge→runOnDemand/미지정→collect+analyze, **watermark 미전진**) + `onDemandWindow`(상한=max-window) + 요약·exit code(0/2/3/4). main() scan-domain 분기, CliExportRunner blank=no-op(명령 공존).
-- [x] `ApiDiscoverProperties.Scan` 레코드 + application.yml 기본값(§8, PR1 키만 — C/D/F 키는 PR2/PR3 시 추가).
-- [x] 테스트 — windowFor 상한/LRS nulls-first(@DataJpaTest)/scanTick 커서 전진(skip·실패)·예산 break/budget 캡·롤오버·Micrometer/온디맨드 exit·scanOnDemand 위임(watermark 미전진). 운영 Loki 보호(단위 mock, 실호출 `-Dloki.live` 게이트 미실행).
-
-**PR2/PR3 — C+D+F (1 PR)** — *구현+리뷰반영 완료(build green 408·실패0·skip2=live 게이트, 실 PG 가드 PASS, 커밋 보류·머지 시 Done). 리뷰 P1=`findDueForScan` @Query `order by nextScanDueAt asc nulls first` 명시(Pageable Sort 미방출→PG NULLS LAST 기아 회귀 차단)+실 PG 회귀가드, P3-1=`OffPeakWindow.zone` invalid 폴백, P3-2=`ScanTier` 밴드 전제 javadoc. 신규 `DomainConfig.nextScanDueAt`(ddl-auto nullable·@Index) + 순수함수 `ScanTier.effectiveInterval`(override 파싱 ?? lastSeenAt age 티어: active/inactive/default + F dormant)·`OffPeakWindow`(HH:mm-HH:mm 판정·자정 wrap·zone). `DomainConfigRepository.findDueForScan`(due 술어)+`touchScanSchedule`(2컬럼 UPDATE, 구 touchLastScanAttempt 대체). `ScanSelector`(due 쿼리+off-peak K, Clock 주입)·`DiscoveryScheduler.scanTick`(off-peak maxWindow·touchScanSchedule[now+effectiveInterval], ApiDiscoverProperties 주입)·`DiscoveryJobService.runScan(host,maxWindow)` 오버로드+`nextWindow(host,maxWindow)`. application.yml scan 키 가산. 테스트 `ScanTierTest`·`OffPeakWindowTest`·`ScanSelectorTest`·`DiscoverySchedulerTest`(단위 mock·운영 Loki 미호출).*
-- [x] (C) 티어(lastSeenAt age) + due 판정 선택(`findDueForScan` nextScanDueAt 술어) + `intervalOverride` 최우선 배선(기존 TODO 해소).
-- [x] (D) off-peak 윈도우 배선(`schedule.off-peak-window`+`scan.off-peak-zone`) — off-peak 시 K=`off-peak-domains-per-tick`·윈도우=`off-peak-max-window` 상향, peak 델타·소윈도우. 쿼리캡 상향은 범위 밖(ponytail defer). 백필 우선=due 정렬(Watermark join 불요).
-- [x] (F) dormant 티어(`dormant-after`→`dormant-interval` 최장 주기, 무삭제)=effectiveInterval 1 band.
+- **PR1(B+A+E + 온디맨드 CLI)** 구현 완료 — `windowFor` max-window 상한(A, 0/null=무제한 무회귀), `ScanSelector` LRS K 선택 + `scanTick`(B, attempt 마다 커서 전진), `LokiBudget` 시간당 하드캡 + LokiClient Micrometer 계측·적응형 throttle(E), `CliScanRunner`+`scanOnDemand`(watermark 미전진).
+- **PR2/PR3(C+D+F, 단일 due 모델)** 구현 완료 — `ScanTier.effectiveInterval`(override ?? lastSeenAt age 티어 + F dormant), `nextScanDueAt`(@Index) + `findDueForScan`(due 술어·`ORDER BY nextScanDueAt asc nulls first` 명시로 PG NULLS LAST 기아 회귀 차단), `OffPeakWindow`(자정 wrap·zone 폴백)로 off-peak K/윈도우 스위치(D). `tiering-enabled=false`=PR1 LRS 동치(롤백 스위치).
 
 ## 13. 범위 밖 / 후속
 
@@ -238,7 +255,7 @@ apidiscover.scan:
 
 ---
 
-# 보강 (PR1.1 + 도메인 목록 CLI) — 브랜치 `feature/scan-pr1.1-and-list-cli`
+# 보강 (PR1.1 스캔 폭주 수정 + 도메인 목록 CLI)
 
 > PR1(B+A+E, PR #26) 실배포 검증에서 드러난 결함 수정 + 운영자 도메인 목록 CLI. 근거 결정 **DECISIONS D46(PR1.1)·D47(목록 CLI)**.
 
@@ -317,18 +334,10 @@ apidiscover.scan:
 - **권장 = 2 PR**. **PR1.1(§14, 긴급) 먼저·독립** — 실배포 기아/진척0 를 즉시 해소, watermark 부분전진 **정합성 정밀 리뷰** 필요라 단독 머지가 안전(배포 검증 언블록). **목록 CLI(§15) 별도** — 운영 편의, DB-only·저위험.
 - **공유 브랜치 실무**: `feature/scan-pr1.1-and-list-cli` 한 브랜치면 (i) PR1.1 먼저 분리 머지 후 §15 후속 PR, 또는 (ii) 한 PR 에 **명확히 분리된 2 커밋**(scan-fix / list-cli)으로 독립 리뷰 가능하게. 1 PR 도 무방하나 **긴급도·관심사 분리**상 2 가 낫다.
 
-## 17. dev 구현 체크리스트 (PR1.1 + 목록 CLI, D26)
+## 17. 구현 상태 (PR1.1 + 목록 CLI)
 
-**PR1.1 — 스캔 폭주 수정 (§14)** — *구현·머지 완료(PR #27, D46)*
-- [x] (③) `spring.task.scheduling.pool.size: 2`(또는 `SchedulingConfig` TaskScheduler @Bean) — scan/discover 스레드 격리.
-- [x] (②) `scan.max-window` 기본값 PT6H→PT30M + `scan.slice-window`(미지정=chunk-window).
-- [x] (①) `runScan`/`collect` 슬라이스 외부·hostname 내부 순회 → 슬라이스별 watermark 전진 + `max-queries-per-scan` 하드캡(슬라이스 경계)·`budget.hasBudget()` 슬라이스 체크 → 부분 전진(consumedUpTo) 후 종료.
-- [x] 테스트 — 캡 hit 부분전진(consumedUpTo·resume·gap 없음)/busy 도메인 캡 발동/다도메인 비독점/슬라이스 멀티-hostname gap-free/무제한(0)=현행. 운영 Loki 단위 mock.
-
-**목록 CLI (§15)** — *구현·머지 완료(PR #27/#28); 이후 D47 전면 통일로 트리거 문법 갱신(feature/cli-domain-subcommand)*
-- [x] `main().parseCli` 가 신문법(`-domain -ls`/`-export`/`-scan`) 감지 → 목록은 `--adc.cli.list-domains=true` 주입(통일 전 raw-arg `-domain -ls` 감지에서 parseCli 로 일반화).
-- [x] `CliProperties.listDomains` + `CliListRunner`(@Profile cli, findAll→**CSV 파일**(output-dir/domains-&lt;stamp&gt;.csv, 사용자 확정 Option B), 빈 목록=헤더만 exit 0, DB/IO 오류 4).
-- [x] 테스트 — `CliListRunnerTest`(출력 포맷·빈 목록·exit, System.exit 미경유 단위) + `MainArgModeTest`(신문법 3종 주입·기존 문법 제거 회귀·복수 서브커맨드 모호 거부).
+- **PR1.1(스캔 폭주 수정, §14)** 구현·머지 완료(D46) — ③ `spring.task.scheduling.pool.size: 2`(scan/discover 스레드 격리), ② `max-window` 기본 PT30M + `slice-window`, ① `collectBounded`(슬라이스 외부·hostname 내부 순회 + `max-queries-per-scan` 하드캡·슬라이스 경계 예산 체크 → 부분 watermark 전진). `max-queries-per-scan=0`=무제한=현행.
+- **목록 CLI(§15)** 구현·머지 완료 — `main().parseCli` 가 `-domain -ls` 감지 → `CliListRunner`(findAll → `output-dir`/domains-&lt;stamp&gt;.csv). 이후 D47 전면 통일로 전 CLI 가 단일대시 `-domain` 서브커맨드(`-ls`/`-export`/`-scan`)로 통일.
 
 ## 18. PR1.1·목록 CLI 범위 밖 / 후속
 
