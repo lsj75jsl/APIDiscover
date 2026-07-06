@@ -1,7 +1,15 @@
 # distinct/분위수 대용량 근사 (HLL/KLL) — 설계
 
-> 브랜치 `feature/hll-tdigest-approximation`. 근거 doc/02 §4(인벤토리 집계·HLL/근사 분위수 권장)·doc/13(D20 고카디널리티)·D8(라이브러리 = DataSketches).
-> 근거 결정 doc/DECISIONS.md **D31**. dev 항목은 TASKS 부모 'distinct/분위수 대용량 근사' 아래 subitem(D26).
+> `Acc` 의 정확 자료구조(client IP HashSet·응답시간 ArrayList)를 **고정 크기 sketch**(HLL distinct·KLL 분위수)로 교체해 per-signature 메모리를 bound 한다. 근거 [02-log-parsing-and-normalization](02-log-parsing-and-normalization.md) §4·[13-normalization-cardinality](13-normalization-cardinality.md)(D20)·D8(DataSketches), 결정 [DECISIONS](DECISIONS.md) **D31**.
+
+**구현 위치**
+
+| 대상 | 소스 |
+|---|---|
+| distinct 근사 | `normalize/Acc.clientHll`(`HllSketch` lgK=12) + 병합 `hll.Union` |
+| 분위수 근사 | `normalize/Acc.respKll`(`KllDoublesSketch` k=200) + `merge` |
+| 추출 | `Acc.toEndpoint()` → `Math.round(clientHll.getEstimate())` / `respKll.getQuantile(.5/.95, INCLUSIVE)` |
+| 소비 | `classify/Classifier.shadowConfidence`(distinctClients `<=1`, HLL small-N exact) |
 
 ## 0. 현 상태 / 문제
 
@@ -29,6 +37,19 @@
 
 ## 3. 적용 범위 — `Acc.java` 한정 (surgical)
 
+```mermaid
+flowchart LR
+    R["요청 add(r)"] --> H["clientHll.update(ip)"]
+    R --> K["respKll.update((double) ms)"]
+    M["mergeFrom(o) (승격·dedup)"] --> HU["HllSketch Union"]
+    M --> KM["KllDoublesSketch merge"]
+    H --> T["toEndpoint()"]
+    K --> T
+    HU --> T
+    KM --> T
+    T --> LONG["Metrics(long): distinctClients=round(getEstimate) / p50·p95=round(getQuantile) — 외부 shape 불변"]
+```
+
 블라스트 반경 = **Acc 내부뿐**. `Metrics` 는 여전히 `long` 산출 → 외부 전부 불변.
 - 필드: `HashSet clients` → `HllSketch hll`, `ArrayList respTimes` → `KllDoublesSketch kll`(+ `Union` 은 병합 시).
 - `add(r)`: `clients.add(ip)`→`hll.update(ip)`(null skip), `respTimes.add(ms)`→`kll.update((double) ms)`.
@@ -55,16 +76,7 @@
 - **검증 방법**: ① 정확도 — 알려진 스트림(예 distinct 10k, 응답분포)에 sketch vs 정확값 **허용오차 내**(HLL ±3%, KLL 분위수 rank 오차) 단언. ② 경계 — distinct clients 0/1/2 → HLL exact → `<=1` 분기 정확. ③ 병합 — 스트림 분할→union/merge 가 단일 스트림 추정과 근사 일치. ④ 회귀 — shadowConfidence/severity/normalizer 기존 테스트 green.
 - **기존 테스트 영향**: `Acc`/`InventoryBuilder` 테스트 중 distinctClients·percentile **정확값 단언**은 (a) 소-N(정확) 케이스로 유지하거나 (b) 허용오차 단언으로 전환(dev). shadowConfidence `<=1` 테스트는 HLL-exact 라 그대로 유효.
 
-## 7. dev 구현 체크리스트 (TASKS subitem, D26)
-
-> ✅ **구현 완료 (PR 머지)** — 아래는 historical 체크리스트(2026-06-24 실제 머지 코드 대조 후 완료 표기, D28). 잔여는 §'범위 밖/후속'·TASKS 참조.
-- [x] `Acc` 필드 교체 — `HashSet clients`→`HllSketch`(lgK=12), `ArrayList respTimes`→`KllDoublesSketch`(k=200). 상수 정의(+config seam 주석).
-- [x] `Acc.add` — `hll.update(clientIp)`(null skip)·`kll.update((double) respTimeMs)`. `mergeFrom` — HLL `Union`·KLL `merge`.
-- [x] `Acc.toEndpoint` — distinctClients=`Math.round(hll.getEstimate())`, p50/p95=`Math.round(kll.getQuantile(.5/.95, INCLUSIVE))`(빈 sketch→0). `Metrics`(long) shape·소비처 불변 확인.
-- [x] 테스트 — 정확도(HLL±3% 결정적·KLL rank 허용)·경계(distinct 0/1/2 HLL-exact→shadowConfidence)·병합(분할 union/merge≈단일)·회귀(기존 normalizer·percentile exact 단언 green)·INCLUSIVE=nearest-rank 동치.
-- [x] (확인) ETag 무변경(distinctClients/percentile 비입력)·CardinalityNormalizer 임계 무변경·sketch 비영속.
-
-## 8. 범위 밖 / 후속
+## 7. 범위 밖 / 후속
 
 - sketch 크기(lgK/k) `@ConfigurationProperties` 노출 — 이번 코드 상수, seam 만.
 - percentile 리포트 노출(현재 computed-but-unexposed) — 원하면 body 진단용만(ETag 입력 금지). 별도 리포트 항목.
