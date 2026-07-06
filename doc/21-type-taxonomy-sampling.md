@@ -1,14 +1,21 @@
 # $type taxonomy 샘플링 — 설계
 
-> 브랜치 `feature/type-taxonomy-sampling`. 근거 doc/02 §5.0(매핑·document 트랩)·doc/08 §8 발견1·§9 보류·doc/17(responseTypeApi).
-> 근거 결정 doc/DECISIONS.md **D30**. dev 항목은 TASKS 부모 '$type 전체 taxonomy 샘플링' 아래 subitem(D26).
-> **research-gated**: §A 샘플링(research 0.4 실행)이 선행 → 증거표 산출 → §B 규칙으로 §3 코드 변경 확정.
+> 운영 로그의 실제 `$type` vocabulary 를 샘플링으로 확정하고 `EndpointKindClassifier.API_TYPES` 를 데이터로 검증한다(research-gated). 근거 [02-log-parsing-and-normalization](02-log-parsing-and-normalization.md) §5.0(매핑·document 트랩)·[08-api-scoring-and-profiles](08-api-scoring-and-profiles.md) §8·§9·[17-response-type-api](17-response-type-api.md), 결정 [DECISIONS](DECISIONS.md) **D30**.
+> **research-gated**: §A 샘플링(선행) → 증거표(§A-결과) → §B 규칙으로 §3 코드 변경 확정.
+
+**구현 위치**
+
+| 대상 | 소스 |
+|---|---|
+| $type → kind 매핑 | `normalize/EndpointKindClassifier.API_TYPES`(xhr/fetch/json/api/ajax → API_CANDIDATE) |
+| 샘플 도구 | `sample/type_taxonomy_sample.py`(부하보호 내장) |
+| Tier1 히스토그램 | `normalize/InventoryBuilder`(Acc.typeDist top-N) → `model/TypeDistribution(top, other)` → `DiscoveryReport` |
 
 ## 0. 현 상태 / 문제
 
 - `EndpointKindClassifier.API_TYPES = {xhr,fetch,json,api,ajax}` → `API_CANDIDATE`. `library`→STATIC, `document`→WEB_PAGE(약), 확장자→STATIC(1순위).
 - **실데이터로 확인된 값은 `document`·`library` 뿐**(doc/02 §5.0, status=200 GET 슬라이스 3289/1711). **API_TYPES 5값은 관례 기반 추정 — 실관측 0.**
-- 따라서 `API_CANDIDATE`(=$type 경유)가 운영 환경에서 **실제 발화하는지 미확인** → doc/17 `responseTypeApi`·Classifier `+0.05`(Classifier:176)가 dormant 일 수 있음.
+- 따라서 `API_CANDIDATE`(=$type 경유)가 운영 환경에서 **실제 발화하는지 미확인** → doc/17 `responseTypeApi`·Classifier 의 API_CANDIDATE `+0.05` shadowConfidence 보너스가 dormant 일 수 있음.
 - **document 트랩**(doc/08 §8 발견1): api.weble.net JSON API 가 전부 `$type=document`. document 는 web_page 신호로 신뢰 불가.
 - `Acc.typeDist`(시그니처별 `Map<type,count>`)는 dominant 추출에만 쓰이고 **원분포는 어디에도 노출 안 됨**.
 
@@ -23,6 +30,15 @@
 - **산출물(증거표)**: `$type 값 | count | % | status-class 분포 | method 분포 | 예시 path | host 성격`. §B 입력.
 
 ## B. taxonomy 분류 규칙 (§2) — 값 → api/page/static/ignore
+
+```mermaid
+flowchart TD
+    V["관측 값 v (교차표: status × method × path)"] --> Q{"데이터/프로그램 응답 의미?<br/>(xhr/fetch/json/api/rest…)"}
+    Q -->|"예 + 정적경로 편중 아님 + write/api 컨텍스트"| API["api_candidate 후보 → API_TYPES 편입(보수적)"]
+    Q -->|"asset 류(정적 확장자 편중)"| ST["static (확장자 1순위라 편입 선택)"]
+    Q -->|"GET·2xx·확장자 없음·web 호스트"| WP["web_page (약신호, 예: document)"]
+    Q -->|"모호/트랩"| IG["ignore/unknown (애매하면 제외 — 무감점)"]
+```
 
 각 관측 값 `v` 를 교차표로 분류.
 - **api_candidate 후보**: 데이터/프로그램 응답 의미(xhr/fetch/json/api/ajax/rest/graphql/grpc 류) + **정적 확장자 path 편중 아님** + 다양한 method(특히 write) 또는 api 컨텍스트(api 호스트).
@@ -57,14 +73,6 @@
 - doc/20 referer/dormant 무관(referer 는 $type-결정 후 UNKNOWN 일 때만; API_TYPES 는 그 앞 단계라 정합).
 - Tier1 히스토그램: additive 비파괴 — reportJson 자동 포함, ScanResult 스키마 무변경. ETag 는 vocabulary-키만 → 기존 결과 ETag 1회 변경(신규 입력), 이후 count 변동엔 안정.
 
-## 6. dev 구현 체크리스트 (TASKS subitem, D26)
-
-- [x] **(research 0.4)** §A 프로토콜로 Loki $type 샘플링 실행(작은 창/limit·부하보호·`limit=1e8` 금지) → 증거표(type×status×method, API/웹/혼합 호스트) 산출. → **§A-결과** 참조(2026-06-24, 총 쿼리 3회). vocab={document,library}, API_TYPES 5값 실관측 0, document 트랩 ≈100%(api 호스트).
-- [x] **(분석)** 증거표 → §B 규칙 적용 → API_TYPES **무변경 확정** + document 트랩 ≈100% 재확인 결과를 doc/21 §A-결과·DECISIONS D30 결론에 기록.
-- [x] **(Tier0)** `EndpointKindClassifier.API_TYPES` **무변경 + 근거 주석**(실관측 0·관례 집합 유지·dormant·자동 전파). ApiScorer 무변경(responseTypeApi 자동 수혜) 확인.
-- [x] **(Tier1·권장)** corpus `$type` 히스토그램: `InventoryBuilder` 가 Acc.typeDist 집계(top-N 20+other) → `model/TypeDistribution`(형제) → `DiscoveryReport` top-level + `ReportBuilder.build` 인자 + `DiscoveryJobService` ETag(**distinct 키 집합만**, count 제외).
-- [x] 테스트 — API_TYPES 매핑 5값 불변 / 히스토그램 집계·top-N·other·노출 / ETag(신규 키→bump·count 변동→무bump) / 무회귀(확장자 1순위·document 약신호).
-
 ## A-결과. 샘플링 증거표 (research 0.4, 2026-06-24 실행)
 
 > 도구 `sample/type_taxonomy_sample.py`(부하보호 내장: limit=2000·창=10분·`direction=forward`·페이지 1·순차). raw 라인 로컬 `^|^` split → field 19($type)·9(status)·5(request→method)·8(uri→path). **총 쿼리 3회**(한 자리, D7 준수). skip=0(필드 구조 견고).
@@ -89,7 +97,7 @@
 - **document 트랩 = 심각·확정**(§B③ 측정): 알려진 API 호스트 api.weble.net 에서 document **API성 비중 ≈ 100%** — OPTIONS=2066(CORS preflight, 순수 API 신호)·POST write·RESTful path(`/users/{id}` 등)가 전부 `document` 로 발화. document 는 web_page 신호로 **신뢰 불가** 재확인. 동일 호스트 peak/off-peak 모두 100% → 시간 artifact 아님.
 - **API_TYPES 확정안 = 무변경(Tier0)**. 신규 api성 값 0관측 → §B "API_TYPES 편입 기준(보수적·비대칭, 명백히 API성일 때만)"에 부합하는 추가 후보 없음. 기존 5값은 **실관측 0이나 관례 기반으로 유지**(제거도 데이터가 "비-API"라 할 때만; 부재는 dormant·무감점 §4·§7). → ApiScorer 무변경, `responseTypeApi` 자동 정합.
 - **library → STATIC, document → WEB_PAGE(약신호) 유지**: library 전부 GET·정적 확장자, document 웹호스트분은 확장자 없는 page path. 확장자 1순위 규칙이 `.gif/.woff` 를 STATIC 으로 선분류하므로 library 집합 추가는 선택(무영향).
-- **dormant 확정**: `$type` 경유 `API_CANDIDATE`(Classifier:176 `+0.05`, doc/17 responseTypeApi)는 현 운영 vocab 에서 **발화 안 함**. 무해하나 가치 재평가는 §7 후속.
+- **dormant 확정**: `$type` 경유 `API_CANDIDATE`(Classifier 의 `+0.05` shadowConfidence, doc/17 responseTypeApi)는 현 운영 vocab 에서 **발화 안 함**. 무해하나 가치 재평가는 §7 후속.
 - **Tier1(corpus 히스토그램 노출) 가치 상향**: vocab 이 앱별이고 1회 3윈도우 샘플로는 일반화 불가 + document 트랩이 호스트별로 심함 → 운영자가 자기 도메인 분포·트랩을 매 스캔 확인할 self-reporting 이 강하게 정당화됨(운영 Loki 재조회 없이). 권장 유지.
 
 ## 7. 범위 밖 / 후속
