@@ -1,7 +1,7 @@
 # 엔티티 캡슐화 — public 필드 → private + 접근자 (P2 마무리)
 
-> 브랜치 `feature/entity-encapsulation`. 7 `@Entity`(약 63 public 필드)를 private 필드+접근자로 캡슐화. **행동·매핑·직렬화 결과 불변이 절대 조건**(현재 332 테스트 green 유지). 근거 결정 **DECISIONS D41**.
-> **설계만. 코드는 dev.** dev 항목은 TASKS 부모 아래 subitem(D26). 기능 이득 = 스캐폴딩 정리·캡슐화(대규모 churn 대비 가시성 정리), 사용자 P2 마무리 명시 지시.
+> 스캐폴딩 단계의 `public` 필드 엔티티(P2 당시 7종·약 63필드)를 private 필드+접근자로 캡슐화한다. **행동·매핑·직렬화 결과 불변이 절대 조건**. 근거 결정 [DECISIONS](DECISIONS.md) **D41**.
+> **갱신**: 이후 추가된 `DocumentedApiRecord`·`StaticClassifyRule` 은 처음부터 캡슐화된 채 생성됐다(현재 총 9 엔티티, [18](18-db-schema.md)). `SpecRecord.rawDoc`(@Lob byte[])는 이후 컬럼째 제거됨([37](37-spec-inventory-reconcile.md) §7).
 
 ## 0. 목적 / 범위
 
@@ -11,7 +11,7 @@
 |---|---|---|---|
 | `DiscoveredEndpointRecord` | 16 | `@GeneratedValue` id | text 2(status_dist/params), boolean 2(hadQuery/nonBrowserUa) |
 | `ScanResult` | 14 | `@Id host` | text 1(report_json), `@Column(columnDefinition="integer default 0")` totalDropped |
-| `SpecRecord` | 11 | `@GeneratedValue` id | text 2(canonical/warnings), `@Lob byte[]` rawDoc, boolean active |
+| `SpecRecord` | 11 | `@GeneratedValue` id | text 2(canonical/warnings), `@Lob byte[]` rawDoc(이후 제거·doc/37 §7), boolean active |
 | `DomainConfig` | 8 | `@Id host` | **`@ElementCollection` hostnames**, `@Enumerated` specMergeStrategy, boolean enabled |
 | `ClassificationConfig` | 6 | `@Id` 고정 `id=1L` | text 2(customWeights/matcher), `@Enumerated` profile |
 | `DomainClassificationConfig` | 6 | `@Id host` | text 2(customWeights/matcher), `@Enumerated` profile |
@@ -29,9 +29,18 @@
 
 현재 모든 엔티티는 **field access**(JPA 애너테이션이 *필드*에 부착, `@Id` 위치로 결정). 캡슐화 후에도 이를 **반드시 유지**한다.
 
+```mermaid
+flowchart LR
+    F["private 필드 + 애너테이션(필드에 유지)"] --> FA["access type = FIELD (Hibernate 필드 직접 read/write)"]
+    FA --> OK["매핑/DDL/컬럼타입 불변 ✅"]
+    G["애너테이션을 getter 로 이동"] --> PA["access type = PROPERTY 전환"]
+    PA --> RISK["파생 getter 영속·lazy 의미 변화 ❌ 금지"]
+```
+
+
 - **애너테이션은 필드에 그대로 둔다**(getter 로 이동 금지). 필드를 `private` 으로 바꾸고 getter/setter 를 추가해도, 애너테이션이 필드에 있으면 **access type=field 유지** → Hibernate 가 필드를 직접 read/write(getter/setter 우회) → **매핑/DDL/ddl-auto/컬럼타입 전부 동일**.
 - **getter 로 애너테이션 이동 = property access 전환 = 리스크**(파생 getter 영속화·lazy 의미·순서 변화) → **금지**.
-- **그대로 보존할 특수 매핑**(필드에 고정): `DomainConfig.hostnames` 의 `@ElementCollection @CollectionTable @Column`(필드 접근 필수 — getter 이동 시 컬렉션 매핑 파손), `SpecRecord.rawDoc` `@Lob byte[]`, text 9필드 `@Column(columnDefinition="text")`, `@GeneratedValue` id, `@Enumerated(STRING)`, **필드 초기화자**(`= true`·`= new ArrayList<>()`·`id = 1L`·`state = "idle"`·`= SpecMergeStrategy.MERGE`).
+- **그대로 보존할 특수 매핑**(필드에 고정): `DomainConfig.hostnames` 의 `@ElementCollection @CollectionTable @Column`(필드 접근 필수 — getter 이동 시 컬렉션 매핑 파손), `SpecRecord.rawDoc` `@Lob byte[]`(이후 제거·doc/37 §7), text 9필드 `@Column(columnDefinition="text")`, `@GeneratedValue` id, `@Enumerated(STRING)`, **필드 초기화자**(`= true`·`= new ArrayList<>()`·`id = 1L`·`state = "idle"`·`= SpecMergeStrategy.MERGE`).
 - **JPQL/파생쿼리 무영향** — 리포지토리의 파생 메서드(`findByHost` 등)·JPQL 은 **필드명** 기준이고 필드명은 불변 → 영향 없음. **doc/18 스키마 무영향**(스키마 불변).
 
 ## 3. 직렬화 / ETag 불변 — 조사결과: 위험 없음(MOOT)
@@ -81,18 +90,7 @@
 - **분류/스캔 결과 불변**: 접근자는 필드값 그대로 전달, 로직 무변경.
 - **검증**: 단계별 `./gradlew build`(332 그대로 green). PG 통합테스트(`PostgresIntegrationTest`)도 green 유지(엔티티 구축 8 site 갱신 포함). 행동 불변이라 **테스트 기대값 변경 0**(대입 구문 형태만 변경).
 
-## 8. dev 구현 체크리스트 (TASKS subitem, D26)
-
-- [x] (스테이지) `Watermark` 캡슐화 → build green (패턴 확립).
-- [x] (스테이지) `ClassificationConfig`·`DomainClassificationConfig` 캡슐화 → build green.
-- [x] (스테이지) `DomainConfig` 캡슐화(`@ElementCollection hostnames` 애너테이션 필드 고정 확인) → build green.
-- [x] (스테이지) `SpecRecord`(`@Lob byte[] rawDoc` 보존)·`ScanResult`(`columnDefinition` 보존) 캡슐화 → build green.
-- [x] (스테이지) `DiscoveredEndpointRecord` 캡슐화(최다 참조) → build green.
-- [x] (공통) 애너테이션 **필드 유지**(getter 이동 금지)·boolean `isX()`·필드당 접근자 1쌍·자동생성 id setter 미노출(SpecRecord·DiscoveredEndpointRecord)·equals/hashCode 무신설.
-- [x] (정리) 각 엔티티 NOTE 주석의 "public 필드(TODO: 캡슐화)" 문구 갱신.
-- [x] (회귀) 전 스테이지 후 `./gradlew build` 332 green(실패0·skip1=LokiLive) / `PostgresIntegrationTest` podman 13건 실행 green(skip0=매핑 불변 증거). 기대값/단언 변경 0(대입 구문 형태만). 단 SpecStoreTest stateful mock 1곳은 생성 id setter 제거(§4)에 따라 가짜 id 부여 라인만 제거(identity add-once 유지·id 미단언).
-
-## 9. 범위 밖 / 후속
+## 8. 범위 밖 / 후속
 
 - **진짜 불변 재설계** — 전 필드 final + 생성자/빌더 강제, setter 전면 제거, record 화. API 대변경이라 별도 항목(필요 시).
 - **Lombok 표준화** — 팀이 원하면 *별도 심의 결정*(이 리팩터에 결합 금지). 채택 시 본 엔티티 + 향후 일괄 적용.
