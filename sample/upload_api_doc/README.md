@@ -5,7 +5,7 @@ APIDiscover 가 파싱·대조할 수 있는 스펙 문서 형식 3종의 최소
 
 | 파일 | 형식 | 감지 규칙 (SpecFormatDetector) |
 |---|---|---|
-| `openapi-sample.yaml` | OpenAPI 3.x (YAML/JSON 공용) | 최상위에 `openapi:` 또는 `swagger:` 키 |
+| `openapi-sample.yaml` | OpenAPI 3.x · Swagger 2.0 (YAML/JSON 공용) | 최상위에 `openapi:`(3.x) 또는 `swagger:`(2.0) 키 |
 | `postman-sample.json` | Postman Collection v2.1 | `info.schema` 에 `getpostman.com`/`schema.postman.com`, 또는 `item`+`info` 존재 |
 | `spec-sample.csv` | CSV | 헤더 행에 `method`,`path` 컬럼 |
 
@@ -44,6 +44,6 @@ Zombie 로 잡히도록 구성했다.
 
 ## 형식별 표기 규칙 요약
 
-- **OpenAPI**: `servers[].url` 로 host·basePath 도출(없으면 host-agnostic·모든 host 매칭). operation `deprecated: true`, `parameters[].in`(query/path/header/cookie).
+- **OpenAPI**: `servers[].url` 로 host·basePath 도출(없으면 host-agnostic·모든 host 매칭). operation `deprecated: true`, `parameters[].in`(query/path/header/cookie). **Swagger 2.0**(`swagger: "2.0"`, `host`+`basePath`)도 지원 — 업로드 시 3.0 으로 자동 변환(D70). Swagger Editor/SwaggerHub 의 2.0·3.x export 를 그대로 올려도 된다(스키마·$ref·security 등 부가 내용은 무시하고 method/path/host/deprecated/params 만 추출).
 - **Postman**: 폴더/요청 트리 DFS. host 는 `url.host`(+collection `variable` 치환), 요청 이름에 `[deprecated]`/`(deprecated)` 또는 description 에 `deprecated` 면 폐기 표기. `url.query`=query·`url.variable`=path·body(urlencoded/formdata/raw)=body 파라미터.
 - **CSV**: 헤더 `method,path`(필수) + `host,deprecated,version,params,description`(선택). `params` 는 `name:in:required:type` 를 `;` 로 구분(예 `id:path:true:integer;q:query:false:string`).
