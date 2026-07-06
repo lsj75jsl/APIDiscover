@@ -1,7 +1,17 @@
 # 테스트 배포 — CLI CSV 내보내기(B) + Docker/podman 패키징(C) (P3)
 
-> 브랜치 `feature/domain-discovery-deploy`. 근거: doc/26(CombinedDiscoveryService·Finding)·doc/28 D40(PG 컨테이너 검증)·doc/07(REST). 근거 결정 **DECISIONS D43**.
-> **설계만. 코드는 dev.** dev 항목은 TASKS subitem(D26). 사용자 확정(재논의 금지): 배포 DB=PostgreSQL 컨테이너, app+postgres 2컨테이너(pod), PGDATA→host `/opt/adc` 마운트. CLI 는 **지금 이 한 명령만**(전체 CLI 체계는 범위 밖, YAGNI).
+> 동일 bootJar 를 CLI 모드로 실행해 한 도메인의 결합 Discovery 결과를 CSV 로 내보내고(B), app+postgres 2컨테이너 pod 로 테스트 배포한다(C). 근거 [26](26-multi-spec-merge.md)(CombinedDiscoveryService·Finding)·[28](28-testcontainers-pg-integration.md) D40(PG 컨테이너 검증)·[07](07-msa-and-central-integration.md)(REST), 결정 [DECISIONS](DECISIONS.md) **D43**.
+> 사용자 확정(재논의 금지): 배포 DB=PostgreSQL 컨테이너, app+postgres 2컨테이너(pod), PGDATA→host `/opt/adc` 마운트. CLI 문법=`-domain -<sub>`(D47).
+
+**구현 위치**
+
+| 대상 | 소스 |
+|---|---|
+| CLI 진입·분기 | `ApiDiscoverWorkerApplication`(`-domain -export/-ls/-register/-scan` 감지 → `web(NONE).profiles("cli")`) |
+| export/ls/scan 러너 | `cli/CliExportRunner`·`CliListRunner`·`CliScanRunner`(@Profile("cli"), CommandLineRunner) |
+| CSV 직렬화 | `cli/DomainCsvWriter`(15컬럼·RFC4180·discovered_endpoint join) ← `batch/CombinedDiscoveryService.forHost` |
+| 등록 공유 | `batch/DomainRegistrar`(register·scan 자동등록) |
+| 배포 | `Dockerfile`(멀티스테이지)·`adc.yaml`(podman play kube)·`application-container.yml` |
 
 ---
 
@@ -74,6 +84,18 @@ PostgreSQL(네트워크)이라 파일잠금 무관. 같은 pod 의 PG 에 접속
 - **PGDATA 볼륨**: postgres 컨테이너 `-v /opt/adc:/var/lib/postgresql/data`(사용자 확정). 첫 기동 시 initdb(빈 디렉터리 전제 — exports 분리 §B3 가 이를 보장).
 - **배포 산출물(권장)**: `podman play kube adc.yaml`(선언적 Pod, 2컨테이너 localhost 공유, hostPath 볼륨) — podman 네이티브·재현가능·추가 툴 불요. **대안**: 셸 스크립트(`podman pod create -p 8080:8080` + 2×`podman run --pod`). podman-compose 는 별도 파이썬 툴(부재 가능)이라 비권장.
 
+```mermaid
+flowchart TD
+    subgraph POD["podman pod adc (netns 공유 → localhost)"]
+        APP["app 컨테이너<br/>SPRING_PROFILES_ACTIVE=container<br/>jdbc:postgresql://localhost:5432/adc"]
+        PG["postgres:16-alpine<br/>PGDATA = /opt/adc"]
+        APP -->|"localhost:5432"| PG
+    end
+    LOKI["운영 Loki 192.168.8.100:3200"] -.->|"LAN egress"| APP
+    CLI["one-off: podman run --rm --pod adc ... -domain -export"] -.->|"pod 합류·localhost:5432"| PG
+    CLI -->|"CSV"| EXP["host /opt/adc-exports (PGDATA 밖)"]
+```
+
 ## C3. 설정 / 프로파일
 
 - **`container` 프로파일(권장)**: `application-container.yml`(커밋) — PG datasource(driver `org.postgresql.Driver`, url/user/pw env override)·`ddl-auto=update`(첫 기동 스키마 생성, doc/28 PR#20 PG text 매핑 검증됨)·Loki `addr` LAN. `SPRING_PROFILES_ACTIVE=container` 로 활성. (이름 `test` 회피 — src/test 와 혼동.)
@@ -97,22 +119,6 @@ PostgreSQL(네트워크)이라 파일잠금 무관. 같은 pod 의 PG 에 접속
 - **리스크③(컨테이너→LAN Loki 도달)**: §C3, pod 네트워크 1회 확인.
 - **리스크④(CLI 2nd JVM/DB)**: one-off run 권장(서빙 부하·커넥션 경합 최소), exec 는 대안.
 - **리스크⑤(score 미영속)**: CSV score 컬럼 범위 밖(§B2) — 명시.
-
-## dev 구현 체크리스트 (TASKS subitem, D26)
-
-**B (CLI)**
-- [x] `main()` CLI 인자 감지 + `SpringApplicationBuilder.web(NONE).profiles("cli")` 분기.
-- [x] `@EnableScheduling` → `SchedulingConfig`(@Configuration, `@Profile("!cli")`) 분리(서버 모드 동일 활성). 구조 테스트(`SchedulingProfileTest`)로 고정.
-- [x] `CliExportRunner`(@Profile("cli"), CommandLineRunner) — `export()`→exit code(테스트 가능)/`run()`→`SpringApplication.exit`+`System.exit`.
-- [x] `DomainCsvWriter`(§B2 15컬럼·source 파생·RFC4180·first/last_seen discovered join·params `;` 결합) + `CliProperties`(`adc.cli.export-domain`/`output-dir`).
-- [x] 테스트 — CSV 포맷/이스케이프/source 파생/5 status/join 공란(spec-only)/미존재 도메인 exit 비0. (System.exit 미경유 — export() 단위테스트.)
-
-**C (Docker/podman)**
-- [x] Dockerfile(멀티스테이지 bootJar→JRE21, `-x test`, `*-SNAPSHOT.jar` glob) + `.dockerignore`.
-- [x] `adc.yaml`(podman play kube, 2컨테이너 pod, PGDATA `/opt/adc`(pgdata 서브디렉터리) hostPath, app `localhost:5432`, exports 분리).
-- [x] `application-container.yml`(PG·ddl-auto update·Loki LAN, env override) + `SPRING_PROFILES_ACTIVE=container`.
-- [x] 배포/실행/CLI 절차 문서(`doc/32-container-deploy-runbook.md`, 운영 Loki 부하·off-peak 문구 포함).
-- [x] (검증) **`podman build` 성공까지** — 이미지 빌드·bootJar·`*-SNAPSHOT.jar` 복사 확인. ★`play kube` 기동·`/discovery`·CLI CSV·LAN Loki 도달은 운영 Loki 주의로 **미수행**(배포 시 doc/32 §6 체크리스트, 매니저/사용자 수행).
 
 ## 범위 밖 / 후속
 
