@@ -23,8 +23,15 @@
 - **대응**: discovery 임시 중지(`DISCOVERY_ENABLED=false` env·재배포)로 앱 Loki 쿼리 0화 → 조사 중단 후 **8분 만에 Loki 회복**(30s→0.02s) → discovery 재개(env 제거·재배포, 집계 5.7s·throttle 0·active 0→8889).
 - **12h 추격 검증(07-05 13:24 KST, DB·로그만)**: **잘 따라감** — 활성 평균 워터마크 지연 44→**36분**(중앙값 35)·활성 fresh(45m) 37%→**70%**·saves/h 1202→10583·deferred 0·scan/Loki 실패 0·discovery 성공 5/실패 0·시간당 쿼리 1218(캡 6000)·throttle 0·oversize drop 1(D68 가드 실동작). 밀림 없음.
 
+### 결과3 — 스펙 업로드→reconcile E2E 실검증 (07-06, 사용자 제안)
+- **최초 실데이터 E2E**: 그간 real-PG 단위테스트만 있던 "스펙 업로드→파싱→발견 API 대조" 를 실 발견 도메인으로 검증. 대상 `messenger-api.everhrm.com`(깔끔한 `/api/v1/...` REST, baseline 스펙0·Shadow 20).
+- 발견 API 를 OpenAPI 로 문서화(7개: Active 의도 4·Zombie 의도 1[deprecated]·Unused 의도 2[트래픽無]) → `PUT .../spec`(OPENAPI 감지·7 파싱) → `POST .../scan-now?window=PT30M`(동기, 워터마크 미전진).
+- **결과 = 설계대로 4분류 정확**: ACTIVE 4(spec_match·미deprecated)·ZOMBIE 1(spec_match+deprecated+관측)·UNUSED 2(spec_only·미관측)·SHADOW 81(관측·미문서). basis(spec_match/spec_only/score) 정확. `/spec/apis` 문서인벤토리 7건 영속(deprecated 플래그 포함, M7 reconcile 동작).
+- **정리**: 실 고객 도메인이라 테스트 후 spec_record·documented_api 삭제로 원복(활성 스펙 []). 스펙 업로드→분류 파이프라인 실배포 정상 확인.
+
 ### 다음 단계
 - 매뉴얼(TW) oversizePath·P* 반영=후속. 안정 운영 관찰만 잔존.
+- (개선 후보) 응답 Content-Type 로그항목(§8, 최고 ROI)·공격트래픽 필터 강화(WAAP 차단코드 인지)·점수 가중치 대규모 보정(E2E 라벨링 활용).
 
 ## 2026-07-02 세션 67 — Loki 부하 장애 진단 + 안정화(버스트 복귀·타임아웃 감속·외부 파일 로깅) + 스캔 틱 매뉴얼 (D58)
 
