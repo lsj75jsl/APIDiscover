@@ -1,8 +1,17 @@
 # response_type_api 양성 가중치 (설계)
 
-> 브랜치 `feature/response-type-api-signal`. doc/08 §9 보류 항목 활성화.
-> 보류 사유($type taxonomy 불확실, §8 발견1: document 가 JSON API 에도 붙음)를 **양성-only 비대칭 + 보수적 집합**으로 해소.
-> 근거 결정은 doc/DECISIONS.md **D24**. 연계: doc/08 §4·§8·§9, doc/02 §5, doc/10 §2.
+> `$type`(브라우저 요청 타입) 기반 API성 신호를 ApiScorer 의 **14번째 가중치** `responseTypeApi` 로 추가. doc/08 §9 보류 항목을 **양성-only 비대칭(가산만·감점 없음) + 보수적 집합**으로 활성화한다.
+> 보류 사유($type taxonomy 불확실, §8 발견1: document 가 JSON API 에도 붙음)를 이 비대칭으로 해소. 근거 [DECISIONS](DECISIONS.md) **D24**.
+> 연계: [08-api-scoring-and-profiles](08-api-scoring-and-profiles.md) §4·§8·§9, [02-log-parsing-and-normalization](02-log-parsing-and-normalization.md) §5, [10-classification-config-store](10-classification-config-store.md) §2.
+
+**구현 위치**
+
+| 대상 | 소스 |
+|---|---|
+| $type → EndpointKind | `classify/EndpointKindClassifier`(dominant $type ∈ API_TYPES → API_CANDIDATE) |
+| 신호 보유 | `model/DiscoveredEndpoint.endpointKind` |
+| 가중치·프리셋·검증 | `classify/ApiScorer.Weights.responseTypeApi` / `WEIGHT_KEYS` / `applyOverrides()` |
+| 가산 | `classify/ApiScorer.score()` — `endpointKind==API_CANDIDATE` 일 때만 양성 |
 
 ## 0. 결정적 발견 — 신호가 이미 존재
 
@@ -27,7 +36,15 @@
 - **staticAssetPenalty 와 충돌 없음**: kind 는 정확히 1값(STATIC ⊕ WEB_PAGE ⊕ API_CANDIDATE ⊕ UNKNOWN) → responseTypeApi(API_CANDIDATE)와
   staticAssetPenalty(STATIC)는 **상호배타**, 동시 발화 불가.
 - path 신호와의 동시 발화(예 `/api/x` + $type=json → apiSegment + responseTypeApi)는 **의도된 독립 증거 가산**(경로+응답타입), 충돌 아님.
-- score 배선 위치: **양 모드(pathless/explicit-hint) 공통** 섹션(응답타입은 path 신호 아님). staticAssetPenalty 와 같은 공통 구간에 추가.
+- score 연결 위치: **양 모드(pathless/explicit-hint) 공통** 섹션(응답타입은 path 신호 아님). staticAssetPenalty 와 같은 공통 구간에 추가.
+
+```mermaid
+flowchart LR
+    K["DiscoveredEndpoint.endpointKind"] --> D{"== API_CANDIDATE?"}
+    D -->|"예"| P["score += responseTypeApi (양성)"]
+    D -->|"WEB_PAGE / UNKNOWN / $type 부재"| Z["무가산·무감점 (0)"]
+    D -->|"STATIC"| S["staticAssetPenalty (별개 신호, 상호배타)"]
+```
 
 ## 3. Weights 확장 — 전수 터치포인트 (모두 ApiScorer 내부로 캡슐화)
 
@@ -52,24 +69,7 @@
   이미 1.0 clamp 라 여전히 통과. exact-score 단언이 있는 API_CANDIDATE 테스트만 갱신(대부분 UNKNOWN 사용이라 소수).
 - preset/CUSTOM 모두 기본값에 responseTypeApi 포함 → 운영자 무설정 시 기본 적용, 비-API 무영향.
 
-## 5. dev 구현 체크리스트 (8건)
+## 5. 범위 밖 / 후속
 
-> ✅ **구현 완료 (PR 머지)** — 아래는 historical 체크리스트(2026-06-24 실제 머지 코드 대조 후 완료 표기). 잔여는 §'범위 밖/후속'·TASKS 참조.
-
-### 수정 (ApiScorer 1파일)
-- [x] `Weights` record — `responseTypeApi` 필드 추가(pathHint 뒤, threshold 앞).
-- [x] `MIDDLE/HIGH/LOW` presets — 0.25 / 0.18 / 0.32 추가(1차값·캐비엇).
-- [x] `WEIGHT_KEYS` — `"responseTypeApi"` 추가.
-- [x] `applyOverrides` — `ov(...,"responseTypeApi", base.responseTypeApi())` 추가.
-- [x] `score()` — 공통 섹션에 `endpointKind==API_CANDIDATE → += responseTypeApi`(양성-only).
-
-### 테스트
-- [x] `ApiScorerTest` — API_CANDIDATE 가산(UNKNOWN 베이스라인 대비 차이=weight), **document(WEB_PAGE)/UNKNOWN/부재 무가산(비대칭)**,
-      STATIC 은 penalty 만(responseTypeApi 미발화·상호배타), customWeights "responseTypeApi" 수용+적용, 기존 API_CANDIDATE exact-score 단언 갱신.
-- [x] (가벼운) effective/REST — customWeights 에 responseTypeApi PUT→effective weights 반영(검증 통과). 컨트롤러/리졸버 무변경 회귀 green.
-- [x] grep — 직접 `new Weights(...)` 하는 테스트/코드 전수 갱신(필드수 변경), 전체 스위트 green.
-
-## 6. 범위 밖 / 후속
-
-- `$type` 전체 taxonomy 샘플링 확정(별도 항목, API_TYPES 정제 시 responseTypeApi 자동 수혜).
+- `$type` 전체 taxonomy 샘플링 확정(별도 항목, API_TYPES 정제 시 responseTypeApi 자동 수혜 — [21-type-taxonomy-sampling](21-type-taxonomy-sampling.md)).
 - responseTypeApi 가중치 **실데이터 보정**(§8 패턴). 중앙 API 튜닝은 이미 customWeights 로 가능.
