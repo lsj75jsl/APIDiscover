@@ -197,7 +197,7 @@
 
 <div class="mermaid">
 flowchart TD
-  SCH["DiscoveryScheduler<br/>@Scheduled (default-interval)"] --> RUN["runScan(host)<br/>watermark 기반 윈도우 산정"]
+  SCH["DiscoveryScheduler.scanTick()<br/>@Scheduled (scan.tick-interval, 1분)"] --> RUN["runScan(host) / runScanBatched(hosts)<br/>watermark 기반 윈도우 산정"]
   RUN --> COL["① Loki 수집<br/>LokiClient.queryRange()"]
   COL --> PAR["② 파싱<br/>LogLineParser.parse()"]
   PAR --> DED["③ dedup<br/>dedupByRequestId()"]
@@ -430,9 +430,14 @@ for (Acc acc : bySignature.values()) {
 // Acc.isNonExistent():  return hits &gt; 0 &amp;&amp; status404 == hits;   // 정확히 404 100% 만</code></pre>
 
 <h3 id="s3-6">3.6 ⑥ endpoint_kind 분류 — 웹페이지 · 정적자원 · API 후보</h3>
-<p class="src-ref">소스: <code>normalize/EndpointKindClassifier.java</code>, <code>model/EndpointKind.java</code></p>
+<p class="src-ref">소스: <code>normalize/EndpointKindClassifier.java</code>, <code>model/EndpointKind.java</code>, <code>normalize/StaticClassifyRules.java</code></p>
 
 <p>API 판단 전에, 각 경로가 <strong>웹페이지/정적자원/API 후보</strong> 중 무엇인지 먼저 가른다. 신호는 <code>$type</code>(필드19) 와 확장자다. 핵심은 <strong>정적 확장자 판정을 <code>$type</code> 보다 우선</strong>한다는 점 — 실데이터에서 <code>.js/.css</code> 가 <code>$type=document</code> 로 잘못 찍히는 경우가 있기 때문이다.</p>
+
+<div class="callout note">
+  <span class="ct">정적 판정 규칙은 DB 외부화 (D56)</span>
+  정적 확장자 목록(<code>.js/.css/.png…/.map</code>)과 정적 리소스 <strong>파일명 토큰</strong>(<code>img/thumb/resize/icon/logo…</code>)은 소스 하드코드가 아니라 <strong>DB(<code>static_classify_rule</code> 테이블)에서 관리</strong>된다(<code>StaticClassifyRules</code>). 기본값(<code>DEFAULT_STATIC_EXT</code>·<code>DEFAULT_NAME_TOKENS</code>)은 미시드 시 부팅 초기값일 뿐이고, 운영자는 REST <code>/api/v1/config/static-classify</code>(목록/추가/삭제/reload)로 런타임 교체할 수 있다(<code>applyRules</code> 가 즉시 재적용). 파일명 토큰은 <code>.php</code> 등 동적 확장자로 이미지/CSS 를 서빙하는 경로(예 <code>img.php</code>)를 잡아 API 점수에서 <strong>감점</strong>하는 데 쓰인다(veto 아님 — §4.2 <code>staticAssetPenalty</code>).
+</div>
 
 <div class="mermaid">
 flowchart TD
@@ -499,7 +504,7 @@ api_confidence <span class="op">=</span> clamp<sub>[0,1]</sub> ( <span class="hl
     <tr><td>10</td><td><code>query</code></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c">o</td><td class="c"></td><td class="c"></td><td class="c"></td><td>쿼리스트링 관측됨</td><td>공통</td></tr>
     <tr><td>11</td><td><code>nonBrowserUa</code></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c">o</td><td class="c"></td><td class="c"></td><td>SDK/CLI user-agent 다수</td><td>공통</td></tr>
     <tr><td>12</td><td><code>repeatBonus</code></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c">o</td><td>hits ≥ repeatMinCount(반복 호출)</td><td>공통</td></tr>
-    <tr><td>13</td><td><code>staticAssetPenalty</code> <span class="pill pill-drop">−</span></td><td class="c"></td><td class="c"></td><td class="c">o</td><td class="c"></td><td class="c"></td><td class="c">o</td><td class="c"></td><td>endpoint_kind == STATIC (확장자 또는 $type=library)</td><td>공통</td></tr>
+    <tr><td>13</td><td><code>staticAssetPenalty</code> <span class="pill pill-drop">−</span></td><td class="c"></td><td class="c"></td><td class="c">o</td><td class="c"></td><td class="c"></td><td class="c">o</td><td class="c"></td><td>endpoint_kind == STATIC (확장자/$type=library) <strong>또는</strong> 정적 리소스 파일명(img.php 류)</td><td>공통</td></tr>
     <tr><td>14</td><td><code>responseTypeApi</code></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c">o</td><td class="c"></td><td>endpoint_kind == API_CANDIDATE (양성-only)</td><td>공통</td></tr>
   </tbody>
 </table>
@@ -718,7 +723,8 @@ profile   <span class="op">=</span> <span class="hl">도메인</span> ?? <span c
     if (d.hadQuery())                                  s += w.query();
     if (d.nonBrowserUa())                              s += w.nonBrowserUa();
     if (d.metrics() != null &amp;&amp; d.metrics().hits() &gt;= w.repeatMinCount()) s += w.repeatBonus();
-    if (d.endpointKind() == EndpointKind.STATIC)       s += w.staticAssetPenalty();   // 음수
+    if (d.endpointKind() == EndpointKind.STATIC                                        // 음수 감점
+            || EndpointKindClassifier.hasStaticResourceName(d.pathTemplate())) s += w.staticAssetPenalty();  // img.php 류 포함
     if (d.endpointKind() == EndpointKind.API_CANDIDATE) s += w.responseTypeApi();     // 양성-only
 
     return Math.max(0.0, Math.min(1.0, Math.round(s * 1000.0) / 1000.0));   // clamp [0,1]

@@ -34,9 +34,10 @@
 <p class="muted">app + postgres 2컨테이너 1 pod(podman, hostNetwork)로 테스트 VM 에 배포하고, Loki 도메인 수집·CLI CSV 를 검증하는 절차. 권위 문서 <code>doc/32-container-deploy-runbook.md</code>·<code>DECISIONS D44</code>. 대상 Loki(192.168.8.100:3200)는 <b>운영 서버</b> — 대용량 확인은 off-peak(01:00–06:00), 창/limit 작게.</p>
 
 <h2>0. 사전 준비 (테스트 VM, rootful=root 로그인)</h2>
-<div class="step"><pre><code>mkdir -p /opt/adc /opt/adc-exports
-chcon -Rt container_file_t /opt/adc /opt/adc-exports   # SELinux Enforcing(Rocky 등) 시 컨테이너 접근 허용
-# /opt/adc 는 비워둔다(postgres entrypoint 가 root 로 PGDATA 하위 pgdata 를 chown·initdb).</code></pre></div>
+<div class="step"><pre><code>mkdir -p /opt/adc /opt/adc-exports /opt/adc-log
+chcon -Rt container_file_t /opt/adc /opt/adc-exports /opt/adc-log   # SELinux Enforcing(Rocky·el8 등) 시 컨테이너 접근 허용
+# /opt/adc 는 비워둔다(postgres entrypoint 가 root 로 PGDATA 하위 pgdata 를 chown·initdb).
+# /opt/adc-log 는 adc.yaml 의 app volumeMount(D58, 파일 로그 외부 영속) — 사전 생성+relabel 필수.</code></pre></div>
 <p class="muted">VM 요건: podman 설치, host 가 LAN Loki(192.168.8.100:3200) 도달 가능, 5432/8080 포트 미사용.</p>
 
 <h2>1. 이미지 빌드·전송 <span class="err">(★개별 tar)</span></h2>
@@ -83,13 +84,14 @@ podman pod ps && podman ps --pod        # adc pod 의 db·app Running</code></pr
 <div class="callout">CSV 에 <b>내용</b>이 나오려면 도메인별 <b>엔드포인트 스캔</b>(별도 스케줄, 기본 <code>PT1H</code>)이 <code>discovered_endpoint</code> 를 채운 뒤여야 한다. 갓 디스커버리된 도메인은 다음 스캔 사이클 전까지 "검출 0건"(exit 3)이 정상.</div>
 
 <h2>5. 종료/정리</h2>
-<div class="step"><pre><code>podman pod stop adc && podman pod rm adc   # /opt/adc(PGDATA)·/opt/adc-exports 는 hostPath 라 보존</code></pre></div>
+<div class="step"><pre><code>podman pod stop adc && podman pod rm adc   # /opt/adc(PGDATA)·/opt/adc-exports·/opt/adc-log 는 hostPath 라 보존</code></pre></div>
 
 <h2>6. 트러블슈팅 — 실배포에서 겪은 결함 (D44)</h2>
 <table>
 <tr><th>증상</th><th>원인</th><th>해결</th></tr>
 <tr><td>adc-app 무한 재시작(RestartCount 폭증), java 고CPU</td><td>결합 <code>podman save</code> → load 태그 collision(postgres 태그가 app 가리킴) → app 이 존재하지 않는 DB 접속 <span class="err">Connection refused</span></td><td>이미지 <b>개별 tar</b> 전송, 로드후 ID 분리 검증(§1)</td></tr>
 <tr><td>기동 직후 <code>BatchDataSourceScriptDatabaseInitializer … Connection refused</code></td><td>pod 동시 기동 시 postgres initdb 지연 중 app 이 먼저 접속</td><td><code>wait-for-db.sh</code> 가 DB 준비 대기 후 기동(ENTRYPOINT)</td></tr>
+<tr><td>기동 직후 <code>/opt/adc-log</code> 쓰기 <span class="err">Permission denied</span> → app 크래시 루프</td><td>el8 SELinux Enforcing 에서 hostPath <code>/opt/adc-log</code>(D58 파일 로그) 미생성·미relabel</td><td><code>mkdir -p /opt/adc-log && chcon -Rt container_file_t /opt/adc-log</code>(§0)</td></tr>
 <tr><td>디스커버리 <code>HttpConnectTimeoutException</code> (Loki 미도달)</td><td>기본 bridge pod 는 LAN Loki(192.168.8.100) egress 불가</td><td><code>adc.yaml hostNetwork: true</code></td></tr>
 <tr><td>디스커버리 <code>HttpTimeoutException: request timed out</code> (Loki 도달은 됨)</td><td>서버측 <code>label_format</code> coalesce(Go 템플릿)가 라인마다 평가돼 ~10배 느림 → query-timeout(30s) 초과</td><td>coalesce 를 <b>클라이언트(Java)</b>로 이전(LogQL 에서 <code>label_format</code> 제거)</td></tr>
 <tr><td>CLI 실행 시 <code>Consider defining a bean of type 'HttpSecurity'</code></td><td>CLI(web=NONE)에서 <code>SecurityConfig</code>(웹 전용 빈) 로드 실패</td><td><code>SecurityConfig</code> 에 <code>@ConditionalOnWebApplication</code></td></tr>

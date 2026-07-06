@@ -178,9 +178,9 @@
   <li>평시(주간): 틱당 <strong>500</strong> (domains-per-tick).</li>
   <li>off-peak(새벽 01~06시): 틱당 <strong>500</strong> (off-peak-domains-per-tick) — ★현 배포는 <b>주야 동일</b>로 설정(야간 몰아치기 방지, 사용자 확정). 값만 바꾸면 야간 가속을 다시 켤 수 있는 <em>기능</em>은 그대로입니다.</li>
 </ul>
-<p>코드로는 딱 한 줄 삼항입니다 (ScanSelector.java:44).</p>
-<pre><code>int k = offPeak ? props.scan().offPeakDomainsPerTick()   // 새벽 (현 배포 500)
-                : props.scan().domainsPerTick();          // 평시 (현 배포 500)</code></pre>
+<p>코드로는 딱 한 줄 삼항입니다 (ScanSelector.selectForTick:50).</p>
+<pre><code>int k = Math.max(1, offPeak ? props.scan().offPeakDomainsPerTick()   // 새벽 (현 배포 500)
+                            : props.scan().domainsPerTick());         // 평시 (현 배포 500)</code></pre>
 <p>즉 <strong>"누구를 뽑느냐(밀린 순)"는 밤낮 동일하고, "몇 개 뽑느냐(K)"만 밤에 커집니다.</strong> 부하 여유가 있는 시간에 몰아서 백로그를 태우는 전략입니다. (참고. 조회 윈도우 <code>off-peak-max-window</code> 도 현 배포는 주간과 동일 <b>PT30M</b> 입니다 — 과거 PT24H 대량조회가 Loki 과부하를 유발해 축소. DiscoveryScheduler.java:52.)</p>
 
 <h2 id="s5">5. 하루 타임라인으로 보면</h2>
@@ -207,14 +207,14 @@ gantt
 
 <div class="callout note">
   <span class="ct">정리</span>
-  <strong>domains-per-tick = 평상시 3분마다 처리할 도메인 수, off-peak-domains-per-tick = 새벽 저부하 시간대에 대신 쓰는 더 큰 수</strong>입니다. 둘 다 "속도 다이얼"이고, 뽑는 순서(가장 밀린 순)는 바꾸지 않습니다.
+  <strong>domains-per-tick = 평상시 한 틱(현 배포 tick-interval PT1M)마다 처리할 도메인 수, off-peak-domains-per-tick = 새벽 저부하 시간대에 대신 쓰는 수(현 배포는 주간과 동일 500)</strong>입니다. 둘 다 "속도 다이얼"이고, 뽑는 순서(가장 밀린 순)는 바꾸지 않습니다.
 </div>
 
 <hr>
 
 <h2 id="s7">7. 첫 스캔은 얼마나 과거까지 보는가 — initial-backfill</h2>
 <p>여기서 "언제부터 언제까지" 시간 구간을 정하는 규칙이 하나 더 있습니다. 자동 주기 스캔은 도메인을 <strong>처음 스캔할 때 <code>now − initial-backfill(기본 7일)</code> 지점부터 시작</strong>합니다. 로그가 아무리 오래 쌓여 있어도, <strong>그보다 과거는 아예 읽지 않습니다.</strong></p>
-<p>도메인마다 "어디까지 읽었나"를 기록하는 커서(<code>watermark</code>)가 있습니다. 시간 구간은 이렇게 정해집니다 (<code>DiscoveryJobService.windowFor:484-498</code>).</p>
+<p>도메인마다 "어디까지 읽었나"를 기록하는 커서(<code>watermark</code>)가 있습니다. 시간 구간은 이렇게 정해집니다 (<code>DiscoveryJobService.windowFor:718-732</code>, 진입 <code>nextWindow:684</code>).</p>
 <div class="mermaid">
 flowchart LR
     N["now"] -->|"− ingest-lag (10분)"| E["end<br/>조회 종료점"]
@@ -240,7 +240,7 @@ flowchart LR
 <ul>
   <li>첫 스캔 구간 ≈ <code>[2026-06-24, 2026-07-01)</code> — 7일치.</li>
   <li>그 이전 <strong>~10년 전체는 스캔 대상에서 빠지고</strong>, 워터마크 시작점 뒤라 이후에도 다시 안 읽습니다.</li>
-  <li>이후 워터마크가 <code>max-window</code>(평시 30분/새벽 24h)씩 현재 쪽으로 전진하며 최신을 따라잡습니다.</li>
+  <li>이후 워터마크가 <code>max-window</code>(현 배포 주야 동일 30분)씩 현재 쪽으로 전진하며 최신을 따라잡습니다.</li>
 </ul>
 
 <div class="callout warn">
@@ -249,7 +249,7 @@ flowchart LR
     <li>기본 <code>P7D</code> → 첫 스캔은 7일 과거까지만.</li>
     <li>더 깊게 보려면 <b>첫 스캔 전에</b> <code>initial-backfill</code> 을 키워야 합니다(예 <code>P30D</code>).</li>
     <li>★<b>소급 적용 안 됨</b> — 이미 스캔된 도메인은 워터마크가 잡혀 있어 이 값을 바꿔도 과거로 되돌아가지 않습니다.</li>
-    <li>온디맨드(수동) 스캔으로 과거를 보려 해도 그 윈도우는 <code>max-window</code> 상한에 걸려 멀리 못 갑니다(<code>onDemandWindow:181-189</code>).</li>
+    <li>온디맨드(수동) 스캔으로 과거를 보려 해도 그 윈도우는 <code>max-window</code> 상한에 걸려 멀리 못 갑니다(<code>onDemandWindow:367-375</code>).</li>
     <li>운영 Loki 자체 보존기간도 보통 10년이 아니므로, 시작점을 과거로 당겨도 Loki 에 남아있는 기간까지만 조회됩니다.</li>
   </ul>
 </div>
@@ -439,17 +439,17 @@ gantt
   <tbody>
     <tr><td>틱 루프 진입</td><td><code>DiscoveryScheduler.java:46-47</code></td><td><code>@Scheduled(fixedDelayString = "${apidiscover.scan.tick-interval}")</code> — tick-interval 마다 <code>scanTick()</code> 실행.</td></tr>
     <tr><td>off-peak 판정</td><td><code>DiscoveryScheduler.java:50-51</code></td><td><code>OffPeakWindow.isOffPeak(now, offPeakWindow, zone)</code> — 현재 시각이 새벽 저부하 창인지.</td></tr>
-    <tr><td>조회 윈도우 상향</td><td><code>DiscoveryScheduler.java:52</code></td><td>off-peak면 <code>offPeakMaxWindow</code>(PT24H), 평시면 <code>maxWindow</code>(PT30M).</td></tr>
-    <tr><td>예산 소진 시 이월</td><td><code>DiscoveryScheduler.java:55-58</code></td><td><code>if (!budget.hasBudget()) break;</code> — Loki 쿼리 캡 소진 → 틱 조기 종료, 다음 틱 이월.</td></tr>
-    <tr><td>스케줄 커서 전진</td><td><code>DiscoveryScheduler.java:62-63</code></td><td><code>touchScanSchedule(host, now, now.plus(interval))</code> — attempt 마다(skip 포함) <code>nextScanDueAt</code> 를 미래로 → 재선택 방지·기아 방지.</td></tr>
-    <tr><td><b>K(틱당 개수) 결정</b></td><td><code>ScanSelector.java:44</code></td><td><code>int k = offPeak ? offPeakDomainsPerTick() : domainsPerTick();</code> — off-peak 500 / 평시 300.</td></tr>
-    <tr><td>상위 K 선택</td><td><code>ScanSelector.java:45-46</code></td><td><code>PageRequest.of(0, k)</code> + <code>findDueForScan(now, staleCutoff, page)</code> — 밀린 순 상위 K.</td></tr>
+    <tr><td>조회 윈도우 상향</td><td><code>DiscoveryScheduler.java:52</code></td><td>off-peak면 <code>offPeakMaxWindow</code>(현 배포 PT30M), 평시면 <code>maxWindow</code>(PT30M) — 현 배포는 주야 동일.</td></tr>
+    <tr><td>예산 소진 시 이월</td><td><code>DiscoveryScheduler.java:70-72</code></td><td><code>if (!budget.hasBudget()) break;</code> — Loki 쿼리 캡 소진 → 틱 조기 종료, 다음 틱 이월(비배칭 경로. 배칭 경로는 <code>runScanBatched</code> 내부에서 예산 체크).</td></tr>
+    <tr><td>스케줄 커서 전진</td><td><code>DiscoveryScheduler.java:59·78</code></td><td><code>touchScanSchedule(host, now, now.plus(interval))</code> — attempt 마다(skip 포함) <code>nextScanDueAt</code> 를 미래로 → 재선택 방지·기아 방지. 배칭·비배칭 경로 모두 전진.</td></tr>
+    <tr><td><b>K(틱당 개수) 결정</b></td><td><code>ScanSelector.selectForTick:50</code></td><td><code>int k = Math.max(1, offPeak ? offPeakDomainsPerTick() : domainsPerTick());</code> — off-peak 500 / 평시 500(현 배포 주야 동일).</td></tr>
+    <tr><td>상위 K 선택(3단·활성 우선)</td><td><code>ScanSelector.selectForTick:54-63</code></td><td>예약(<code>findDueWithoutNewTraffic</code> K/5) → 활성 우선(<code>findDueWithNewTraffic</code>) → 남는 몫 skip-류 — 각 <code>PageRequest.of(0, …)</code>, 셋 다 밀린 순(D64).</td></tr>
     <tr><td>밀린 순 정렬 · due 술어</td><td><code>DomainConfigRepository.findDueForScan</code></td><td><code>where enabled=true and nextScanDueAt(null 즉시 due or &lt;= now) order by nextScanDueAt asc nulls first</code>.</td></tr>
     <tr><td>쿼리 예산 캡 로드</td><td><code>LokiBudget.java:33-34</code></td><td>생성자에서 <code>props.scan().maxQueriesPerHour()</code> 를 <b>기동 시 1회</b> 읽어 final 필드로 보유(런타임 변경 불가 — §10 참조).</td></tr>
-    <tr><td>조회 시간 구간 산정</td><td><code>DiscoveryJobService.windowFor:484-498</code></td><td><code>[watermark(없으면 end−initial-backfill), now−ingest-lag)</code> + max-window 절단. 첫 스캔 시작점(§7)이 여기서 결정.</td></tr>
+    <tr><td>조회 시간 구간 산정</td><td><code>DiscoveryJobService.windowFor:718-732</code> (진입 <code>nextWindow:684</code>)</td><td><code>[watermark(없으면 end−initial-backfill), now−ingest-lag)</code> + max-window 절단. 첫 스캔 시작점(§7)이 여기서 결정. 단 <code>sample-window&gt;0</code>(현 배포)이면 <code>sampleWindowFor:701</code> 로 대체(§8.7).</td></tr>
     <tr><td>워터마크 전진</td><td><code>DiscoveryJobService.advanceWatermark</code></td><td>스캔 성공 후 소비 끝점으로 커서 전진(앞으로만) → 다음 스캔이 이어감.</td></tr>
     <tr><td>무접속 자동제외 게이트 (D59)</td><td><code>DomainConfigRepository.findDueForScan</code></td><td><code>lastSeenAt >= now−inactive-after</code> 아니면 자동스캔 선발에서 제외(3일 무접속). scan-now 는 무관·트래픽 재개 시 자동 복귀.</td></tr>
-    <tr><td><b>delta-driven skip (D60/D61)</b></td><td><code>DiscoveryJobService.runScan</code></td><td>출석부(<code>lastSeenAt</code>)가 윈도우 시작 이전이면 = 구간 무방문 → <b>Loki 조회 없이</b> 워터마크를 now−lag 로 즉시 점프(§8.3).</td></tr>
+    <tr><td><b>delta-driven skip (D60/D61)</b></td><td><code>DiscoveryJobService.skipIfNoNewTraffic:179</code> (runScan·runScanBatched 에서 호출)</td><td>출석부(<code>lastSeenAt</code>)가 윈도우 시작 이전이면 = 구간 무방문 → <b>Loki 조회 없이</b> 워터마크를 now−lag 로 즉시 점프(§8.3).</td></tr>
     <tr><td>대상 제외 엣지 (D62)</td><td><code>DiscoveryJobService.effectiveEdges</code> / <code>DomainDiscoveryService</code></td><td>제외 엣지(AAJ 23개) 매핑은 조회·등록·출석 도장 모두 제외. 전부 제외면 스캔 skip(전 스트림 폴백 금지).</td></tr>
     <tr><td>배칭 조회 (D63)</td><td><code>DiscoveryJobService.runScanBatched</code> · <code>LokiQueryBuilder.buildBatch</code></td><td>실조회 도메인을 (Master 엣지×버킷)로 묶어 <code>|~ `(d1|d2|…)`</code> 1쿼리(RE2 이스케이프) → host 파싱 분배. Loki 청크 재읽기 1/N.</td></tr>
     <tr><td>활성 우선 선발 (D64)</td><td><code>ScanSelector.selectForTick</code> · <code>findDueWithNewTraffic/-out</code></td><td>신규 방문 확정(lastSeen&gt;워터마크) 우선, 통과류 K/5 예약(기아·드리프트 방지). 3단 선발.</td></tr>
@@ -554,7 +554,7 @@ JAVA_HOME=/usr/lib/jvm/java-21-openjdk ./gradlew build</code></pre>
   <tbody>
     <tr><td>순회를 빠르게(24h 내 전체)</td><td><code>domains-per-tick</code> ↑ (또는 <code>tick-interval</code> ↓)</td><td>시간당 스캔 도메인↑. 병목은 쿼리캡이 아니라 이 값이므로 <b>순회 속도의 주 레버</b>. Loki 부하도 비례 증가.</td></tr>
     <tr><td>Loki 부하 낮추기</td><td><code>domains-per-tick</code> ↓</td><td>시간당 쿼리↓. <code>max-queries-per-hour</code> 캡보다 더 직접적인 레버(캡은 천장일 뿐, 실소비는 이 값이 만든다).</td></tr>
-    <tr><td>부하 스파이크만 상한</td><td><code>max-queries-per-hour</code> 를 실소비 약간 위로</td><td>현 배포는 기본 3000 — 상향은 Loki 부하 직접 증가라 신중(과부하 이력). 쿼리 로그(elapsedMs)·loki.errors 보며 단계적으로만.</td></tr>
+    <tr><td>부하 스파이크만 상한</td><td><code>max-queries-per-hour</code> 를 실소비 약간 위로</td><td>현 배포는 기본 6000 — 상향은 Loki 부하 직접 증가라 신중(과부하 이력). 쿼리 로그(elapsedMs)·loki.errors 보며 단계적으로만.</td></tr>
     <tr><td>새벽에만 몰아 처리</td><td><code>off-peak-domains-per-tick</code> ↑</td><td>저부하 시간대 백로그 소진 가속. 주간 부하는 불변.</td></tr>
     <tr><td>과거를 더 깊게 스캔</td><td><code>schedule.initial-backfill</code> ↑ (첫 스캔 전에)</td><td>첫 스캔 시작점을 과거로 당김. ★샘플링 모드(현 배포)에선 주기 스캔에 미적용(§7 주의 박스).</td></tr>
     <tr><td>표본 커버리지 조정</td><td><code>sample-window</code> ↑/↓ · <code>active-interval</code> ↓/↑</td><td>커버리지 = sample-window ÷ 재방문주기(현 10m/30m=33%). 올리면 커버리지↑·쿼리 비용↑(예산과 함께 조정).</td></tr>

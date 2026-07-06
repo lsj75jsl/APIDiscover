@@ -1,4 +1,4 @@
-<!-- 운영자용 수집 운영 매뉴얼: 도메인 수집(디스커버리) + 도메인별 API 정보 수집(스캔) 정책·CLI·튜닝 (doc/30·33, DECISIONS D42/D44/D45) -->
+<!-- 운영자용 수집 운영 매뉴얼: 도메인 수집(디스커버리) + 도메인별 API 정보 수집(스캔) 정책·CLI·튜닝 (doc/30·33, DECISIONS D42/D44/D45/D48, D56~D69 운영 튜닝) -->
 <!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -79,10 +79,10 @@
   <div class="inner">
     <h1>APIDiscover 수집 운영 매뉴얼</h1>
     <p>운영자(엔지니어)용 — <strong>① 도메인 수집(디스커버리)</strong> 과 <strong>② 도메인별 API 정보 수집(스캔)</strong> 의 동작 방식·운영 정책·튜닝·온디맨드 CLI.</p>
-    <p>대상 운영 Loki: <code>192.168.8.100:3200</code> · 근거 설계 doc/30 · doc/33 · DECISIONS D42 / D44 / D45</p>
+    <p>대상 운영 Loki: <code>192.168.8.100:3200</code> · 근거 설계 doc/30 · doc/33 · DECISIONS D42 / D44 / D45 / D48 · 운영 튜닝 D56~D69</p>
     <div class="tags">
       <span class="tag">도메인 자동 디스커버리</span>
-      <span class="tag">스캔 부하 운영정책(B·A·E)</span>
+      <span class="tag">스캔 부하 운영정책(B·A·E·C·D·F)</span>
       <span class="tag">온디맨드 CLI</span>
       <span class="tag">설정 노브·튜닝</span>
     </div>
@@ -93,7 +93,7 @@
 
 <div class="callout note" style="margin-top:20px;">
   <span class="ct">구현 상태 표기 규칙</span>
-  본 문서는 현재 구현(merged)과 예정을 명확히 구분한다. <span class="badge b-now">구현됨 · PR1</span> = 현재 동작하는 기능, <span class="badge b-plan">예정 · PR2/PR3</span> = 설계 완료·미배선(오해 방지). 설정 기본값은 모두 <code>src/main/resources/application.yml</code> 실제값이다.
+  본 문서는 현재 구현(merged)과 예정을 명확히 구분한다. <span class="badge b-now">구현됨</span> = 현재 동작하는 기능, <span class="badge b-plan">예정</span> = 미배선(오해 방지). 설정 기본값은 모두 <code>src/main/resources/application.yml</code> 실제값이다.
 </div>
 
 <nav class="toc">
@@ -118,7 +118,7 @@
     </li>
     <li><a href="#s4">운영자 온디맨드 수집 CLI</a></li>
     <li><a href="#s5">운영 가이드 — 부하·모니터링·튜닝·트러블슈팅</a></li>
-    <li><a href="#s6">로드맵 — 구현(PR1) vs 예정(PR2/PR3)</a></li>
+    <li><a href="#s6">로드맵 — 구현됨 vs 예정</a></li>
   </ol>
 </nav>
 
@@ -140,7 +140,7 @@
   <thead><tr><th>단계</th><th>목적</th><th>Loki 사용</th><th>주기(기본)</th></tr></thead>
   <tbody>
     <tr><td><strong>① 도메인 수집</strong></td><td>access log 에 <em>어떤 도메인</em>이 있는지 자동 열거 → <code>DomainConfig</code> 부트스트랩/증분</td><td><strong>매우 경량</strong> — 주기당 <em>집계 instant 쿼리 1건</em>(원시 로그 미수신)</td><td><code>interval=PT10M</code></td></tr>
-    <tr><td><strong>② API 정보 수집</strong></td><td>각 도메인의 <em>엔드포인트</em>를 검출·분류(Shadow/Zombie/Active/Unused)</td><td><strong>무거움</strong> — 도메인×윈도우×엣지만큼 range 쿼리 → <em>부하 정책으로 평탄화</em></td><td><code>tick-interval=PT5M</code> (틱당 일부만)</td></tr>
+    <tr><td><strong>② API 정보 수집</strong></td><td>각 도메인의 <em>엔드포인트</em>를 검출·분류(Shadow/Zombie/Active/Unused)</td><td><strong>무거움</strong> — 도메인×윈도우×엣지만큼 range 쿼리 → <em>부하 정책으로 평탄화</em></td><td><code>tick-interval=PT1M</code> (틱당 일부만)</td></tr>
   </tbody>
 </table>
 
@@ -150,7 +150,7 @@
 </div>
 
 <!-- ============================================================ -->
-<h2 id="s2">2. ① 도메인 수집 (디스커버리) <span class="badge b-now">구현됨 · PR1</span></h2>
+<h2 id="s2">2. ① 도메인 수집 (디스커버리) <span class="badge b-now">구현됨</span></h2>
 <p class="legend">근거: doc/30 · DECISIONS D42 / D44. 담당 컴포넌트: <code>DomainDiscoveryScheduler</code> · <code>DomainDiscoveryService</code> · <code>DomainUpserter</code> · <code>LokiClient</code>(instant 쿼리).</p>
 
 <p>수집 중 access log 에서 <strong>API 도메인(Host 헤더)</strong> 을 자동 열거해 <code>DomainConfig</code> 를 채운다. 수동 등록 부담을 없애는 것이 목적이다. 핵심은 <strong>원시 로그를 받지 않고 Loki 서버측에서 집계한 (도메인 × 엣지 hostname) 카운트만</strong> 수신한다는 점 — 그래서 매우 가볍다.</p>
@@ -206,6 +206,7 @@
     <tr><td><span class="b-key">initial-delay</span></td><td><code>PT2M</code></td><td>스캔 스케줄과 stagger offset</td></tr>
     <tr><td><span class="b-key">max-domains-per-run</span></td><td><code>0</code></td><td>0=무제한 전수 등록, &gt;0=카운트 desc 상위 N 캡</td></tr>
     <tr><td><span class="b-key">host-pattern</span></td><td>FQDN 정규식</td><td>자동 등록 폭증 차단(형식 검증)</td></tr>
+    <tr><td><span class="b-key">excluded-hostnames</span></td><td>AAJ11~AAJ63, <code>P*</code></td><td>대상 제외 엣지(hostname 라벨) — 이 엣지의 관측은 등록·<code>lastSeen</code> 갱신·스캔 조회 모두 제외. 접미 <code>*</code>=접두 일치(예 <code>P*</code>=P 로 시작하는 전 엣지). 빈=없음(D62/D69)</td></tr>
   </tbody>
 </table>
 
@@ -215,48 +216,52 @@
 </div>
 
 <!-- ============================================================ -->
-<h2 id="s3">3. ② 도메인별 API 정보 수집 (스캔) <span class="badge b-now">구현됨 · PR1</span></h2>
-<p class="legend">근거: doc/33 · DECISIONS D45(PR1 = B+A+E). 담당: <code>DiscoveryScheduler.scanTick()</code> · <code>ScanSelector</code> · <code>DiscoveryJobService</code> · <code>LokiBudget</code> · <code>LokiClient</code>.</p>
+<h2 id="s3">3. ② 도메인별 API 정보 수집 (스캔) <span class="badge b-now">구현됨</span></h2>
+<p class="legend">근거: doc/33 · DECISIONS D45(B+A+E) · D48(C+D+F 티어링) · D56~D69(운영 튜닝). 담당: <code>DiscoveryScheduler.scanTick()</code> · <code>ScanSelector.selectForTick()</code> · <code>ScanTier.effectiveInterval</code> · <code>OffPeakWindow</code> · <code>DiscoveryJobService.collectBounded/runScanBatched</code> · <code>LokiBudget</code> · <code>LokiClient</code>.</p>
 
 <h3 id="s3-1">3.1 왜 부하 정책이 필요한가</h3>
-<p>디스커버리가 ~13,920+ 도메인을 무제한 등록하므로, 과거처럼 <code>@Scheduled(PT1H)</code> 로 <strong>enabled 전 도메인을 전수 순차 스캔</strong>하면 운영 Loki 가 지속 과부하된다. 특히 미스캔 도메인의 첫 윈도우는 <code>end − initial-backfill(P7D)</code> = 7일치라, 7일/10분 ≈ <strong>1008 쿼리 × hostnames</strong>를 한 번에 당긴다(14k 동시 백필 = 재앙).</p>
-<p>그래서 현재 스캐너는 전수 순회를 <strong>슬라이스 순회</strong>로 바꾸고, 세 가지 축으로 부하를 통제한다 — <strong>B(틱당 예산)</strong>, <strong>A(윈도우 상한)</strong>, <strong>E(전역 하드캡)</strong>.</p>
+<p>디스커버리가 ~13,920+ 도메인을 무제한 등록하므로, 과거처럼 <code>@Scheduled(PT1H)</code> 로 <strong>enabled 전 도메인을 전수 순차 스캔</strong>하면 운영 Loki 가 지속 과부하된다. 특히 gap-free 백필에서 미스캔 도메인의 첫 윈도우가 <code>end − initial-backfill(P7D)</code> = 7일치가 되면, 7일/슬라이스 만큼의 쿼리 × hostnames 를 당긴다(14k 동시 백필 = 재앙).</p>
+<p>그래서 현재 스캐너는 전수 순회를 due 기반 슬라이스 순회로 바꾸고, 여러 축으로 부하를 통제한다 — <strong>B(틱당 예산·티어링)</strong>, <strong>A(윈도우 상한·롤링 샘플링·delta-skip)</strong>, <strong>E(전역 하드캡·per-scan 하드캡)</strong> + 운영 튜닝(무접속 중단·엣지 배칭·엣지 그룹). 기본 설정에서 <strong>대부분의 도메인은 매 틱 delta-skip 로 0쿼리</strong>이며, 실조회만 배칭돼 Loki 청크 재읽기를 <code>1/N</code> 로 줄인다.</p>
 
 <div class="loopbox">
-  <div class="lt">스캔 틱 루프 — <code>scanTick()</code> @Scheduled(tick-interval=PT5M)</div>
+  <div class="lt">스캔 틱 루프 — <code>scanTick()</code> @Scheduled(tick-interval=PT1M)</div>
   <div class="flow" style="margin:6px 0;">
-    <div class="node">선택<br/><small>ScanSelector: LRS 상위 K</small></div>
+    <div class="node">선택<br/><small>ScanSelector: due 도래 상위 K</small></div>
+    <div class="arrow">→</div>
+    <div class="node">커서 전진<br/><small>nextScanDueAt=now+티어주기</small></div>
     <div class="arrow">→</div>
     <div class="node">예산 확인<br/><small>LokiBudget.hasBudget()</small></div>
     <div class="arrow">→</div>
-    <div class="node">도메인별 runScan<br/><small>윈도우 산정(≤max-window)</small></div>
-    <div class="arrow">→</div>
-    <div class="node">커서 전진<br/><small>lastScanAttemptAt=now</small></div>
+    <div class="node">배칭 스캔<br/><small>runScanBatched(엣지·버킷 묶음)</small></div>
   </div>
-  <p class="legend" style="margin:2px 6px;">예산 소진 또는 K 도달 시 틱 종료 → 나머지는 다음 틱이 이어받음(이월). 커서는 자연 진행하므로 영구 기아 없음.</p>
+  <p class="legend" style="margin:2px 6px;">커서(<code>lastScanAttemptAt</code>·<code>nextScanDueAt</code>)는 attempt 마다 먼저 전진하고, 이어 스캔한다(재선택·기아 방지). 예산 소진 또는 K 도달 시 틱 종료 → 나머지는 다음 틱이 이어받음(이월).</p>
 </div>
 
-<h3 id="s3-2">3.2 B — 틱당 예산 + 라운드로빈(least-recently-scanned)</h3>
-<p>한 틱에 전 도메인을 금지하고, <strong>짧은 틱마다 예산(K) 내에서 "가장 오래 안 본 도메인부터"</strong> 처리한다.</p>
+<h3 id="s3-2">3.2 B — 틱당 예산 + due 기반 선택(티어링 + 활성 우선)</h3>
+<p>한 틱에 전 도메인을 금지하고, <strong>짧은 틱마다 예산(K) 내에서 "스캔 due 가 도래한 도메인부터"</strong> 처리한다.</p>
 <ul>
-  <li><strong>선택</strong>: <code>ScanSelector.selectForTick()</code> = <code>DomainConfig.lastScanAttemptAt</code> 오름차순(<em>nulls first</em> = 미스캔 우선) 상위 <code>domains-per-tick</code>(K) 개.</li>
-  <li><strong>커서 = 영속 타임스탬프</strong>: <code>lastScanAttemptAt</code>(재기동 생존). 메모리 인덱스 미채택.</li>
-  <li><strong>★커서는 attempt 마다 전진</strong>(skip·실패 포함). watermark 가 최신이라 <code>runScan</code> 이 조기 skip 해도 큐 뒤로 회전 → up-to-date 도메인을 매 틱 재선택하는 예산 낭비 방지.</li>
-  <li><strong>무기아</strong>: <code>lastScanAttemptAt</code> asc = FIFO → 최악 대기 = 전수 1회 커버리지 시간(유한).</li>
+  <li><strong>선택</strong>: <code>ScanSelector.selectForTick()</code> = <code>enabled</code> + due 도래(<code>nextScanDueAt</code> null=즉시 또는 <code>&le; now</code>)를 <code>nextScanDueAt</code> 오름차순(<em>nulls first</em> = 가장 밀린 순) 상위 <code>domains-per-tick</code>(K) 개. due 값은 티어(C)·dormant(F)·override 가 collapse 한 <strong>단일 타임스탬프</strong>다(3.5, <code>ScanTier.effectiveInterval</code>).</li>
+  <li><strong>활성 우선(D64)</strong>: 후보 중 <strong>워터마크 이후 신규 트래픽이 확정된(=실제 Loki 조회가 필요한) 도메인</strong>을 먼저 채우고, 신규 트래픽 없는(delta-skip 대상) 도메인은 틱당 최소 <code>K/5</code> 만 예약한다 → 활성 도메인의 스캔 지연 최소화, 기아 방지.</li>
+  <li><strong>커서 = 영속 타임스탬프</strong>: <code>lastScanAttemptAt</code>(관측)·<code>nextScanDueAt</code>(due, @Index) — 둘 다 DB 영속(재기동 생존). 메모리 인덱스 미채택.</li>
+  <li><strong>★커서는 attempt 마다 전진</strong>(skip·실패 포함): <code>touchScanSchedule(host, now, now+effectiveInterval)</code> 로 <code>lastScanAttemptAt=now</code> + <code>nextScanDueAt</code> 갱신. up-to-date/skip 도메인이 매 틱 재선택되는 예산 낭비를 막고 FIFO 기아를 방지.</li>
+  <li><strong>무접속 중단(D59, <code>inactive-after=P3D</code>)</strong>: 마지막 실 access log 관측(<code>lastSeenAt</code>)이 <code>inactive-after</code> 보다 오래된 도메인은 <strong>선택에서 제외</strong>(수집·평가 안 함). 경량 디스커버리는 계속 돌므로 트래픽 재개 시 <code>lastSeenAt</code> 이 갱신되면 <strong>자동 복귀</strong>(수동 재활성화 불요). <code>0</code>=비활성.</li>
 </ul>
-<p class="legend"><code>watermark</code>(데이터 윈도우 진행 = 무엇을 수집했나)와 <code>lastScanAttemptAt</code>(스케줄 공정성 커서 = 언제 차례를 줬나)은 <strong>직교</strong>한다(둘 다 필요).</p>
+<p class="legend"><code>watermark</code>(데이터 윈도우 진행 = 무엇을 수집했나), <code>nextScanDueAt</code>(스캔 due = 언제 차례인가), <code>lastScanAttemptAt</code>(관측 커서)은 <strong>직교</strong>한다.</p>
 
-<h3 id="s3-3">3.3 A — watermark 증분 + per-scan 윈도우 상한</h3>
-<p>watermark 증분(이미 동작)은 정상상태에서 직전 스캔 이후 경과분(델타)만 수집한다. 여기에 <strong><code>max-window</code> 상한</strong>을 더해 백필을 슬라이스한다.</p>
+<h3 id="s3-3">3.3 A — watermark 증분 + 윈도우 상한 + 롤링 샘플링</h3>
+<p>watermark 증분은 직전 스캔 이후 경과분(델타)만 수집한다. 여기에 <strong><code>max-window</code> 상한</strong>(백필 슬라이스)과 기본 활성화된 <strong>롤링 샘플링(D66)</strong>·<strong>delta-skip(D60)</strong>·<strong>watermark 점프(D61)</strong>가 얹혀 운영 Loki 부하를 실측 안정선까지 낮춘다.</p>
 <div class="formula">
-window <span class="op">=</span> [ <span class="hl">lastEnd</span> (없으면 end−initial-backfill) , <span class="hl">now − ingest-lag</span> )
-<br>if (end − start) <span class="op">&gt;</span> <span class="hl">max-window</span> → end <span class="op">=</span> start + max-window   <span style="color:#94a3b8">// 7일 일괄 pull 차단, 여러 틱에 점진 백필</span>
+<span class="hl">기본(sample-window &gt; 0)</span> window <span class="op">=</span> [ max(lastEnd, end−<span class="hl">sample-window</span>) , end ),  end <span class="op">=</span> now − ingest-lag
+<br><span style="color:#94a3b8">// 항상 '최신 sample 구간'만 조사 — 과거 백로그는 의도적으로 건너뜀(표본화). 신규 도메인도 최신 구간만(백필 미발동)</span>
+<br><span class="hl">sample-window = 0(gap-free 크롤)</span> window <span class="op">=</span> [ lastEnd (없으면 end−initial-backfill) , end );  if (end−start) &gt; <span class="hl">max-window</span> → end = start+max-window
 </div>
 <ul>
-  <li><strong>정상상태</strong>: window = 직전 이후 경과분(자연히 작음, 보통 틱 간격 수준) → 상한 미발동.</li>
-  <li><strong>백필</strong>: 미스캔/지연 도메인은 1회 최대 <code>max-window</code>(PT6H)만 수집하고 watermark 가 그만큼 전진 → 여러 틱에 걸쳐 점진 백필.</li>
-  <li><strong>watermark 전진</strong>: 성공 후에만(at-least-once). <code>nextWindow</code> 가 empty면 skip.</li>
-  <li><strong>staleness(정직)</strong>: 저빈도 도메인은 사이클당 1회·max-window 로만 전진하므로 실시간 대비 ~사이클 시간 뒤처질 수 있다 — 엔드포인트 디스커버리엔 허용(실시간 경보 아님), off-peak(예정)로 가속.</li>
+  <li><strong>롤링 샘플링(D66, <code>sample-window=PT10M</code> 기본)</strong>: 주기 스캔은 최신 <code>sample-window</code> 표본만 본다. 과거 워터마크~시작 사이 백로그는 <strong>의도적으로 skip</strong> → 대량 백필 발산 정지. 신선도 = 재방문 주기(active 30분 = 시간당 2회 표본). <code>0</code>=끄면 아래 gap-free 크롤(백필)로 동작.</li>
+  <li><strong>delta-skip(D60)</strong>: 디스커버리의 마지막 관측(<code>lastSeenAt</code>)이 윈도우 시작 이전이면 = 구간에 신규 트래픽 없음 → <strong>Loki 조회 없이 watermark 만 전진</strong>(빈 윈도우 쿼리 낭비 제거). 대부분의 도메인이 매 틱 이 경로로 값싸게 skip 된다.</li>
+  <li><strong>watermark 점프(D61)</strong>: delta-skip 시 watermark 를 <code>now−ingest-lag</code> 까지 즉시 전진(max-window 미적용) → 트래픽 재개 시 빈 과거 윈도우를 기어가는 낭비 없이 near-now 유지.</li>
+  <li><strong>백필 슬라이스(gap-free 모드)</strong>: 샘플링을 끄면 미스캔/지연 도메인이 1회 최대 <code>max-window</code>(PT30M)만 수집하고 watermark 가 그만큼 전진 → 여러 틱 점진 백필.</li>
+  <li><strong>watermark 전진</strong>: 성공적으로 소비한 구간 뒤에만(at-least-once, 부분 소비 시 마지막 완료 슬라이스 끝). <code>nextWindow</code> empty면 skip.</li>
+  <li><strong>온디맨드 무관</strong>: <code>-domain -scan</code> 온디맨드는 샘플링/delta-skip/점프를 모두 우회하고 임시 윈도우만 본다(watermark 미전진, 4.3).</li>
 </ul>
 
 <h3 id="s3-4">3.4 E — 전역 레이트 가드 + 자동감속</h3>
@@ -266,34 +271,41 @@ window <span class="op">=</span> [ <span class="hl">lastEnd</span> (없으면 en
   <tbody>
     <tr><td><code>LokiBudget</code> 전역 시간당 하드캡</td><td>현재 시간창의 누적 <strong>쿼리 수 + 응답 바이트</strong>를 카운트(시간 롤오버 리셋). <code>max-queries-per-hour</code>/<code>max-bytes-per-hour</code> 초과 시 <code>hasBudget()=false</code> → <strong>틱 조기 종료(이월)</strong>. <code>0</code>=무제한.</td></tr>
     <tr><td>적응형 throttle (<code>throttle-on-error</code>)</td><td>429/5xx 발생 시 inter-query 간격을 <code>min-query-interval × 2^level</code> 로 키움(level 0→4, 최대 16×), 연속 성공 시 감쇠. 일시적 per-attempt 백오프에 더해 <strong>지속 슬로다운</strong>.</td></tr>
-    <tr><td>Micrometer 계측</td><td>Actuator <code>/metrics</code> 로 노출: <code>loki.queries</code>(쿼리 수) · <code>loki.response.bytes</code>(응답 바이트 근사) · <code>loki.errors{status}</code>(429/5xx).</td></tr>
+    <tr><td>Micrometer 계측</td><td>Actuator <code>/metrics</code> 로 노출: <code>loki.queries</code>(쿼리 수) · <code>loki.response.bytes</code>(응답 바이트 근사) · <code>loki.errors{status}</code>(429/5xx 및 타임아웃·연결실패 등 I/O 실패 — I/O 실패도 1쿼리로 시간당 예산에 계상해 느린 Loki hammering 을 예산으로 제어, D58).</td></tr>
   </tbody>
 </table>
 <p class="legend">정확도 한계(정직): 바이트는 응답 본문 길이 근사(헤더/압축 제외), 시간창 경계 카운트는 ±1틱 오차 — 운영 가시화엔 충분하나 정밀 과금용은 아니다.</p>
 
 <h3 id="s3-5">3.5 부하 상한 근거 · 설정 키 · 튜닝</h3>
 <div class="formula">
-순간 부하 <span class="op">≈</span> <span class="hl">domains-per-tick</span> <span class="op">×</span> (<span class="hl">per-scan 윈도우</span> / <span class="hl">chunk-window</span>) <span class="op">×</span> <span class="hl">hostnames</span>
-<br>그 위에 <span class="hl">max-queries-per-hour</span> · <span class="hl">max-bytes-per-hour</span> 가 <span class="op">하드 천장</span>
+순간 부하 <span class="op">≈</span> <span class="hl">domains-per-tick</span> <span class="op">×</span> (<span class="hl">per-scan 윈도우</span> / <span class="hl">slice-window</span>) <span class="op">×</span> <span class="hl">hostnames</span>   <span style="color:#94a3b8">// 단 대부분은 delta-skip 로 0쿼리, 배칭(D63)이 실조회를 1/N</span>
+<br>그 위에 <span class="hl">max-queries-per-scan</span>(per-domain) · <span class="hl">max-queries-per-hour</span> · <span class="hl">max-bytes-per-hour</span>(전역) 가 <span class="op">하드 천장</span>
 <br>전수 1회 커버리지 <span class="op">≈</span> 전체도메인 / domains-per-tick <span class="op">×</span> tick-interval
-<br><span style="color:#94a3b8">예: 13,920 / 100 × 5분 ≈ 11.7시간</span>
+<br><span style="color:#94a3b8">예: 14,000 / 500 × 1분 ≈ 28분</span>
 </div>
 
 <table>
   <thead><tr><th>설정 키 (<code>apidiscover.scan.*</code>)</th><th>기본값</th><th>의미 / 부하 영향</th><th>상태</th></tr></thead>
   <tbody>
-    <tr><td><span class="b-key">tick-interval</span></td><td><code>PT5M</code></td><td>스캔 틱 간격(짧을수록 순간부하 평탄화, 커버리지 변동)</td><td><span class="badge b-now">PR1</span></td></tr>
-    <tr><td><span class="b-key">domains-per-tick</span></td><td><code>100</code></td><td>틱당 도메인 예산(K). 작을수록 부하↓·커버리지 느림</td><td><span class="badge b-now">PR1</span></td></tr>
-    <tr><td><span class="b-key">max-window</span></td><td><code>PT6H</code></td><td>per-scan 윈도우 상한(백필 슬라이스). 0=무제한</td><td><span class="badge b-now">PR1</span></td></tr>
-    <tr><td><span class="b-key">max-queries-per-hour</span></td><td><code>3000</code></td><td>전역 시간당 쿼리 하드캡(0=무제한). 초과=다음 틱 이월</td><td><span class="badge b-now">PR1</span></td></tr>
-    <tr><td><span class="b-key">max-bytes-per-hour</span></td><td><code>0</code></td><td>전역 시간당 바이트 하드캡(0=무제한)</td><td><span class="badge b-now">PR1</span></td></tr>
-    <tr><td><span class="b-key">throttle-on-error</span></td><td><code>true</code></td><td>429/5xx 적응형 자동감속 on/off</td><td><span class="badge b-now">PR1</span></td></tr>
-    <tr><td><span class="b-key">active-interval / inactive-interval</span></td><td>PT30M / PT6H</td><td>활동 기반 티어 주기(차등 스캔)</td><td><span class="badge b-plan">PR2(C)</span></td></tr>
-    <tr><td><span class="b-key">off-peak-*</span></td><td>—</td><td>off-peak 백필 예산/윈도우 상향</td><td><span class="badge b-plan">PR2(D)</span></td></tr>
-    <tr><td><span class="b-key">dormant-after / dormant-interval</span></td><td>P14D / P1D</td><td>장기 무트래픽 디프라이오리티(삭제 아님)</td><td><span class="badge b-plan">PR3(F)</span></td></tr>
+    <tr><td><span class="b-key">tick-interval</span></td><td><code>PT1M</code></td><td>스캔 틱 간격(주야 공통, 워터마크 최대 빈도 전진 — delta-skip+캡이 Loki 보호)</td><td><span class="badge b-now">구현됨</span></td></tr>
+    <tr><td><span class="b-key">domains-per-tick</span></td><td><code>500</code></td><td>틱당 도메인 예산(K, 대부분 cheap skip). 작을수록 부하↓·커버리지 느림</td><td><span class="badge b-now">구현됨</span></td></tr>
+    <tr><td><span class="b-key">max-window</span></td><td><code>PT30M</code></td><td>per-scan 윈도우 상한(백필 슬라이스). 0=무제한</td><td><span class="badge b-now">구현됨</span></td></tr>
+    <tr><td><span class="b-key">slice-window</span></td><td><code>PT30M</code></td><td>부분전진 슬라이스 단위(미지정=<code>loki.chunk-window</code> 재사용)</td><td><span class="badge b-now">구현됨</span></td></tr>
+    <tr><td><span class="b-key">max-queries-per-scan</span></td><td><code>50</code></td><td>per-scan(도메인 1회) 쿼리 하드캡(슬라이스 경계 체크, 0=무제한). 부분 watermark 전진</td><td><span class="badge b-now">구현됨</span></td></tr>
+    <tr><td><span class="b-key">max-queries-per-hour</span></td><td><code>6000</code></td><td>전역 시간당 쿼리 하드캡(0=무제한). 초과=다음 틱 이월</td><td><span class="badge b-now">구현됨</span></td></tr>
+    <tr><td><span class="b-key">max-bytes-per-hour</span></td><td><code>0</code></td><td>전역 시간당 바이트 하드캡(0=무제한)</td><td><span class="badge b-now">구현됨</span></td></tr>
+    <tr><td><span class="b-key">throttle-on-error</span></td><td><code>true</code></td><td>429/5xx 적응형 자동감속 on/off</td><td><span class="badge b-now">구현됨</span></td></tr>
+    <tr><td><span class="b-key">sample-window</span></td><td><code>PT10M</code></td><td>롤링 샘플링(최신 N분 표본만, 과거 백로그 skip). 0=off=gap-free 크롤(D66)</td><td><span class="badge b-now">구현됨</span></td></tr>
+    <tr><td><span class="b-key">inactive-after</span></td><td><code>P3D</code></td><td>무접속 스캔 중단 — <code>lastSeenAt</code> 이 이보다 오래되면 스캔 제외(0=off). 트래픽 재개 시 자동 복귀(D59)</td><td><span class="badge b-now">구현됨</span></td></tr>
+    <tr><td><span class="b-key">query-batch-size</span></td><td><code>20</code></td><td>같은 엣지 실조회 도메인 N개를 정규식 OR 1쿼리로(0=off). Loki 청크 재읽기 1/N(D63)</td><td><span class="badge b-now">구현됨</span></td></tr>
+    <tr><td><span class="b-key">edge-group-main-only</span></td><td><code>true</code></td><td>엣지를 그룹 Master 로 치환 조회(Master 로그=그룹 전체 집계). false=off(D65)</td><td><span class="badge b-now">구현됨</span></td></tr>
+    <tr><td><span class="b-key">tiering-enabled</span></td><td><code>true</code></td><td>C 활동 티어 on/off. false=구 LRS 동작(무회귀 롤백 스위치)</td><td><span class="badge b-now">구현됨</span></td></tr>
+    <tr><td><span class="b-key">active-interval / inactive-interval / default-interval</span></td><td>PT30M / PT6H / PT2H</td><td>활동 기반 티어 주기(active=최근·inactive=뜸·default=신호 없음, <code>active-threshold=PT24H</code>)</td><td><span class="badge b-now">구현됨(C)</span></td></tr>
+    <tr><td><span class="b-key">off-peak-domains-per-tick / off-peak-max-window / off-peak-zone</span></td><td>500 / PT30M / Asia/Seoul</td><td>off-peak(01–06시) 예산/윈도우 스위치(D). ★현재는 주간과 동일값으로 튜닝(대량조회 복구 금지 — Loki 과부하 이력)</td><td><span class="badge b-now">구현됨(D)</span></td></tr>
+    <tr><td><span class="b-key">dormant-after / dormant-interval</span></td><td>P14D / P1D</td><td>장기 무트래픽 디프라이오리티(최장 주기로 강등, <strong>삭제 아님</strong>)</td><td><span class="badge b-now">구현됨(F)</span></td></tr>
   </tbody>
 </table>
-<p class="legend">참고(공유 보호값): <code>apidiscover.loki.chunk-window=PT10M</code>·<code>page-limit=2000</code>·<code>max-concurrent-queries=2</code>·<code>min-query-interval=200ms</code> / <code>apidiscover.schedule.ingest-lag=PT10M</code>·<code>initial-backfill=P7D</code>.</p>
+<p class="legend">참고(공유 보호값): <code>apidiscover.loki.chunk-window=PT30M</code>·<code>page-limit=2000</code>·<code>max-concurrent-queries=2</code>·<code>min-query-interval=200ms</code> / <code>apidiscover.schedule.ingest-lag=PT10M</code>·<code>initial-backfill=P7D</code>·<code>off-peak-window=01:00-06:00</code>. 대상 제외 엣지는 <code>apidiscover.discovery.excluded-hostnames</code>(등록·스캔 조회 모두 제외, 접미 <code>*</code>=접두 일치, D62/D69).</p>
 
 <h4>튜닝 가이드 — 무엇을 올리고 내릴까</h4>
 <table>
@@ -301,14 +313,14 @@ window <span class="op">=</span> [ <span class="hl">lastEnd</span> (없으면 en
   <tbody>
     <tr><td>Loki 부하 낮추기</td><td><code>domains-per-tick</code> ↓ · <code>max-queries-per-hour</code> ↓ · <code>max-window</code> ↓ · <code>tick-interval</code> ↑</td><td>전수 커버리지 느려짐 · 백필 수렴 지연</td></tr>
     <tr><td>커버리지 빠르게(전수 더 자주)</td><td><code>domains-per-tick</code> ↑ · <code>tick-interval</code> ↓</td><td>순간/시간당 부하 증가 → <code>max-queries-per-hour</code> 와 함께 조정</td></tr>
-    <tr><td>백필 빨리 끝내기</td><td><code>max-window</code> ↑ (off-peak에 한정 권장)</td><td>1회 스캔 비용 증가 → peak 시 위험, off-peak(D, 예정)로 분리가 정석</td></tr>
+    <tr><td>백필 빨리 끝내기</td><td><code>sample-window=0</code>(gap-free 크롤) + <code>off-peak-max-window</code> ↑</td><td>1회 스캔 비용 증가 → peak 시 위험, off-peak(D) 큰 윈도우로 분리가 정석. ★대량 조회는 Loki 과부하 이력 있으니 신중</td></tr>
     <tr><td>Loki 불안정 대응</td><td><code>throttle-on-error=true</code> 유지(자동) · 필요 시 <code>max-queries-per-hour</code> 일시 ↓</td><td>—(자동감속이 우선 작동)</td></tr>
   </tbody>
 </table>
 <div class="callout warn"><span class="ct">하드 천장이 안전판</span> 어떤 노브를 만지든 <code>max-queries-per-hour</code>(와 선택적 <code>max-bytes-per-hour</code>)가 시간당 Loki 호출의 상한을 강제한다. 부하가 걱정되면 이 값부터 보수적으로 잡고 커버리지를 점진 확대하라.</div>
 
 <!-- ============================================================ -->
-<h2 id="s4">4. 운영자 온디맨드 수집 CLI <span class="badge b-now">구현됨 · PR1</span></h2>
+<h2 id="s4">4. 운영자 온디맨드 수집 CLI <span class="badge b-now">구현됨</span></h2>
 <p class="legend">근거: doc/33 §7(scan·register) · doc/31 §B(export) · DECISIONS D45 / D47 / D43. 트리거 인자가 있으면 <code>main()</code> 이 <strong>웹 미기동 + <code>cli</code> 프로파일</strong>(스케줄러 미기동)로 1 명령 실행 후 종료.</p>
 
 <p>스케줄을 기다리지 않고 특정 도메인을 <strong>즉시</strong> 조회·등록·수집·내보낼 때 쓴다. 네 서브커맨드 모두 <code>-domain</code> 아래 단일대시 문법이다(트리거 인자가 있으면 CLI 모드로 1 명령 실행 후 종료).</p>
@@ -353,7 +365,7 @@ podman run --rm --network host localhost/apidiscover:test \
 <ul>
   <li>도메인을 <strong>DB 에 등록만</strong> 한다(<strong>Loki 미호출</strong>·부하 없음). 스캔·디스커버리는 하지 않는다.</li>
   <li>host 는 정규화(소문자·trim)해 저장하며 <strong>멱등</strong>이다 — 이미 있으면 아무것도 바꾸지 않고 성공(exit 0)으로 끝난다.</li>
-  <li>자동 디스커버리(<code>interval=PT10M</code>)가 아직 잡지 못한 <strong>신규 도메인을 미리 등록</strong>해 두는 용도. 등록 후 다음 스캔 틱(라운드로빈)에서 자동 수집된다.</li>
+  <li>자동 디스커버리(<code>interval=PT10M</code>)가 아직 잡지 못한 <strong>신규 도메인을 미리 등록</strong>해 두는 용도. 등록 후 다음 스캔 틱(due 도래 시)에서 자동 수집된다.</li>
   <li>종료 코드: <code>0</code> 성공(이미 존재 포함) / <code>2</code> 도메인 미지정 / <code>4</code> DB 오류.</li>
 </ul>
 
@@ -373,7 +385,7 @@ podman exec adc-app java -jar /app/app.jar \
 
 # 출력 예 (미등록 도메인이면 자동 등록 줄이 먼저 나온다)
 # 자동 등록: example.com (enabled=true)
-# scan example.com [2026-06-26T00:00:00Z ~ 2026-06-26T06:00:00Z]
+# scan example.com [2026-06-26T05:30:00Z ~ 2026-06-26T06:00:00Z]
 #   discovered=128 active=40 shadow=12 zombie=3 unused=7</code></pre>
 <ul>
   <li><strong>미등록 도메인이면 <code>enabled=true</code> 로 자동 등록한 뒤 스캔</strong>한다(별도 <code>-register</code> 불필요). 이미 존재하지만 <strong>비활성(<code>enabled=false</code>)</strong>이면 운영자 결정을 존중해 <strong>자동 활성화하지 않고</strong> 스캔을 거부한다(exit 3).</li>
@@ -414,8 +426,8 @@ podman run --rm --network host -v /opt/adc-exports:/exports \
 <h3 id="s5-1">5.1 운영 Loki 부하 관리 원칙</h3>
 <ul>
   <li>대상 Loki(<code>192.168.8.100:3200</code>)는 <strong>운영 서버</strong>다. <code>LokiClient</code> 의 부하보호(윈도우 분할·page-limit·동시성·스로틀·백오프)를 <strong>우회하지 말 것</strong>. 임시 스크립트도 창/limit 을 작게.</li>
-  <li>가장 강한 안전판은 <code>scan.max-queries-per-hour</code> 시간당 하드캡이다. 부하 불확실 시 보수적으로 시작.</li>
-  <li><strong>off-peak(01:00–06:00)</strong>: <code>schedule.off-peak-window</code> 에 정의돼 있으나 현재는 <strong>설정값만 존재</strong>하고 자동 배선은 <span class="badge b-plan">예정 · PR2(D)</span>. 그 전까지 대용량 백필/확인 작업은 운영자가 <strong>해당 시간대에 수동(CLI)으로</strong> 수행하는 것을 권장.</li>
+  <li>가장 강한 안전판은 <code>scan.max-queries-per-scan</code>(도메인 1회)·<code>scan.max-queries-per-hour</code>(전역 시간당) 하드캡이다. 부하 불확실 시 보수적으로 시작.</li>
+  <li><strong>off-peak(01:00–06:00, <code>schedule.off-peak-window</code>·<code>scan.off-peak-zone=Asia/Seoul</code>)</strong>: 자동 배선 완료(<code>OffPeakWindow</code> 가 <code>scanTick</code>/<code>ScanSelector</code> 에서 K·윈도우 스위치). ★단 현재는 <strong>off-peak 값을 주간과 동일</strong>하게 튜닝(<code>off-peak-max-window=PT30M</code>·<code>off-peak-domains-per-tick=500</code>) — 과거 대량 조회(PT24H)가 Loki 를 과부하시킨 이력 때문. 대량 백필이 필요하면 이 값을 신중히 올리고 off-peak 시간대에 한정하라.</li>
 </ul>
 
 <h3 id="s5-2">5.2 모니터링 (Micrometer / Actuator)</h3>
@@ -435,7 +447,7 @@ podman run --rm --network host -v /opt/adc-exports:/exports \
     <tr><td>Loki 부하 경보 / 429 빈발</td><td><code>throttle-on-error=true</code> 가 자동감속(이미 기본). 추가로 <code>max-queries-per-hour</code> 를 일시 하향, <code>domains-per-tick</code> 하향. <code>loki.errors</code> 추세 확인.</td></tr>
     <tr><td>특정 도메인 결과가 급히 필요</td><td>스케줄을 기다리지 말고 <strong>온디맨드 CLI</strong>(<code>-domain -scan</code>)로 즉시 스캔(4장). watermark 미전진이라 스케줄 갭 없음.</td></tr>
     <tr><td>신규(미등록) 도메인을 즉시 검출</td><td>디스커버리(<code>interval=PT10M</code>)를 기다리지 말고 <code>-domain -scan</code> 한 번으로 <strong>자동등록+즉시 스캔</strong>(4.3). 등록만 미리 해두려면 <code>-domain -register</code>(4.2).</td></tr>
-    <tr><td>백필이 오래 걸림(저티어 staleness)</td><td>현재는 <code>max-window</code> ↑ 로 1회 수집량을 늘릴 수 있으나 peak 부하 주의. off-peak 자동 가속·활동 티어링은 <span class="badge b-plan">PR2</span>.</td></tr>
+    <tr><td>과거 데이터가 필요(샘플링이 백로그 skip)</td><td>기본 <code>sample-window=PT10M</code> 은 최신 표본만 본다. 과거 구간이 필요하면 <code>sample-window=0</code>(gap-free 크롤)로 두고 <code>off-peak-max-window</code> ↑ 로 off-peak 백필 가속(대량 조회는 Loki 과부하 주의). 활동 티어링(C)·off-peak(D)은 이미 기본 활성.</td></tr>
   </tbody>
 </table>
 
@@ -452,15 +464,16 @@ podman run --rm --network host -v /opt/adc-exports:/exports \
 </table>
 
 <!-- ============================================================ -->
-<h2 id="s6">6. 로드맵 — 구현(PR1) vs 예정(PR2/PR3)</h2>
-<p>오해 방지를 위해 현재 동작과 예정 기능을 명확히 구분한다.</p>
+<h2 id="s6">6. 로드맵 — 구현됨 vs 예정</h2>
+<p>오해 방지를 위해 현재 동작과 예정 기능을 명확히 구분한다. B·A·E 부하 정책과 C·D·F 티어링, 그리고 운영 튜닝(D56~D69)까지 모두 머지·배포 검증 완료다.</p>
 <table>
   <thead><tr><th>단계</th><th>내용</th><th>상태</th></tr></thead>
   <tbody>
-    <tr><td><strong>PR1</strong> (B+A+E)</td><td>틱당 예산+라운드로빈(B) · watermark 증분+윈도우 상한(A) · 전역 레이트 가드+자동감속+Micrometer(E) · 온디맨드 스캔/내보내기 CLI</td><td><span class="badge b-now">구현·머지 완료</span></td></tr>
-    <tr><td><strong>PR2</strong> (C+D)</td><td><strong>C 활동 기반 티어링</strong>(active/inactive 주기 차등 + <code>intervalOverride</code> 배선) · <strong>D off-peak 백필 배선</strong>(<code>off-peak-window</code> 활성, peak 델타·off-peak 큰 예산/윈도우)</td><td><span class="badge b-plan">예정(설계 완료)</span></td></tr>
-    <tr><td><strong>PR3</strong> (F)</td><td><strong>F dormant 디프라이오리티</strong>(장기 무트래픽 도메인을 최장 주기로 강등, <strong>삭제 아님</strong>)</td><td><span class="badge b-plan">예정(선택)</span></td></tr>
-    <tr><td>메트릭 알람</td><td>Micrometer 메트릭 임계 기반 알람/통지 연동</td><td><span class="badge b-plan">예정</span></td></tr>
+    <tr><td><strong>B+A+E</strong> (D45)</td><td>틱당 예산+due 선택(B) · watermark 증분+윈도우 상한(A) · 전역 레이트 가드+자동감속+Micrometer(E) · 온디맨드 스캔/내보내기 CLI</td><td><span class="badge b-now">구현·머지 완료</span></td></tr>
+    <tr><td><strong>C+D+F</strong> (D48)</td><td><strong>C 활동 티어링</strong>(active/inactive/default 주기 + <code>intervalOverride</code> 배선) · <strong>D off-peak 스위치</strong>(<code>OffPeakWindow</code> 배선, K/윈도우 주입) · <strong>F dormant 디프라이오리티</strong>(장기 무트래픽 최장 주기 강등, <strong>삭제 아님</strong>) — 단일 due 모델로 통합</td><td><span class="badge b-now">구현·머지 완료</span></td></tr>
+    <tr><td>운영 튜닝 (D56~D69)</td><td>무접속 중단(<code>inactive-after</code>) · 롤링 샘플링(<code>sample-window</code>) · delta-skip/watermark 점프 · 엣지 배칭(<code>query-batch-size</code>) · 엣지 그룹 Master(<code>edge-group-main-only</code>) · 대상 제외 엣지(<code>excluded-hostnames</code>)</td><td><span class="badge b-now">구현·배포 검증</span></td></tr>
+    <tr><td>메트릭 알람</td><td>Micrometer 메트릭 임계 기반 알람/통지 연동(현재는 메트릭 노출까지)</td><td><span class="badge b-plan">예정</span></td></tr>
+    <tr><td>HA(다중 인스턴스)</td><td>ShedLock/Quartz 단일 실행 보장 + 예산 DB-backing(현재 단일 인스턴스 전제)</td><td><span class="badge b-plan">예정</span></td></tr>
   </tbody>
 </table>
 <div class="callout note">
@@ -469,7 +482,7 @@ podman run --rm --network host -v /opt/adc-exports:/exports \
 </div>
 
 <div class="footer">
-  <p>운영 기준은 코드와 <code>application.yml</code> 이 단일 진실원이다. 상세 설계는 doc/30(디스커버리)·doc/33(스캔 정책), 결정 근거는 DECISIONS D42·D44·D45 참고. 배포 절차는 doc/manual/deploy-verify-guide.html.</p>
+  <p>운영 기준은 코드와 <code>application.yml</code> 이 단일 진실원이다. 상세 설계는 doc/30(디스커버리)·doc/33(스캔 정책), 결정 근거는 DECISIONS D42·D44·D45·D48 및 운영 튜닝 D56~D69 참고. 배포 절차는 doc/manual/deploy-verify-guide.html.</p>
 </div>
 
 </div>

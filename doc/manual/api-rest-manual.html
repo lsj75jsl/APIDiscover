@@ -102,7 +102,8 @@
         <li><a href="#s2-3">결합 디스커버리(판단 근거) — <code>/discovery</code></a></li>
         <li><a href="#s2-4">스펙 · API 인벤토리 — <code>/spec</code> · <code>/spec/apis</code></a></li>
         <li><a href="#s2-5">분류 설정 · 가중치 편집 — <code>/classification</code></a></li>
-        <li><a href="#s2-6">운영 — <code>/actuator</code></a></li>
+        <li><a href="#s2-6">정적 분류 규칙 — <code>/config/static-classify</code></a></li>
+        <li><a href="#s2-7">운영 — <code>/actuator</code></a></li>
       </ol>
     </li>
     <li><a href="#s3">조건부 GET (ETag) — 304 실증</a></li>
@@ -137,6 +138,10 @@
     <tr><td><span class="m m-get">GET</span></td><td><code>/domains/{host}/classification</code></td><td>도메인 분류 설정(override + effective)</td><td>DB</td></tr>
     <tr><td><span class="m m-put">PUT</span></td><td><code>/domains/{host}/classification</code></td><td>도메인 override 수정</td><td>DB</td></tr>
     <tr><td><span class="m m-patch">PATCH</span></td><td><code>/domains/{host}/classification/weights</code></td><td>도메인 가중치 부분편집(→CUSTOM)</td><td>DB</td></tr>
+    <tr><td><span class="m m-get">GET</span></td><td><code>/config/static-classify</code></td><td>정적 분류 규칙 목록(확장자·파일명 토큰)</td><td>DB</td></tr>
+    <tr><td><span class="m m-post">POST</span></td><td><code>/config/static-classify</code></td><td>규칙 추가(201)</td><td>DB</td></tr>
+    <tr><td><span class="m m-del">DELETE</span></td><td><code>/config/static-classify/{kind}/{value}</code></td><td>규칙 삭제(204)</td><td>DB</td></tr>
+    <tr><td><span class="m m-post">POST</span></td><td><code>/config/static-classify/reload</code></td><td>DB 규칙 재적용</td><td>DB</td></tr>
     <tr><td><span class="m m-get">GET</span></td><td><code>/actuator/health</code></td><td>헬스체크</td><td>DB</td></tr>
   </tbody>
 </table>
@@ -234,9 +239,9 @@ curl -X DELETE http://&lt;host&gt;:8080/api/v1/domains/api.weble.net   # → 204
 
 <div class="ep">
   <div class="sig"><span class="m m-get">GET</span><code>/api/v1/domains/{host}/result</code></div>
-  <p>스캔 전체 리포트(<code>DiscoveryReport</code> JSON). <strong>조건부 GET 대상</strong> — <code>ETag</code> 응답 헤더에 <code>version</code> 이 실린다(<a href="#s3">§3</a>). 아직 완료된 스캔이 없으면 <code>204 No Content</code>. <strong>200 응답에는 엔드포인트별 판단 근거 <code>rationale</code> 배열이 가산</strong>된다(<a href="#s2-3">§2.3</a> 의 <code>/discovery</code> 와 동일 shape). 기존 <code>report_json</code> 필드는 불변이라 중앙 조건부 GET 은 깨지지 않는다.</p>
+  <p>스캔 전체 리포트(<code>DiscoveryReport</code> JSON). <strong>조건부 GET 대상</strong> — <code>ETag</code> 응답 헤더에 <code>version</code> 이 실린다(<a href="#s3">§3</a>). 아직 완료된 스캔이 없으면 <code>204 No Content</code>. <strong>200 응답에는 판단 근거가 각 finding 에 인라인</strong>된다 — 매칭되는 <code>findings[i]</code> 마다 <code>classification</code>·<code>basis</code>(<a href="#s2-3">§2.3</a> 의 <code>/discovery</code> rationale 와 동일 shape)가 가산된다(별도 top-level <code>rationale[]</code> 배열은 없다). 기존 <code>report_json</code> 필드는 불변이라 중앙 조건부 GET 은 깨지지 않는다.</p>
   <pre><code>curl -i http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/result</code></pre>
-  <p>응답 본문 상위 키와 핵심 부분(트림). <code>rationale</code> 가 끝에 가산된다.</p>
+  <p>응답 본문 상위 키와 핵심 부분(트림). 각 finding 에 <code>classification</code>·<code>basis</code> 가 가산된다.</p>
   <pre><code>{
   "host":"api.weble.net",
   "generatedAt":"2026-06-29T05:00:37.105714556Z",
@@ -247,8 +252,10 @@ curl -X DELETE http://&lt;host&gt;:8080/api/v1/domains/api.weble.net   # → 204
     { "host":"api.weble.net", "method":"GET", "pathTemplate":"/stats",
       "confidence":0.9, "reason":"트래픽 존재, 문서 내 매칭 템플릿 없음",
       "params":{ "query":[], "path":[] },
-      "low_confidence":false }
-    /* 총 153건(Shadow) — 각 건 위와 동일 구조(엔드포인트별 1건) */
+      "low_confidence":false,
+      "classification":"SHADOW",
+      "basis":{ /* §2.3 ②의 basis 와 동일 구조: type·mode·gate·apiScore·threshold·signals(전체) */ } }
+    /* 총 153건(Shadow) — 매칭되는 각 건에 classification·basis 가산 */
   ],
   "droppedNonApi":{"excluded":0,"webForm":0,"lowScore":9,"total":9},
   "droppedByLimit":{"templates":0,"params":0,"total":0},
@@ -256,15 +263,10 @@ curl -X DELETE http://&lt;host&gt;:8080/api/v1/domains/api.weble.net   # → 204
   "endpointKindSignal":{"status":"DORMANT","staticRatio":0.0,"refererPresentRatio":0.994},
   "typeDistribution":{"top":[{"type":"document","count":346501}],"other":0},
   "preflightSignal":{"status":"DORMANT","acrmPresentOptions":0},
-  "specSource":{"specVersion":0,"format":null,"warnings":[],"documents":[]},
-  "rationale":[
-    { "method":"POST", "host":"api.weble.net", "pathTemplate":"/clips", "classification":"SHADOW",
-      "basis":{ /* §2.3 ②의 basis 와 동일 구조: type·mode·gate·apiScore·threshold·signals(전체) */ } }
-    /* 총 194건 — 각 건 §2.3 의 rationale 1건과 동일 구조 */
-  ]
+  "specSource":{"specVersion":0,"format":null,"warnings":[],"documents":[]}
 }</code></pre>
-  <p class="legend">상위 키: <code>host</code>·<code>generatedAt</code>·<code>logWindow</code>·<code>specVersion</code>·<code>summary</code>·<code>findings</code>·<code>droppedNonApi</code>·<code>droppedByLimit</code>·<code>droppedNonExistent</code>·<code>endpointKindSignal</code>·<code>typeDistribution</code>·<code>preflightSignal</code>·<code>specSource</code>·<code>rationale</code>(가산).</p>
-  <div class="callout warn"><span class="ct">★ 시점 차이</span> <code>report_json</code> 의 <code>findings</code> 는 <strong>스캔 시점</strong> 결과지만, 가산된 <code>rationale</code> 는 <strong>조회 시점</strong> 현재 설정으로 재계산된다 — 둘이 다를 수 있다. 또 <code>304</code> 캐시 body 의 <code>rationale</code> 는 갱신되지 않는다(<code>ETag</code> 는 <code>report</code> 만 추적). 의도된 트레이드오프다.</div>
+  <p class="legend">상위 키: <code>host</code>·<code>generatedAt</code>·<code>logWindow</code>·<code>specVersion</code>·<code>summary</code>·<code>findings</code>·<code>droppedNonApi</code>·<code>droppedByLimit</code>·<code>droppedNonExistent</code>·<code>endpointKindSignal</code>·<code>typeDistribution</code>·<code>preflightSignal</code>·<code>specSource</code>. 판단 근거는 <strong>각 finding 에 인라인</strong>(<code>classification</code>·<code>basis</code>)되며 별도 top-level 배열은 없다 — 현재 설정과 identity(method·host·pathTemplate)가 매칭되는 finding 에만 가산된다.</p>
+  <div class="callout warn"><span class="ct">★ 시점 차이</span> <code>report_json</code> 의 <code>findings</code> 는 <strong>스캔 시점</strong> 결과지만, 가산된 <code>basis</code> 는 <strong>조회 시점</strong> 현재 설정으로 재계산된다 — 둘이 다를 수 있다. 또 <code>304</code> 캐시 body 의 <code>basis</code> 는 갱신되지 않는다(<code>ETag</code> 는 <code>report</code> 만 추적). 의도된 트레이드오프다.</div>
 </div>
 
 <div class="ep">
@@ -342,7 +344,7 @@ curl -X DELETE http://&lt;host&gt;:8080/api/v1/domains/api.weble.net   # → 204
       <tr><td><strong>ACTIVE</strong></td><td><code>spec_match</code></td><td><code>specRef</code>·<code>deprecated:false</code></td><td>스펙 매칭(점수 아님)</td></tr>
       <tr><td><strong>ZOMBIE</strong></td><td><code>spec_match</code></td><td><code>specRef</code>·<code>deprecated:true</code>/<code>estimated:true</code>, 또는 <code>specRef:"deleted-from-spec"</code></td><td>스펙 매칭(deprecated 1.0·버전추정), 또는 인벤토리에서 삭제됐으나 트래픽 지속(deleted-from-spec 0.8 · <a href="#s2-4">§2.4</a>)</td></tr>
       <tr><td><strong>UNUSED</strong></td><td><code>spec_only</code></td><td><code>specRef</code></td><td>스펙에 있고 무트래픽</td></tr>
-      <tr><td><strong>WEBPAGE</strong></td><td><code>endpoint_kind</code></td><td><code>endpointKind</code>·<code>kindConfidence</code></td><td>$type/referer 로 비-API(현재 미산출)</td></tr>
+      <tr><td><strong>UNDOCUMENTED_WEB_PAGE</strong></td><td><code>endpoint_kind</code></td><td><code>endpointKind</code>·<code>kindConfidence</code></td><td>$type/referer 로 비-API(현재 미산출)</td></tr>
     </tbody>
   </table>
   <p class="legend">근거 설계 doc/34 §2. 비-API 로 drop 된 엔드포인트는 <code>findings</code>·<code>rationale</code> 에 없다(집계 <code>droppedNonApi</code> 만).</p>
@@ -546,7 +548,39 @@ curl -X PATCH http://&lt;host&gt;:8080/api/v1/classification/weights \
 </div>
 
 <!-- ===== 2.6 ===== -->
-<h3 id="s2-6">2.6 운영 — <code>/actuator</code></h3>
+<h3 id="s2-6">2.6 정적 분류 규칙 — <code>/api/v1/config/static-classify</code></h3>
+<p class="legend">정적 파일 분류 규칙(확장자·파일명 토큰)을 <strong>DB 로 관리</strong>한다 — 소스 하드코드 대신 런타임 편집. <code>kind</code> 는 <code>EXTENSION</code>(확장자) 또는 <code>NAME_TOKEN</code>(파일명 토큰) 둘뿐이다. add/remove 는 즉시 재적용되고, 외부에서 DB 를 직접 수정했으면 <code>reload</code> 로 반영한다.</p>
+
+<div class="ep">
+  <div class="sig"><span class="m m-get">GET</span><code>/api/v1/config/static-classify</code></div>
+  <p>현재 규칙 목록. 응답은 <code>extensions</code>·<code>nameTokens</code> 두 배열이다(확장자는 leading <code>.</code> 로 저장된다).</p>
+  <pre><code>curl http://&lt;host&gt;:8080/api/v1/config/static-classify</code></pre>
+  <pre><code>{
+  "extensions":[".js",".css",".png",".jpg",".jpeg",".gif",".svg",".ico",".webp",".woff",".woff2",".map"],
+  "nameTokens":["img","image","thumb","thumbnail","resize","icon","logo","banner","sprite","avatar","favicon","css","link","download","attachment"]
+}</code></pre>
+</div>
+
+<div class="ep">
+  <div class="sig"><span class="m m-post">POST</span><code>/api/v1/config/static-classify</code> &nbsp;·&nbsp; <span class="m m-del">DELETE</span><code>/api/v1/config/static-classify/{kind}/{value}</code></div>
+  <p><strong>POST</strong> 는 규칙을 추가(멱등)하고 즉시 재적용한 뒤 <code>201 Created</code> + 갱신된 목록을 반환한다. body 는 <code>{"kind":"EXTENSION"|"NAME_TOKEN", "value":"..."}</code>. <code>value</code> 는 trim·소문자 정규화되고 <code>EXTENSION</code> 은 leading <code>.</code> 이 없으면 보정된다(<code>woff3</code> → <code>.woff3</code>). <code>kind</code> 가 두 값 밖이거나 <code>value</code> 가 빈 값이면 <code>400</code>. <strong>DELETE</strong> 는 경로의 <code>{kind}/{value}</code> 규칙을 삭제하고 즉시 재적용한 뒤 <code>204 No Content</code>(없으면 <code>404</code>).</p>
+  <pre><code># 확장자 규칙 추가 (value 는 .woff3 로 정규화됨)
+curl -X POST http://&lt;host&gt;:8080/api/v1/config/static-classify \
+  -H 'Content-Type: application/json' \
+  -d '{"kind":"EXTENSION","value":"woff3"}'   # → 201 + 갱신된 목록
+
+# 규칙 삭제
+curl -X DELETE http://&lt;host&gt;:8080/api/v1/config/static-classify/NAME_TOKEN/sprite   # → 204</code></pre>
+</div>
+
+<div class="ep">
+  <div class="sig"><span class="m m-post">POST</span><code>/api/v1/config/static-classify/reload</code></div>
+  <p>DB 규칙을 classifier 에 재적용한다(외부에서 DB 를 직접 수정한 경우 반영용). 갱신된 목록(<code>200</code>)을 반환한다.</p>
+  <pre><code>curl -X POST http://&lt;host&gt;:8080/api/v1/config/static-classify/reload</code></pre>
+</div>
+
+<!-- ===== 2.7 ===== -->
+<h3 id="s2-7">2.7 운영 — <code>/actuator</code></h3>
 <div class="ep">
   <div class="sig"><span class="m m-get">GET</span><code>/actuator/health</code></div>
   <p>헬스체크(DB 연결 포함). 그 외 <code>info</code>·<code>metrics</code>·<code>configprops</code> 등이 노출된다.</p>
@@ -599,7 +633,7 @@ curl -i -H 'If-None-Match: "829bfa4c628a7ede"' \
   <li>(선택) 정크 도메인(IP·0패딩 IP) 디스커버리 필터.</li>
 </ul>
 
-<p class="legend" style="margin-top:36px;">근거: REST 컨트롤러(<code>DomainController</code>·<code>ScanController</code>·<code>CombinedDiscoveryController</code>·<code>SpecController</code>·<code>ClassificationController</code>) · 변경 배치 doc/35 · 판단 근거 설계 doc/34 · 신호/가중치 상세는 <em>API 판독 매뉴얼</em>, DB 컬럼 의미는 <em>DB 테이블 명세</em> 참조. 응답 예시는 라이브 재배포 캡처(2026-06-29, <code>c435d9f</code>).</p>
+<p class="legend" style="margin-top:36px;">근거: REST 컨트롤러(<code>DomainController</code>·<code>ScanController</code>·<code>CombinedDiscoveryController</code>·<code>SpecController</code>·<code>ApiInventoryController</code>·<code>ClassificationController</code>·<code>StaticClassifyController</code>) · 변경 배치 doc/35 · 판단 근거 설계 doc/34 · 신호/가중치 상세는 <em>API 판독 매뉴얼</em>, DB 컬럼 의미는 <em>DB 테이블 명세</em> 참조. 응답 예시는 라이브 재배포 캡처(2026-06-29, <code>c435d9f</code>).</p>
 
 </div>
 </body>

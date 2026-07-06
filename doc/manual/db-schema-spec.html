@@ -77,7 +77,7 @@
 <header class="hero">
   <div class="inner">
     <h1>DB 테이블 명세 &amp; ER Diagram</h1>
-    <p>API Discovery Worker 의 내부 데이터베이스 — 7 엔티티 + 컬렉션 테이블 1개 = <strong>8 테이블</strong> 전체 컬럼 명세와 관계도.</p>
+    <p>API Discovery Worker 의 내부 데이터베이스 — 9 엔티티 + 컬렉션 테이블 1개 = <strong>10 테이블</strong> 전체 컬럼 명세와 관계도.</p>
     <p>코드(JPA <code>@Entity</code> 애너테이션)가 단일 진실원이며, 본 문서는 이를 역설계해 사람이 읽는 형태로 기술한다.</p>
     <div class="tags">
       <span class="tag">Java 21 · Spring Boot 3.3</span>
@@ -96,8 +96,8 @@
     <li><a href="#s1">개요 — 스키마 생성 방식과 host 허브 구조</a></li>
     <li><a href="#s2">ER Diagram — host 를 허브로 한 방사형 관계</a></li>
     <li><a href="#s3">타입 매핑 컨벤션 (JPA → SQL)</a></li>
-    <li><a href="#s4">테이블별 컬럼 명세 (8 테이블)</a></li>
-    <li><a href="#s5">테이블 관계 요약 (7건)</a></li>
+    <li><a href="#s4">테이블별 컬럼 명세 (10 테이블)</a></li>
+    <li><a href="#s5">테이블 관계 요약 (9건)</a></li>
   </ol>
 </nav>
 
@@ -106,7 +106,7 @@
 
 <p>스키마는 <strong>Hibernate 가 자동 생성</strong>한다(<code>spring.jpa.hibernate.ddl-auto: update</code>). 별도 마이그레이션 도구(Flyway/Liquibase)는 쓰지 않으므로, 본 문서가 곧 사람이 읽는 스키마다. <code>update</code> 는 컬럼 <strong>추가</strong>만 하고 삭제·타입 변경은 하지 않는다.</p>
 
-<p>전체 구조의 핵심은 <strong><code>host</code>(도메인) 가 모든 도메인 데이터의 중심 키</strong>라는 점이다. 도메인 하나가 설정(<code>domain_config</code>)·스펙(<code>spec_record</code>)·검출 카탈로그(<code>discovered_endpoint</code>)·문서화 API 인벤토리(<code>documented_api</code>)·최신 결과(<code>scan_result</code>)·워터마크(<code>watermark</code>)·분류 override(<code>domain_classification_config</code>)로 펼쳐진다. 전역 분류 기본값(<code>classification_config</code>)만 도메인과 무관한 단일 행이다.</p>
+<p>전체 구조의 핵심은 <strong><code>host</code>(도메인) 가 모든 도메인 데이터의 중심 키</strong>라는 점이다. 도메인 하나가 설정(<code>domain_config</code>)·스펙(<code>spec_record</code>)·검출 카탈로그(<code>discovered_endpoint</code>)·문서화 API 인벤토리(<code>documented_api</code>)·최신 결과(<code>scan_result</code>)·워터마크(<code>watermark</code>)·분류 override(<code>domain_classification_config</code>)로 펼쳐진다. 도메인과 무관한 전역 테이블은 둘뿐이다 — 전역 분류 기본값(<code>classification_config</code>, 단일 행)과 정적 분류 규칙 집합(<code>static_classify_rule</code>).</p>
 
 <div class="callout warn">
   <span class="ct">★ 실제 외래키(FK) 제약은 단 하나뿐</span>
@@ -125,6 +125,7 @@
     <tr><td>7</td><td><code>domain_classification_config</code></td><td>host</td><td>도메인별 분류 설정 override (1:1, 희소)</td></tr>
     <tr><td>8</td><td><code>classification_config</code></td><td>id=1</td><td>전역 분류 기본값 (단일 행)</td></tr>
     <tr><td>9</td><td><code>documented_api</code></td><td>id</td><td>문서화 API 인벤토리 — 파라미터·상태 (1:N)</td></tr>
+    <tr><td>10</td><td><code>static_classify_rule</code></td><td>id</td><td>정적 분류 규칙(확장자·파일명 토큰) — 전역(host 무관)</td></tr>
   </tbody>
 </table>
 
@@ -137,8 +138,8 @@
 <svg viewBox="0 0 1000 600" role="img" aria-label="DB ER 다이어그램 — domain_config 허브 방사형 관계"
      font-family="-apple-system,'Segoe UI','Noto Sans KR','Malgun Gothic',sans-serif">
   <!-- ===== 연결선 (박스보다 먼저 그려 박스가 덮도록) ===== -->
-  <!-- 전역 상속 (보라 점선) -->
-  <line x1="500" y1="78" x2="500" y2="250" stroke="#6d28d9" stroke-width="2" stroke-dasharray="6 5"/>
+  <!-- 전역 상속 (보라 점선) : classification_config → domain_classification_config -->
+  <line x1="430" y1="78" x2="490" y2="250" stroke="#6d28d9" stroke-width="2" stroke-dasharray="6 5"/>
   <!-- 실 FK : domain_hostnames (굵은 파랑) -->
   <line x1="500" y1="470" x2="500" y2="336" stroke="#2563eb" stroke-width="3"/>
   <!-- 논리 FK (가는 회색) -->
@@ -168,9 +169,16 @@
   <!-- ===== 박스 ===== -->
   <!-- classification_config (전역) -->
   <g>
-    <rect x="370" y="24" width="260" height="54" rx="9" fill="#f3eefe" stroke="#6d28d9" stroke-width="1.6"/>
-    <text x="500" y="46" text-anchor="middle" font-size="14.5" font-weight="700" fill="#4c1d95">classification_config</text>
-    <text x="500" y="65" text-anchor="middle" font-size="11.5" fill="#6d28d9">전역 분류 기본값 · PK id=1 · 단일 행</text>
+    <rect x="300" y="24" width="260" height="54" rx="9" fill="#f3eefe" stroke="#6d28d9" stroke-width="1.6"/>
+    <text x="430" y="46" text-anchor="middle" font-size="14.5" font-weight="700" fill="#4c1d95">classification_config</text>
+    <text x="430" y="65" text-anchor="middle" font-size="11.5" fill="#6d28d9">전역 분류 기본값 · PK id=1 · 단일 행</text>
+  </g>
+
+  <!-- static_classify_rule (전역·독립·관계 없음) -->
+  <g>
+    <rect x="726" y="24" width="248" height="54" rx="9" fill="#f3eefe" stroke="#6d28d9" stroke-width="1.6"/>
+    <text x="850" y="46" text-anchor="middle" font-size="14" font-weight="700" fill="#4c1d95">static_classify_rule</text>
+    <text x="850" y="65" text-anchor="middle" font-size="11.5" fill="#6d28d9">정적 분류 규칙 · 전역(host 무관) · 독립</text>
   </g>
 
   <!-- domain_config (허브) -->
@@ -246,7 +254,9 @@
                     │                  │                  ◄─1:N─ documented_api
                     └ 논리 FK(host)    │ 1:N · 실 FK
                                        v
-                              domain_hostnames (엣지 hostname)</code></pre>
+                              domain_hostnames (엣지 hostname)
+
+   static_classify_rule  (전역 · host 무관 · 어느 테이블과도 관계 없는 독립 테이블)</code></pre>
 
 <!-- ============================================================ -->
 <h2 id="s3">3. 타입 매핑 컨벤션 (JPA → SQL)</h2>
@@ -268,11 +278,11 @@
 
 <div class="callout note">
   <span class="ct">nullable 은 타입이 결정한다</span>
-  어떤 필드에도 <code>@Column(nullable=false)</code> 가 없다. 따라서 <strong>원시 타입(<code>long</code>/<code>int</code>/<code>boolean</code>)만 NOT NULL</strong>, 래퍼/객체 타입(<code>String</code>/<code>Long</code>/<code>Double</code>/<code>Instant</code>/enum/<code>byte[]</code>)은 nullable 이다. <code>@Id</code> 컬럼은 PK 라 묵시적 NOT NULL. 또한 <code>enabled=true</code>·<code>state="idle"</code> 등 필드 기본값은 <strong>Java 초기화자</strong>일 뿐 SQL <code>DEFAULT</code> 절이 아니다(유일한 예외 = <code>scan_result.total_dropped integer default 0</code>).
+  <code>static_classify_rule</code>(<code>kind</code>/<code>rule_value</code> 에 <code>@Column(nullable=false)</code>)를 제외하면 어떤 필드에도 <code>@Column(nullable=false)</code> 가 없다. 따라서 그 나머지는 <strong>원시 타입(<code>long</code>/<code>int</code>/<code>boolean</code>)만 NOT NULL</strong>, 래퍼/객체 타입(<code>String</code>/<code>Long</code>/<code>Double</code>/<code>Instant</code>/enum/<code>byte[]</code>)은 nullable 이다. <code>@Id</code> 컬럼은 PK 라 묵시적 NOT NULL. 또한 <code>enabled=true</code>·<code>state="idle"</code> 등 필드 기본값은 <strong>Java 초기화자</strong>일 뿐 SQL <code>DEFAULT</code> 절이 아니다(유일한 예외 = <code>scan_result.total_dropped integer default 0</code>).
 </div>
 
 <!-- ============================================================ -->
-<h2 id="s4">4. 테이블별 컬럼 명세 (9 테이블)</h2>
+<h2 id="s4">4. 테이블별 컬럼 명세 (10 테이블)</h2>
 
 <p>표기: <span class="pk">PK</span> 기본키 · <span class="nn">NN</span> NOT NULL · <span class="nl">null</span> nullable. JSON 컬럼은 모두 PG <code>text</code>(D40 실측 확정).</p>
 
@@ -469,8 +479,23 @@
 <p class="meta"><sup>1</sup> DB 상 nullable 이나 reconcile 이 항상 채워 실질 비-null(<code>spec_name</code>·<code>status</code>·<code>last_change</code>). timestamp 컬럼의 PG 실측 타입은 <code>timestamptz</code>(Hibernate 6 <code>Instant</code>→TIMESTAMP_UTC) — §3·다른 표의 <code>TIMESTAMP(6)</code> 와 동일 <code>Instant</code> 매핑이며 실 PG 는 모두 with time zone 이다.</p>
 </div>
 
+<!-- ===== 4.10 static_classify_rule ===== -->
+<div class="tbl-card">
+<h3>4.10 <code>static_classify_rule</code> — 정적 분류 규칙(관리자 편집·reload)</h3>
+<p class="meta">엔티티 <code>StaticClassifyRule</code> · PK <code>id</code> · <strong>전역 규칙(host 무관)</strong>. <code>EndpointKindClassifier</code> 의 하드코드(정적 확장자·파일명 토큰)를 DB 로 외부화 — 관리자가 REST(<code>/api/v1/config/static-classify</code>)로 추가/삭제 후 <code>StaticClassifyRules.reload()</code> 로 런타임 반영. 첫 기동 시 빈 테이블이면 기본값 seed. 근거 <strong>D56</strong>.</p>
+<table>
+  <thead><tr><th>컬럼</th><th>SQL 타입</th><th>키/널</th><th>의미</th></tr></thead>
+  <tbody>
+    <tr><td class="col">id</td><td class="t">BIGINT IDENTITY</td><td><span class="pk">PK</span></td><td>DB 자동 채번.</td></tr>
+    <tr><td class="col">kind</td><td class="t">VARCHAR(20) enum</td><td><span class="nn">NN</span></td><td><code>EXTENSION</code>(확장자 endsWith→하드 veto·STATIC) / <code>NAME_TOKEN</code>(파일명 토큰 contains→감점). <code>@Column(nullable=false, length=20)</code> 명시.</td></tr>
+    <tr><td class="col">rule_value</td><td class="t">VARCHAR(100)</td><td><span class="nn">NN</span></td><td>규칙 값(확장자 문자열 또는 파일명 토큰). 필드명은 <code>value</code> 이나 컬럼명 <code>rule_value</code>(<code>value</code> 예약어 회피, H2/PG 안전). <code>@Column(nullable=false, length=100)</code>.</td></tr>
+  </tbody>
+</table>
+<p class="meta"><strong>제약:</strong> UNIQUE(<code>kind</code>, <code>rule_value</code>) = <code>uk_static_rule</code>. 본 문서에서 <code>@Column(nullable=false)</code> 를 명시하는 <strong>유일한 테이블</strong>(그 외는 §3 대로 타입으로 nullable 결정). <code>ddl-auto=update</code> 로 신규 생성(무손실).</p>
+</div>
+
 <!-- ============================================================ -->
-<h2 id="s5">5. 테이블 관계 요약 (8건)</h2>
+<h2 id="s5">5. 테이블 관계 요약 (9건)</h2>
 
 <p><code>host</code> 를 허브로 한 방사형 구조다. 실제 DB FK 는 <code>domain_hostnames</code> 한 곳뿐이고 나머지는 앱 레벨 논리 FK 다.</p>
 
@@ -485,6 +510,7 @@
     <tr><td>6</td><td><code>domain_config</code> ↔ <code>discovered_endpoint</code></td><td>1 : N</td><td><code>host</code>(자식 idx)</td><td>논리 FK</td></tr>
     <tr><td>7</td><td><code>domain_config</code> ↔ <code>documented_api</code></td><td>1 : N</td><td><code>host</code>(자식 idx)</td><td>논리 FK</td></tr>
     <tr><td>8</td><td><code>classification_config</code></td><td>전역 단일 행</td><td>고정 PK=1</td><td>도메인 무관 · 전역 기본값(앱 병합)</td></tr>
+    <tr><td>9</td><td><code>static_classify_rule</code></td><td>전역 규칙 집합</td><td>UNIQUE(kind, rule_value)</td><td>도메인 무관 · <code>EndpointKindClassifier</code> 전역 적용(D56)</td></tr>
   </tbody>
 </table>
 
