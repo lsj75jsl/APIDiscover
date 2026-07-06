@@ -5,6 +5,22 @@
 
 ---
 
+## 2026-07-06 세션 69 — 매뉴얼 보강(스캔정책·버리는 데이터) + 업로드 샘플·E2E + Swagger 2.0 지원(D70)
+
+### 한 일
+- **API 판독 매뉴얼 보강**(api-discovery-manual.html) — §2.1 현재 스캔 정책(D58~D69)·§7.7 스캔 정책이 버리는 데이터·§7.8 검출 파이프라인이 버리는 데이터(oversize·게이트)·§7.6 낡은 한계 정정. 새 문서 대신 기존 정본 수정 판단.
+- **응답 Content-Type 개선 검토(사용자 질문)** — 실 로그 24필드 실측: 응답 Content-Type 미수집(필드 19 `$type`=document/library 뿐). §8 제안은 nginx log_format 선결(우리 코드 아님). 즉시 가능 개선=공격트래픽 필터(WAAP 차단코드 604/600 status 필드에 존재)·가중치 보정.
+- **업로드 샘플 3종 + E2E**(sample/upload_api_doc/) — OpenAPI/Postman/CSV 각 1개+README. 배포 파서 검증. messenger-api.everhrm.com 로 스펙 업로드→scan-now E2E(4분류 정확, 원복). 함정 기록: 업로드는 Content-Type 헤더 필수(byte[] 바인딩).
+- **D70 Swagger 2.0 지원**(사용자 요청) — 샘플 검증 중 2.0 이 500 실패 발견 → `OpenAPIV3Parser`→`OpenAPIParser`(v2-converter)·`toOrigin` protocol-relative 처리·`SpecController` 400 매핑.
+
+### 결과
+- build green **536**(신규: swagger2 파싱·컨트롤러 400). RED-확인(OpenAPIV3Parser 원복 시 2.0 red). OpenAPI 3.x(verbose export)·Postman·CSV 무회귀.
+- 일시 이슈: 매니저 주간 SQLi 조사 광역쿼리로 Loki 과부하 → discovery 임시중지·회복 후 재개(별도 결과, 세션 68 결과2 참조). 12h 추격 검증=지연 36분·fresh 70% 안정.
+- PR 머지·재배포·실 Swagger 2.0 업로드 확인 → 아래 최신 상태.
+
+### 다음 단계
+- 매뉴얼(TW) api-rest 에 oversizePath 필드·업로드 형식 3종 반영=후속. 개선 후보(응답 Content-Type[nginx 선결]·공격필터·가중치 보정) 사용자 선택 대기.
+
 ## 2026-07-04 세션 68 — SQLi 공격 조사 + 초장문 경로 가드·저장 격리(D68) + P* 엣지 제외(D69)
 
 ### 한 일

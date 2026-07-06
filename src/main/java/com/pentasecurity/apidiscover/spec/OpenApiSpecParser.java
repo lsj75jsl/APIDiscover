@@ -1,4 +1,4 @@
-// OpenAPI 2.0/3.x → Canonical (doc/03 §2). swagger-parser v3 사용(2.0은 내부 변환)
+// OpenAPI 2.0(Swagger)/3.x → Canonical (doc/03 §2). 통합 OpenAPIParser 사용 — 2.0 은 v2-converter 로 3.0 자동 변환(D70)
 package com.pentasecurity.apidiscover.spec;
 
 import com.pentasecurity.apidiscover.model.CanonicalEndpoint;
@@ -12,7 +12,7 @@ import io.swagger.v3.oas.models.media.Schema;
 import io.swagger.v3.oas.models.parameters.Parameter;
 import io.swagger.v3.oas.models.parameters.RequestBody;
 import io.swagger.v3.oas.models.servers.Server;
-import io.swagger.v3.parser.OpenAPIV3Parser;
+import io.swagger.parser.OpenAPIParser;
 import io.swagger.v3.parser.core.models.ParseOptions;
 import io.swagger.v3.parser.core.models.SwaggerParseResult;
 import java.net.URI;
@@ -40,7 +40,8 @@ public class OpenApiSpecParser implements SpecParser {
         ParseOptions options = new ParseOptions();
         options.setResolve(true); // $ref 해석
 
-        SwaggerParseResult result = new OpenAPIV3Parser().readContents(text, null, options);
+        // ★통합 OpenAPIParser: swagger:"2.0" → v2-converter 로 3.0 변환, openapi:3.x → v3 파싱(자동 판별, D70).
+        SwaggerParseResult result = new OpenAPIParser().readContents(text, null, options);
         OpenAPI api = result.getOpenAPI();
         if (api == null) {
             throw new IllegalArgumentException(
@@ -170,8 +171,9 @@ public class OpenApiSpecParser implements SpecParser {
         if (url == null || url.isBlank()) {
             return new Origin(null, "");
         }
-        // 상대 경로 형태 (예: "/v2")
-        if (url.startsWith("/")) {
+        // 상대 경로 형태 (예: "/v2"). 단 "//host/base"(protocol-relative)는 host 를 담으므로 제외 —
+        // Swagger 2.0→3.0 변환이 schemes 부재 시 servers.url 을 "//host/basePath" 로 내보낸다(D70).
+        if (url.startsWith("/") && !url.startsWith("//")) {
             return new Origin(null, stripTrailingSlash(url));
         }
         try {

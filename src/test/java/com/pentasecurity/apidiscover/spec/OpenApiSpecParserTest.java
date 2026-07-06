@@ -95,4 +95,46 @@ class OpenApiSpecParserTest {
         assertThatThrownBy(() -> parser.parse(garbage))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    // D70: Swagger 2.0 문서(host+basePath, parameters type)를 v2-converter 로 3.0 변환해 파싱.
+    // OpenAPIV3Parser(3.x 전용) 사용 시 "attribute openapi is missing" 으로 실패했음(RED — OpenAPIParser 로 교체해 green).
+    private static final String SWAGGER_2 = """
+            swagger: "2.0"
+            info:
+              title: Legacy API
+              version: "1.0.0"
+            host: api.example.com
+            basePath: /v1
+            paths:
+              /products:
+                get:
+                  responses:
+                    '200':
+                      description: ok
+              /products/{id}:
+                delete:
+                  deprecated: true
+                  parameters:
+                    - name: id
+                      in: path
+                      required: true
+                      type: integer
+                  responses:
+                    '204':
+                      description: no content
+            """;
+
+    @Test
+    void parsesSwagger2WithHostBasePathAndDeprecated() {
+        List<CanonicalEndpoint> endpoints = parser.parse(SWAGGER_2.getBytes(StandardCharsets.UTF_8)).endpoints();
+
+        assertThat(endpoints).hasSize(2);
+        // host+basePath 결합 (2.0 → 3.0 변환 시 servers 로 승격)
+        assertThat(endpoints).extracting(CanonicalEndpoint::pathTemplate)
+                .containsExactlyInAnyOrder("/v1/products", "/v1/products/{id}");
+        assertThat(endpoints).allSatisfy(e -> assertThat(e.host()).isEqualTo("api.example.com"));
+        CanonicalEndpoint del = endpoints.stream()
+                .filter(e -> e.method().equals("DELETE")).findFirst().orElseThrow();
+        assertThat(del.deprecated()).isTrue();
+    }
 }

@@ -2,6 +2,7 @@
 package com.pentasecurity.apidiscover.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -13,6 +14,8 @@ import com.pentasecurity.apidiscover.domain.SpecMetaProjection;
 import com.pentasecurity.apidiscover.domain.SpecRecord;
 import com.pentasecurity.apidiscover.spec.SpecFormat;
 import com.pentasecurity.apidiscover.spec.SpecStore;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
@@ -53,6 +56,18 @@ class SpecControllerTest {
     void metaEmptyWhenNoActiveSpec() {
         when(specStore.activeSpecMetas(HOST)).thenReturn(List.of());
         assertThat(controller.meta(HOST)).isEmpty(); // 200 + [](404 아님)
+    }
+
+    @Test
+    void invalidSpecMapsToBadRequestNotServerError() {
+        // D70: 무효/미인식 문서(파싱 실패)는 400. 종전엔 IllegalArgumentException 이 uncaught → 500 으로 샜다.
+        when(specStore.upload(eq(HOST), any(byte[].class), any()))
+                .thenThrow(new IllegalArgumentException("invalid OpenAPI document: attribute openapi is missing"));
+
+        assertThatThrownBy(() -> controller.upload(HOST, "bad".getBytes(StandardCharsets.UTF_8), "bad.json"))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode())
+                        .isEqualTo(HttpStatus.BAD_REQUEST));
     }
 
     private static SpecMetaProjection proj(String specName, String filename, long version) {
