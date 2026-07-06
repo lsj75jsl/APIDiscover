@@ -96,8 +96,9 @@ apidiscover.discovery:
   window: PT12M              # interval + 오버랩
   bootstrap-window: PT1H     # 첫 실행 1회
   initial-delay: PT2M        # 스캔 스케줄과 stagger offset
-  max-domains-per-run: 200   # 폭증 가드
+  max-domains-per-run: 0     # 폭증 가드 — 0=무제한(전수 등록, 현 배포 기본)
   host-pattern: "^[a-z0-9]...$"  # FQDN 검증(기본값 내장)
+  excluded-hostnames: [AAJ11, ..., "P*"]  # 등록 제외 엣지(D62/D69) — glob(*) 허용
 ```
 - `enabled:false` 면 스케줄러 no-op(무회귀 토글). 신규 키만 추가(기존 설정 불변).
 

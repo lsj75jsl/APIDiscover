@@ -24,15 +24,15 @@
 
 | 노브(설정) | 의미 | 기본(제안) | 부하/효과 |
 |---|---|---|---|
-| `scan.tick-interval` | 스캔 틱 간격(짧게) | PT5M | 틱마다 소수 도메인만 → 순간부하 평탄화 |
-| `scan.domains-per-tick` | 틱당 도메인 예산(B) | 100 | 틱당 Loki 쿼리 상한 ≈ K×(윈도우/chunk) |
-| `scan.max-window` | per-scan 윈도우 상한(A) | PT6H | 백필을 슬라이스 → 1회 스캔 비용 상한 |
+| `scan.tick-interval` | 스캔 틱 간격(짧게) | PT1M | 틱마다 소수 도메인만 → 순간부하 평탄화(주야 공통) |
+| `scan.domains-per-tick` | 틱당 도메인 예산(B) | 500 | 틱당 Loki 쿼리 상한 ≈ K×(윈도우/slice). 대부분 delta-skip 로 0쿼리 |
+| `scan.max-window` | per-scan 윈도우 상한(A) | PT30M | 백필을 슬라이스 → 1회 스캔 비용 상한 |
 | `scan.active-interval` / `inactive-interval` | 활성/비활성 스캔 주기(C) | PT30M / PT6H | 활성 자주·비활성 드물게 |
 | `schedule.off-peak-window` | 백필 집중 시간대(D) | 01:00–06:00 | 무거운 백필을 저부하 시간으로 |
-| `scan.max-queries-per-hour` | 전역 시간당 쿼리 상한(E) | 3000 | **Loki 부하 하드캡**(초과=다음 틱 이월) |
+| `scan.max-queries-per-hour` | 전역 시간당 쿼리 상한(E) | 6000 | **Loki 부하 하드캡**(초과=다음 틱 이월) |
 | `scan.throttle-on-error` | 429/5xx 자동감속(E) | true | Loki 불안정 시 속도 자동 하향 |
 
-**부하 상한 근거**: 순간부하 = `domains-per-tick × (per-scan 윈도우/chunk-window) × hostnames`, LokiClient(동시 2·200ms·page-limit·백오프) 위에 **시간당 전역 쿼리/바이트 예산(E)**이 하드 천장. 전수 1회 커버리지 = `전체도메인 / domains-per-tick × tick-interval`(예 14k/100×5m ≈ **11.7h**) — 작을수록 부하↓·커버리지 느림(트레이드오프, §11).
+**부하 상한 근거**: 순간부하 = `domains-per-tick × (per-scan 윈도우/slice-window) × hostnames`, LokiClient(동시 2·200ms·page-limit·백오프) 위에 **시간당 전역 쿼리/바이트 예산(E)**이 하드 천장. 전수 1회 커버리지 = `전체도메인 / domains-per-tick × tick-interval`(예 14k/500×1m ≈ **28분**) — 작을수록 부하↓·커버리지 느림(트레이드오프, §11). ★대부분 도메인은 delta-skip(D60)으로 0쿼리라 실제 부하는 이보다 훨씬 낮다.
 **즉시 필요 시**: 스케줄을 기다리지 않고 **온디맨드 CLI**(§7)로 특정 도메인 즉시 스캔.
 
 ---
@@ -41,7 +41,7 @@
 
 ## 1. B. 틱당 예산 + 라운드로빈 (least-recently-scanned)
 
-한 틱에 전 도메인 금지. **짧은 틱(`tick-interval` PT5M)마다 예산(`domains-per-tick` K) 내에서 '오래 안 본 도메인부터' 처리·다음 틱 이월**.
+한 틱에 전 도메인 금지. **짧은 틱(`tick-interval` 기본 PT1M)마다 예산(`domains-per-tick` K=500) 내에서 '가장 밀린 도메인부터' 처리·다음 틱 이월**(초기 LRS → 현재 due 기반 §4).
 
 - **선택 쿼리(least-recently-scanned)**: `DomainConfig.lastScanAttemptAt`(신규 필드) **오름차순(nulls first=미스캔 우선)** 상위 K. `DomainConfigRepository` 에 `findByEnabledIsTrueOrderByLastScanAttemptAtAscNullsFirst(Pageable)` (또는 JPQL + `Pageable.ofSize(K)`).
 - **라운드로빈 커서 = 영속(권장)**: `lastScanAttemptAt`(Instant, DomainConfig 가산 필드). **메모리 인덱스 미채택** — 재기동 시 소실·14k 동적 집합에 취약. 영속 타임스탬프가 자연스러운 LRS 키(재기동 생존).
@@ -128,9 +128,9 @@ off-peak 는 **due 술어를 바꾸지 않고** 예산·윈도우만 스위치(d
 
 | 파라미터 | peak | off-peak | 효과 |
 |---|---|---|---|
-| 틱당 도메인 K | `domains-per-tick`(100) | `off-peak-domains-per-tick`(500) | off-peak 더 많은 도메인 |
-| per-scan 윈도우 상한 | `max-window`(PT30M) | `off-peak-max-window`(PT24H) | **백필 가속**(밀린 도메인이 1스캔에 더 많이 따라잡음) |
-| 시간당 쿼리 캡(E) | `max-queries-per-hour` | `off-peak-max-queries-per-hour`(선택, 미설정=동일) | off-peak 천장 상향(선택) |
+| 틱당 도메인 K | `domains-per-tick`(500) | `off-peak-domains-per-tick`(500) | 스위치 메커니즘은 있으나 **현 배포는 주야 동일**(사용자 확정) |
+| per-scan 윈도우 상한 | `max-window`(PT30M) | `off-peak-max-window`(PT30M) | ★**PT24H 대량조회 복구 금지**(Loki 과부하 이력, D67) — 현재 주야 동일 |
+| 시간당 쿼리 캡(E) | `max-queries-per-hour`(6000) | `off-peak-max-queries-per-hour`(선택, 미설정=동일) | off-peak 천장 상향(선택·현재 미설정) |
 
 - **off-peak 판정**: `schedule.off-peak-window`("01:00-06:00", 현 config-only) 파싱 + `scan.off-peak-zone`(신규, 기본 시스템 zone) 로 현재 로컬시각 비교. **경계/자정 wrap**(start>end, 예 22:00-06:00) 처리. 미설정/빈값=off-peak 없음(항상 peak=무회귀).
 - **백필 우선순위**: 별도 watermark-lag 정렬 쿼리(Watermark join) **불요** — due 정렬(`nextScanDueAt asc`)이 가장 밀린(=가장 오래 미스캔=백필 대상) 도메인을 이미 앞세움. off-peak 의 큰 윈도우가 그들을 빠르게 따라잡게 함. (전용 lag 정렬은 후속 정교화 — §범위 밖.)
@@ -152,10 +152,10 @@ off-peak 는 **due 술어를 바꾸지 않고** 예산·윈도우만 스위치(d
     default-interval: PT2H
     inactive-interval: PT6H
     active-threshold: PT24H
-    off-peak-domains-per-tick: 500
-    off-peak-max-window: PT24H
+    off-peak-domains-per-tick: 500    # 현 배포는 주야 동일(D67)
+    off-peak-max-window: PT30M        # ★PT24H 대량조회 복구 금지(Loki 과부하 이력, D67) — 주야 동일
     off-peak-max-queries-per-hour: 0  # 0=peak 값과 동일
-    off-peak-zone: ""                 # 빈값=시스템 기본
+    off-peak-zone: "Asia/Seoul"       # 빈값=시스템 기본
     dormant-after: P14D               # F
     dormant-interval: P1D             # F
   # schedule.off-peak-window: "01:00-06:00" (기존 재사용)
@@ -198,22 +198,33 @@ off-peak 는 **due 술어를 바꾸지 않고** 예산·윈도우만 스위치(d
 `ApiDiscoverProperties` 에 nested `Scan` 레코드 추가(기존 Loki/Schedule/Discovery 패턴). `schedule.off-peak-window`·`ingest-lag`·`initial-backfill` 재사용.
 ```
 apidiscover.scan:
-  tick-interval: PT5M            # B 스캔 틱(기존 schedule.default-interval PT1H 대체)
-  domains-per-tick: 100          # B 틱당 도메인 예산
-  max-window: PT6H               # A per-scan 윈도우 상한
-  max-queries-per-hour: 3000     # E 전역 쿼리 하드캡(0=무제한)
+apidiscover.scan:                # ★현재 배포 기본값(application.yml) — 설계 1차값에서 D58~D67 실측 튜닝 반영
+  tick-interval: PT1M            # B 스캔 틱(주야 공통, 워터마크 최대 빈도 전진)
+  domains-per-tick: 500          # B 틱당 도메인 예산(대부분 delta-skip 로 0쿼리)
+  max-window: PT30M              # A per-scan 윈도우 상한(D: 구 PT6H→PT30M)
+  slice-window: PT30M            # ① 부분전진 슬라이스(미지정=loki.chunk-window)
+  max-queries-per-scan: 50       # ① per-scan 하드캡(0=무제한)
+  max-queries-per-hour: 6000     # E 전역 쿼리 하드캡(0=무제한, D66 샘플링 수요 반영 구 3000→6000)
   max-bytes-per-hour: 0          # E 전역 바이트 캡(0=무제한)
   throttle-on-error: true        # E 429/5xx 자동감속
-  # --- 다음(C/D) ---
+  tiering-enabled: true          # false=PR1 LRS 동작(무회귀 스위치)
+  # --- 티어(C) ---
   active-interval: PT30M
   default-interval: PT2H
   inactive-interval: PT6H
   active-threshold: PT24H        # lastSeenAt 이내=active 티어
-  off-peak-domains-per-tick: 500 # D off-peak 예산 상향
-  off-peak-max-window: PT24H     # D off-peak 백필 윈도우 상향
-  # --- 보조(F) ---
+  # --- off-peak(D) — 현 배포는 주야 동일 튜닝(D67) ---
+  off-peak-domains-per-tick: 500 # 주간과 동일
+  off-peak-max-window: PT30M     # ★PT24H 대량조회 복구 금지(Loki 과부하 이력)
+  off-peak-zone: Asia/Seoul
+  # --- dormant(F) ---
   dormant-after: P14D
   dormant-interval: P1D
+  # --- 운영 튜닝(D58~D69) ---
+  inactive-after: P3D            # 무접속 중단(D59): lastSeenAt 초과 도메인 스캔 제외(트래픽 재개 시 자동 복귀)
+  sample-window: PT10M           # 롤링 샘플링(D66): 주기 스캔을 최신 N분 표본만(0=off=gap-free 크롤)
+  query-batch-size: 20           # 같은 엣지 실조회 도메인 배칭(D63, 0=off)
+  edge-group-main-only: true     # 대표 엣지만 조회(D65)
 ```
 - 전부 신규 키(기존 설정 불변). `tick-interval` 이 구 `schedule.default-interval` 의 스캔 트리거 역할 대체(그 키는 온디맨드 `defaultWindow`·디스커버리 등 잔여 용도 확인 후 정리).
 
@@ -272,14 +283,14 @@ apidiscover.scan:
 
 ### 14.2 수정 설계 — ①+②+③ (최소·견고 조합)
 
-**★권장 = ①+②+③ 함께.** "② 소윈도우 단독으로 충분한가?" 에 대한 정직한 답: **불충분**. ② 는 흔한 경우만 줄이고 **하드 천장이 없다** — (a) 하이퍼busy 도메인 1슬라이스, (b) **D off-peak 대형 윈도우(PT24H)**, (c) 다운됐던 도메인 백필에서 폭주 재발. ① 의 **per-scan 하드캡 + 부분 watermark 전진**이 윈도우 크기·트래픽과 무관한 **구조적 보장**이며 D 안전의 전제다. ③ 은 ①·② 와 독립적으로 필요(스레드 격리).
+**★권장 = ①+②+③ 함께.** "② 소윈도우 단독으로 충분한가?" 에 대한 정직한 답: **불충분**. ② 는 흔한 경우만 줄이고 **하드 천장이 없다** — (a) 하이퍼busy 도메인 1슬라이스, (b) off-peak 를 대형 윈도우(예 PT24H, 현재는 금지·주야 동일)로 되돌릴 경우, (c) 다운됐던 도메인 백필에서 폭주 재발. ① 의 **per-scan 하드캡 + 부분 watermark 전진**이 윈도우 크기·트래픽과 무관한 **구조적 보장**이며 D 안전의 전제다. ③ 은 ①·② 와 독립적으로 필요(스레드 격리).
 
 **① per-scan 하드캡 + 슬라이스-granular 부분 watermark 전진 (핵심·구조적 보장)**
 - **부분 전진 vs 윈도우 축소 재시도 — 부분 전진 채택**: 축소 재시도는 busy 도메인이 매번 같은 윈도우 head 에서 캡에 걸려 **영구 미진척(기아)**. 부분 전진은 **단조 진척 보장**(다음 틱이 이어서 resume) + 스레드/예산 즉시 반납.
 - **슬라이스-granular(멀티 hostname gap-free 핵심)**: 현 `collect` 는 hostname 마다 **전체 윈도우**를 queryRange → 부분 전진을 윈도우 중간에서 하면 hostname 별 consumed 지점이 달라 **데이터 갭** 위험. → **루프 반전**: 윈도우를 **슬라이스(=chunk-window PT10M)** 로 쪼개 **슬라이스 외부 / hostname 내부**로 순회. 한 슬라이스의 **모든 hostname 을 완료한 뒤에만** watermark 를 그 슬라이스 끝으로 전진 → 미스캔 구간 추월 없음(gap-free).
 - **하드캡**: `max-queries-per-scan`(예 50) — 슬라이스 경계에서 누적 쿼리수 체크, 초과 시 **마지막 완료 슬라이스 끝**까지만 `analyze`([from, consumedUpTo)) + watermark 전진하고 종료. 전역 `budget.hasBudget()` 도 슬라이스 경계에서 체크(④ 흡수 — query-granularity) → 소진 시 동일하게 부분 전진 후 종료.
 - 효과: 1 runScan ≈ `max-queries-per-scan` + 마지막 슬라이스 페이지 = **상한**. busy 도메인도 여러 틱에 걸쳐 슬라이스씩 전진(resume), 스레드·예산 즉시 반납.
-- **잔여 floor(정직)**: 단일 슬라이스(PT10M) 내 한 hostname 이 page-limit×다수면 그 슬라이스는 완주(원자 단위) — `slice-window`/`page-limit` 작게로 완화. watermark-safe 부분전진은 슬라이스 경계까지가 한계.
+- **잔여 floor(정직)**: 단일 슬라이스(PT30M) 내 한 hostname 이 page-limit×다수면 그 슬라이스는 완주(원자 단위) — `slice-window`/`page-limit` 작게로 완화. watermark-safe 부분전진은 슬라이스 경계까지가 한계.
 
 **② max-window 기본값 축소 (PT6H → PT30M 제안)**
 - 흔한 경우 per-scan 윈도우(=watermark 틱당 전진)를 작게 → 슬라이스 수↓. **트레이드오프(정직)**: 백필 커버리지 시간↑(7일/30분=336슬라이스/도메인, 14k RR 와 곱해 느림) → **D off-peak 에서 `off-peak-max-window` 상향으로 가속**(그때 ① 가 안전 보장). 무회귀: 기본값 변경(문서화), 0/null=무제한 경로 유지.
@@ -293,14 +304,14 @@ apidiscover.scan:
   ```
   apidiscover.scan:
     max-window: PT30M           # ② 기본값 축소(구 PT6H)
-    slice-window: PT10M         # ① 부분전진 슬라이스(미지정=loki.chunk-window 재사용)
+    slice-window: PT30M         # ① 부분전진 슬라이스(loki.chunk-window 와 동반 PT30M, D60)
     max-queries-per-scan: 50    # ① per-scan 하드캡(0=무제한=현행 무회귀)
   spring.task.scheduling.pool.size: 2   # ③ 스레드 격리
   ```
 - **변경 범위**: `DiscoveryJobService.runScan`/`collect` → 슬라이스 외부·hostname 내부 순회 + 슬라이스별 watermark 전진 + per-scan 캡(`collectBounded` 반환 {lines, consumedUpTo}). `analyze`/분류/리포트 로직 **불변**(입력 윈도우만 부분 가능). `LokiClient` 슬라이스 단위 조회(queryRange 는 on-demand/discovery 용 유지 또는 위임). `SchedulingConfig`/application.yml ③ 설정.
 - **무회귀**: `max-queries-per-scan=0`=무제한=현행. 슬라이스 순회는 결과 동일(같은 윈도우 전량이면 동일 라인·dedup). 부분 전진은 watermark 가 데이터 ts 기준(now 무관)이라 결정적. 풀 size=2 는 동작 불변(동시성만). 정상-트래픽 도메인(소윈도우)은 캡 미발동=현행.
 - **검증**: 슬라이스 부분전진 단위테스트(캡 hit→consumedUpTo=마지막 완료 슬라이스·resume·gap 없음), busy 도메인 모사(캡 발동), 다도메인 분산(한 도메인이 예산/스레드 독점 안 함), 재배포 시 `discovered_endpoint` 점증·discover 비기아.
-- **dev 구현 완료(PR, build green 382·실패0·skip2=live 게이트)**: ① `DiscoveryJobService.collectBounded`(슬라이스 외부·hostname 내부, per-scan 캡·`budget.hasBudget()` 슬라이스 경계 체크, 부분 watermark 전진) + `runScan` 부분 소비분만 analyze·advanceWatermark, `collect`(온디맨드) 유지. ② `application.yml` max-window PT30M·slice-window PT10M·max-queries-per-scan 50. ③ `spring.task.scheduling.pool.size: 2`. 설정 `ApiDiscoverProperties.Scan` +sliceWindow·maxQueriesPerScan. 테스트 `ScanSliceBoundedTest`(캡/예산 부분전진·gap-free·무제한 현행 동치, 단위 mock). 무회귀: cap=0=현행, 슬라이스 순회 결과 동치(dedup), watermark 데이터 ts 결정적.
+- **dev 구현 완료(PR, build green 382·실패0·skip2=live 게이트)**: ① `DiscoveryJobService.collectBounded`(슬라이스 외부·hostname 내부, per-scan 캡·`budget.hasBudget()` 슬라이스 경계 체크, 부분 watermark 전진) + `runScan` 부분 소비분만 analyze·advanceWatermark, `collect`(온디맨드) 유지. ② `application.yml` max-window PT30M·slice-window PT30M·max-queries-per-scan 50. ③ `spring.task.scheduling.pool.size: 2`. 설정 `ApiDiscoverProperties.Scan` +sliceWindow·maxQueriesPerScan. 테스트 `ScanSliceBoundedTest`(캡/예산 부분전진·gap-free·무제한 현행 동치, 단위 mock). 무회귀: cap=0=현행, 슬라이스 순회 결과 동치(dedup), watermark 데이터 ts 결정적.
 
 ## 15. 도메인 목록 CLI (`-domain -ls`)
 
