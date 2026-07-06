@@ -102,7 +102,7 @@
 - **리스크④(inactive 누적)**: prune 없음 — 저volume 무해, 상한 prune 후속.
 - **리스크⑤(SEPARATE 모드)**: host 전체 교체라 같은 specName 누적 안 됨 — per-specName diff 는 MERGE/VERSION_GROUPED 에 자연. SEPARATE 는 직전 active 집합 전체가 비활성 → 그 문서의 직전=교체 전 버전(있으면). SEPARATE 다문서 diff 의미는 약함(명시: SEPARATE=전체 교체 모델).
 
-## 9. dev 구현 체크리스트 (TASKS subitem, D26 / P3 — doc/35 2단계)
+## 9. 구현 이력 (M7a — 이후 제거됨)
 
 **M7a (우선·0 스키마) — ★한때 구현됐으나 doc/37 재설계로 제거됨**(아래는 이력 기록 — 현 소스에 `SpecDiffService`·`/spec/changes` 없음)
 - [x] `upload(host,content,filename)` specName 도출(filename→trim·소문자 specName, 미전달/빈=default) — 멀티문서 거동, 하위호환(filename 미전달=현행).
