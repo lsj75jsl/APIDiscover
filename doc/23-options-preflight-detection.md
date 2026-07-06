@@ -1,8 +1,17 @@
 # preflight vs 진짜 OPTIONS 구분 — 타당성 판정 + 한계 문서화 (설계)
 
-> 브랜치 `feature/options-preflight-detection`. 근거 doc/02 §1(로그 필드)·doc/04 §3(분류)·doc/08 §4(cors_preflight 신호)·Classifier 1차 OPTIONS skip.
-> 근거 결정 doc/DECISIONS.md **D32**. dev 항목은 TASKS 부모 'preflight vs 진짜 OPTIONS' 아래 subitem(D26).
-> **판정 = B (로그에 구분 신호 부재 → 한계 확정).** 완화 M1(권장·린)·M2·M3 seam 문서화.
+> CORS preflight(브라우저 자동 OPTIONS)와 진짜 OPTIONS API 호출을 로그로 구분할 수 있는지 판정하고, 그 한계를 완화하는 M1/M2/M3 를 설계한다. 근거 [02-log-parsing-and-normalization](02-log-parsing-and-normalization.md) §1(로그 필드)·[04-matching-and-classification](04-matching-and-classification.md) §3(분류)·[08-api-scoring-and-profiles](08-api-scoring-and-profiles.md) §4(cors_preflight 신호), 결정 [DECISIONS](DECISIONS.md) **D32**.
+> **판정 = B (로그에 구분 신호 부재 → 한계 확정).** 완화 M1(inconclusive 주석)·M2(operator 힌트)·M3(로그포맷 acrm, dormant) 모두 구현됨(§6).
+
+**구현 위치**
+
+| 대상 | 소스 |
+|---|---|
+| M1 inconclusive | `model/Finding.Unused.preflightAmbiguous` + `classify/Classifier`(2차 패스) |
+| M2 operator 힌트 | `model/MatcherConfig.optionsOperationPrefixes` + `match/ApiHintMatcher.genuineOptions()` |
+| M3 acrm 파싱 | `config/ParseProperties.acrmFieldIndex`(기본 -1=dormant) → `parse/LogLineParser` → `model/ParsedRequest.acrm` |
+| M3 게이트·집계 | `normalize/Acc.acrmPresentCount` → `DiscoveredEndpoint.Metrics.acrmPresentCount` → `Classifier`(`preflightActive`) |
+| 노출 | `model/PreflightSignal(status, acrmPresentOptions)` → `DiscoveryReport` |
 
 ## 0. 문제 정의
 
@@ -54,21 +63,24 @@ preflight 의 결정적 식별자는 **요청 헤더** `Origin` + `Access-Contro
 - **순수 B(문서만)**: 코드 변경 0 → 무회귀.
 - **M1 채택 시**: `Finding.Unused` +필드 가산(기본값=현행) → 기존 Unused 단언 영향 최소. `corsKeys` 는 기존 구축물 재사용. ETag 는 findings 변경분 1회(doc/16 선례). 비-OPTIONS·기존 Active/Shadow/Zombie 불변.
 
-## 6. dev / 후속 체크리스트 (TASKS subitem, D26)
+## 6. 구현 상태 (현재 동작)
 
-- [x] **(판정)** 로그 신호 분석 → **B 확정**(Origin/ACRM 미로깅·약신호 비결정) + 한계 범위·영향 문서화 (doc/23 §1·§2).
-- [x] **(M1, 권장·선택)** Unused(OPTIONS) inconclusive 주석 — `corsKeys` 재사용, `Finding.Unused`+`preflightAmbiguous`(4-arg 편의 ctor 하위호환), 2차 패스 분기(host-agnostic spec=template 매칭). 테스트 3(OPTIONS spec op + OPTIONS 트래픽→ambiguous, 트래픽 무→plain Unused, 비-OPTIONS→never ambiguous). → 완료 2026-06-24.
-- [x] **(M2)** operator genuine-OPTIONS 힌트 (상세 §8) — documented OPTIONS 의 false-Unused 회복(spec-match 한정). → 완료 2026-06-24:
-  - [x] (M2-a) `MatcherConfig`+`optionsOperationPrefixes`(List)+5-arg 편의 ctor(하위호환)+`merge` union+NONE/NONE_EMPTY — matcherJson 마이그레이션 0. `EffectiveClassificationResolver` includeWebForms 정규화 6-arg 보존(누락 버그 방지).
-  - [x] (M2-b) `ApiHintMatcher` — `validatePrefixes` 재사용 검증 + `genuineOptions(template)`(세그먼트경계 prefixMatch).
-  - [x] (M2-c) `Classifier` 1차 OPTIONS 분기 한정 — `hints.genuineOptions && matcher.match(OPTIONS) → observedSpec(→Active)`, else continue. corsKeys/cors 보너스 무변경.
-  - [x] (M2-d) 테스트 — 선언+spec OPTIONS+트래픽→Active(M1 ambiguous 아님)/미선언→M1 ambiguous 유지/선언+미스펙·과declare→skip(Shadow 무생성)/merge 전역∪도메인/중앙 PUT 수용·검증(400)/기존 MatcherConfig 호출부 무변경.
-- [x] **(M3, dormant 구현)** acrm 결정적 preflight 해소 (상세 §9) — 가용성 게이트로 무회귀(기본 idx=-1→DORMANT=현행 100%, org 로그포맷 커밋 시 활성). → 완료 2026-06-24:
-  - [x] (M3-a) `ParsedRequest`+`acrm`(nullable, 14-arg 편의 ctor) + `LogLineParser` 설정 인덱스(`apidiscover.parse.acrm-field-index` 기본 -1=미사용, 있으면 읽는·20/24필드 호환).
-  - [x] (M3-b) `Acc`+`acrmPresentCount`(add/mergeFrom) → `DiscoveredEndpoint.Metrics`+`acrmPresentCount`(7-arg 편의 ctor 하위호환).
-  - [x] (M3-c) `Classifier` 가용성 게이트(`Σ acrmPresentCount(OPTIONS)>0`=ACTIVE) — ACTIVE: acrm-absent=genuine→정상 매칭(Active/Shadow)·corsKeys=preflight(acrm>0)만; DORMANT: 현행 skip+M2.
-  - [x] (M3-d) M1 정합 — `preflightAmbiguous` 조건에 `&& !preflightActive`(ACTIVE→확실 판정 자동 승급); M2 와 게이트 배타.
-  - [x] (M3-e) `model/PreflightSignal(status, acrmPresentOptions)` DiscoveryReport 노출 + ETag(status 만) + 테스트(dormant 무회귀·active genuine→Active·pure preflight→plain Unused·mixed·게이트 경계·인덱스 파싱·ETag bump).
+판정 B(로그만으론 구분 불가) 위에 세 완화가 모두 구현돼 있다.
+
+```mermaid
+flowchart TD
+    O["1차 패스: OPTIONS 관찰"] --> G{"preflightActive?<br/>(Σ acrmPresentCount > 0)"}
+    G -->|"DORMANT (기본, acrm 미설정)"| M2{"hints.genuineOptions(template)<br/>&& spec OPTIONS 매칭?"}
+    M2 -->|"예 (M2)"| ACT1["observed → Active"]
+    M2 -->|"아니오"| SKIP["skip (cors 신호만) — 미관측 spec OPTIONS 는 M1 preflightAmbiguous"]
+    G -->|"ACTIVE (M3, acrm 실재)"| GEN{"acrm-absent > 0 (genuine)?"}
+    GEN -->|"예"| ACT2["정상 매칭 → Active / 미매칭 → gate → Shadow"]
+    GEN -->|"아니오 (pure preflight)"| PP["skip → plain Unused (M1 ambiguous 아님, 자동 승급)"]
+```
+
+- **M1 (inconclusive)**: 2차 패스에서 미관측 OPTIONS spec operation 에 `Finding.Unused.preflightAmbiguous` 저신뢰 플래그. `corsKeys` 재사용, 비대칭(Active 단정 안 함). DORMANT 에서만 발화.
+- **M2 (operator 힌트)**: `MatcherConfig.optionsOperationPrefixes` 선언 + `ApiHintMatcher.genuineOptions()`. 1차 패스에서 **선언 && 스펙 OPTIONS 매칭** 일 때만 observed→Active(spec-match 한정 안전장치 — undocumented OPTIONS 는 여전히 skip → Shadow 미생성). 중앙 API 는 MatcherConfig DTO 재사용으로 자동 수용. 상세 §8.
+- **M3 (acrm 결정적 해소, dormant 기본)**: `parse.acrm-field-index`(기본 `-1`=미사용, `ParseProperties`) 설정 시 `Access-Control-Request-Method` 를 읽어 `preflightActive` 게이트. ACTIVE 면 genuine OPTIONS→정상 매칭·preflight(acrm>0)만 cors 신호, **DORMANT(기본)면 현행(M1/M2) 100% 유지**(무회귀). 상세 §9.
 
 ## 7. 결론
 
@@ -97,7 +109,7 @@ if (OPTIONS):
     continue                                       // 그 외 OPTIONS 는 현행대로 skip (Shadow 미생성)
 ```
 - **spec-match 한정(핵심 안전장치)**: 선언됐고 **스펙 OPTIONS operation 에 매칭될 때만** observed 진입 → Active. 선언했으나 미스펙 OPTIONS 는 여전히 skip(Shadow 미생성). 근거: 과declare(예 `/api`)해도 preflight 홍수가 Shadow 로 **폭발하지 않음** — "OPTIONS 는 절대 Shadow 안 됨" 현행 불변식 보존. M2 목적 = **documented OPTIONS 의 false-Unused 회복만**(undocumented OPTIONS 발견은 범위 밖·M3 영역).
-- **corsKeys/cors_preflight 보너스 무변경**: corsKeys 는 모든 OPTIONS 로 계속 구축(declared 포함) → sibling GET/POST 의 cors 보너스(doc/08) 그대로. 한 경로가 genuine OPTIONS + sibling preflight 를 동시에 받을 수 있고 분리 불가하나, 보너스는 **sibling 양성**이라 유지가 안전(genuine 여부와 직교).
+- **corsKeys/cors_preflight 보너스 무변경**: corsKeys 는 모든 OPTIONS 로 계속 구축(declared 포함) → sibling GET/POST 의 cors 보너스(doc/08) 그대로. 한 경로가 genuine OPTIONS + sibling preflight 를 동시에 받을 수 있고 분리 불가하나, 보너스는 **sibling 양성**이라 유지가 안전(genuine 여부와 무관·독립).
 
 ### 8.3 M1 정합 (scope #3) — 이중표기 없음
 
