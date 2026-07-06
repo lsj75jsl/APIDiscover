@@ -59,6 +59,21 @@ class EndpointKindClassifierTest {
     }
 
     @Test
+    void configSecretExtensionsAreStaticButJsonYamlAreNot() {
+        // 설정·시크릿 파일 하드 veto(사용자 요구) — 스캐너의 .env/키/설정 하베스팅 오탐 차단
+        assertThat(EndpointKindClassifier.isStaticPath("/api/shared/.env")).isTrue();
+        assertThat(EndpointKindClassifier.isStaticPath("/account/api-config.ini")).isTrue();
+        assertThat(EndpointKindClassifier.isStaticPath("/api/keys/private.key/config/keys.pem")).isTrue();
+        assertThat(EndpointKindClassifier.isStaticPath("/api/private.key")).isTrue();
+        assertThat(EndpointKindClassifier.isStaticPath("/api/config/vars.tf")).isTrue();
+        assertThat(EndpointKindClassifier.isStaticPath("/api/objects/codes.php.save")).isTrue();
+        // ★.json/.yaml 은 veto 제외(사용자 확정) — 진짜 데이터 API 다수라 endsWith veto 시 대량 오탐
+        assertThat(EndpointKindClassifier.isStaticPath("/chart_data/42/dat.json")).isFalse();
+        assertThat(EndpointKindClassifier.isStaticPath("/api/status.json")).isFalse();
+        assertThat(EndpointKindClassifier.isStaticPath("/openapi.yaml")).isFalse();
+    }
+
+    @Test
     void hasStaticResourceNameMatchesDynamicExtServingStatic() {
         // D55: 동적 확장자(.php)로 정적 리소스 서빙 → 파일명 토큰 매치(감점 대상)
         assertThat(EndpointKindClassifier.hasStaticResourceName("/api/blogwidget/img.php")).isTrue();

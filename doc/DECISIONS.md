@@ -628,6 +628,13 @@ gap-free 크롤은 활성 수요(~22.6k 윈도우/h) vs 예산 용량(D65 후 ~7
 - **영향**: CLAUDE.md 의 'D28 — PR 머지 시 설계문서 dev 체크리스트 동기 갱신' 관행을 대체한다(설계문서에 체크리스트가 없으므로 동기 대상 아님). 설계문서↔TASKS 매핑표·우선순위(D25)는 유지.
 - **적용**: doc/09 §6 삭제(§7→§6)부터 시작, 나머지 26개는 각 문서 현행화 차례에 삭제.
 
+### D72. 설정·시크릿 확장자 하드 veto 추가 — .env/.ini/.pem/.key/.tf/.save (2026-07-06, 사용자 확정)
+- **배경**: 스펙 미업로드 도메인의 Shadow 최다가 스캐너의 설정·시크릿 하베스팅 탐침. 최다 판별 도메인 13.115.168.148(Shadow 168) 은 전부 `/api/config.json/.../.env`·`secrets.json`·`private.key`·`vars.tf`·`phpinfo.php` 류 — 경로에 `api` 세그먼트가 있어 점수 게이트를 통과. D55 정적 확장자 veto(.css/.js/.png…)는 이런 설정/시크릿 파일을 못 걸렀다.
+- **결정**: `DEFAULT_STATIC_EXT`(하드 veto = endsWith, 점수·api키워드 무관 STATIC)에 **`.env` `.ini` `.pem` `.key` `.tf` `.save`** 6종 추가. 실 라이브 API 일 수 없는 설정·시크릿·상태 파일.
+- **★.json/.yaml 제외(데이터 근거)**: 하드 veto(endsWith) 대상에서 **제외**. 운영 DB 표본상 `.json` 20,179건 중 상위가 전부 진짜 데이터 API(`139.162.99.45/chart_data/{id}/dat.json` 6,300 hits·Jira REST `validators.json`·PRTG `status.json`·펀드 `master.json`) — endsWith veto 하면 진짜 Shadow 를 대량 오탐(false-negative). `.yaml` 도 openapi.yaml 등 정당 사례 존재(`.yml` 도 미추가).
+- **운영 반영(D56 런타임 경로)**: 이미 시드된 운영 DB 는 코드 `DEFAULT_STATIC_EXT` 변경만으론 반영 안 됨(`seedIfEmpty` 는 빈 테이블 전용). `POST /config/static-classify {kind:EXTENSION,value:...}` 6회로 `static_classify_rule` insert + 즉시 reload — 재배포 불필요. DB 영속 6행·목록 24종 확인.
+- **검증**: build green·신규 가드 테스트(`configSecretExtensionsAreStaticButJsonYamlAreNot` — 6종 STATIC·.json/.yaml 비-STATIC). D55/D56 후속.
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.

@@ -25,7 +25,10 @@ public class EndpointKindClassifier {
     /** 기본 정적 확장자(D55/D56) — 외부 DB 설정(StaticClassifyRule) 미시드 시 seed 값·부팅 초기값. */
     public static final List<String> DEFAULT_STATIC_EXT = List.of(
             ".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico",
-            ".webp", ".avif", ".bmp", ".tiff", ".woff", ".woff2", ".ttf", ".eot", ".otf", ".map");
+            ".webp", ".avif", ".bmp", ".tiff", ".woff", ".woff2", ".ttf", ".eot", ".otf", ".map",
+            // 설정·시크릿 파일 — 실 API 일 수 없음(스캐너의 .env/키/설정 하베스팅 오탐 차단, 사용자 요구).
+            // ★.json/.yaml 은 제외: 진짜 데이터 API 다수(chart_data/{id}/dat.json·Jira REST 등), endsWith veto 시 대량 오탐.
+            ".env", ".ini", ".pem", ".key", ".tf", ".save");
     // 기본 정적 리소스 파일명 토큰(D56) — 동적 확장자(.php 등)로 이미지/CSS/링크위젯 등을 서빙하는 경우
     // (img.php·resize_image.php·view_css.php·link.php) API 오탐 감점용. ★모호 토큰(photo·view·file·get)은 제외(실 API 가능).
     // ★"link"(사용자 요청): substring 매치라 unlink/linkedin 도 매치될 수 있음(과탐 주의). 감점(-0.6)이라 강신호 API 는 생존.

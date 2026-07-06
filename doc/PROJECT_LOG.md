@@ -5,6 +5,21 @@
 
 ---
 
+## 2026-07-06 세션 70 — 설정·시크릿 확장자 하드 veto 추가(D72) + 운영 DB 조회(최다 판별 도메인·스캔 중단 사유)
+
+### 한 일
+- **운영 DB 조회(Loki 미사용)** — 최다 판별 도메인 = `13.115.168.148`(Shadow 168). scan_result 집계 기준(전 도메인 active=0=스펙 미업로드라 판별 API 는 전부 Shadow). findings 168건 전수 = 스캐너의 `.env`/`secrets.json`/`private.key`/`phpinfo.php` 하베스팅 탐침 확인.
+- **D72 설정·시크릿 확장자 veto 추가**(사용자 확정) — `DEFAULT_STATIC_EXT` 에 `.env .ini .pem .key .tf .save` 6종. `.json`/`.yaml` 은 데이터 근거로 **제외**(운영 DB `.json` 20,179건 상위가 전부 진짜 데이터 API `chart_data/{id}/dat.json`·Jira REST·PRTG). 가드 테스트 추가.
+- **운영 서버 즉시 반영(D56)** — `POST /config/static-classify` 6회(각 201, insert+reload). `static_classify_rule` DB 6행 영속·목록 24종 확인. 재배포 불필요.
+- **스캔 중단 사유 규명(사용자 질문)** — 13.115.168.148 미스캔 원인 = `enabled=false`(findDueForScan `where enabled=true` 탈락). enabled=false 는 오직 `PUT /domains/{host}` 로만 세팅(수동/중앙서버) — 코드에 자동 per-domain 비활성화 없음. 부차적으로 07-02 이후 무접속(last_seen 07-02 22:23) → inactive-after P3D 필터로도 제외(self-healing 쿼리 필터, enabled 세팅 아님).
+
+### 결과
+- build green. 신규 테스트 `configSecretExtensionsAreStaticButJsonYamlAreNot`.
+- 운영 서버 classifier 즉시 veto 반영·DB 영속(재기동 유지). 코드 커밋으로 신규 설치·시드 기본값 일치.
+
+### 다음 단계
+- 없음. 확장자 목록 후속 조정 시 REST add/remove(D56)로 재배포 없이 가능.
+
 ## 2026-07-06 세션 69 — 매뉴얼 보강(스캔정책·버리는 데이터) + 업로드 샘플·E2E + Swagger 2.0 지원(D70)
 
 ### 한 일
