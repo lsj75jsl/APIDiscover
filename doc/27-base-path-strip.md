@@ -1,7 +1,14 @@
 # base-path-strip — false Shadow 방지 (D37 F1 해소)
 
-> 브랜치 `feature/base-path-strip`. D37 F1 후속. 근거 doc/03 §2.1·§2.2(basePath 결합·strip 옵션 명시)·doc/04 §7(엣지)·doc/15(매처캐시)·doc/26(멀티스펙·DomainConfig).
-> 근거 결정 doc/DECISIONS.md **D38**(D37 F1 갱신). **제안·권장안 명시.** dev 항목은 TASKS 부모 아래 subitem(D26).
+> 프록시가 로그에서 base prefix(예 `/v2`·`/api`)를 strip 하면 관측 경로 segCount 가 canonical 템플릿과 어긋나 false Shadow/Unused 가 난다. operator 가 선언한 prefix 를 **매칭 시점에 재부착**해 교정한다. 근거 [03](03-spec-formats-and-canonical-model.md) §2.1·§2.2(basePath 결합·strip 옵션)·[04](04-matching-and-classification.md) §7(엣지)·[15](15-matcher-cache.md)(매처캐시)·[26](26-multi-spec-merge.md)(멀티스펙·DomainConfig), 결정 [DECISIONS](DECISIONS.md) **D38**(D37 F1 갱신).
+
+**구현 위치**
+
+| 대상 | 소스 |
+|---|---|
+| 옵션 | `domain/DomainConfig.basePathStrip`(nullable, 기본 null=off) + `DomainController`/`DomainDtos` |
+| at-match strip | `match/EndpointMatcher.match(method, host, path, stripPrefix)`(as-is 우선 → 미매칭 시 `stripPrefix+path` 재시도) |
+| 주입 | `batch/DiscoveryJobService`·`batch/CombinedDiscoveryService` → `classify/Classifier.classifyWithMetrics(..., stripPrefix)` |
 
 ## 0. 문제
 
@@ -34,8 +41,19 @@ EndpointMatcher.match(method, host, path, stripPrefix):
        hit = match(method, host, stripPrefix + path)   // ② prefix 재부착
    return hit
 ```
+```mermaid
+flowchart TD
+    M["match(method, host, path, stripPrefix)"] --> A["① as-is: match(method, host, path)"]
+    A --> H{"hit?"}
+    H -->|"예"| R["반환 (비-strip 트래픽 = 현행)"]
+    H -->|"아니오"| S{"stripPrefix 설정?"}
+    S -->|"아니오 (null/blank)"| E["empty (현행 100%)"]
+    S -->|"예"| B["② prefix 재부착: match(method, host, stripPrefix + path)"]
+    B --> R2["strip 트래픽 매칭 → false Shadow/Unused 교정"]
+```
+
 - **as-is 우선** → 비-strip 트래픽은 현행대로 매칭(무회귀·double-prefix 위험 없음). strip 트래픽만 ②에서 `/users/{id}`→`/v2/users/{id}` 로 매칭. **혼합 트래픽도 path 별로 둘 다 시도라 안전.**
-- **배선**: `DiscoveryJobService`/`CombinedDiscoveryService` 가 `DomainConfig.basePathStrip` 로드 → `Classifier.classifyWithMetrics(..., stripPrefix)`(빈/ null 오버로드 하위호환) → `matcher.match(..., stripPrefix)`. (discovered 의 pathTemplate 에 prefix 부착 — 템플릿 `/users/{id}`→`/v2/users/{id}` 가 canonical regex `^/v2/users/[^/]+$` 매칭, `{id}`⊂`[^/]+`.)
+- **연결**: `DiscoveryJobService`/`CombinedDiscoveryService` 가 `DomainConfig.basePathStrip` 로드 → `Classifier.classifyWithMetrics(..., stripPrefix)`(빈/null 오버로드 하위호환) → `matcher.match(..., stripPrefix)`. (discovered 의 pathTemplate 에 prefix 부착 — 템플릿 `/users/{id}`→`/v2/users/{id}` 가 canonical regex `^/v2/users/[^/]+$` 매칭, `{id}`⊂`[^/]+`.)
 - **matcherCache(doc/15) 정합**: matcher 는 canonical 로 빌드(불변), stripPrefix 는 **match 호출 파라미터**(matcher 비포함) → 캐시 키(host,specVersion) 불변, basePathStrip 변경 시 **무효화 불요**(다음 스캔 match 가 새 prefix 사용).
 - **멀티스펙(doc/26) 정합**: strip 은 도메인 레벨·merged canonical 매칭에 일괄 적용 → 모드 무관 자연 합성.
 - **멀티 server(여러 basePath)**: 단일 String prefix=프록시가 strip 하는 1개 대응(공통). List 다중 prefix(각 시도)는 후속(§7).
@@ -52,16 +70,7 @@ EndpointMatcher.match(method, host, path, stripPrefix):
 - strip 설정 시 findings 변화(false Shadow→Active 등) → 리포트 콘텐츠 변화 → ETag bump(정당). **결정적·시간非의존**(strip=정적 config, `now()` 무관) → 재스캔 동일(304 보존). basePathStrip 은 findings 에 반영되므로 ETag 입력 별도 추가 불요.
 - (선택) discovery/리포트 메타에 `basePathStrip` 활성 여부 노출(traceability, endpoint_kind signal status 류) — 린, 후속 가능.
 
-## 6. dev 구현 체크리스트 (TASKS subitem, D26) → 완료 2026-06-25 (커밋 보류·리뷰 대기)
-
-- [x] `DomainConfig.basePathStrip`(String nullable, 기본 null) + `DomainController`/`DomainDtos` DTO 가산(null=off, intervalOverride 동형 직접 대입). ddl-auto 컬럼.
-- [x] `EndpointMatcher.match(method, host, path, stripPrefix)` 오버로드 — as-is 우선, 미매칭+prefix(non-blank) 시 `stripPrefix+path` 재시도. 기존 3-arg 불변(하위호환).
-- [x] `Classifier.classifyWithMetrics`(7-arg)/`classify`(6-arg) +stripPrefix(null 오버로드 위임) → 1차 패스 matcher.match 2곳 전달. `CombinedDiscoveryService`·`DiscoveryJobService` 가 DomainConfig.basePathStrip 로드·주입.
-- [x] 테스트 — (matcher) strip 재부착 매칭/as-is 우선/null=현행/잘못 prefix 무오판 ; (e2e) strip→Active·false Shadow/Unused 해소·null 대조 현행·ETag findings 변화 bump·재스캔 동일.
-- [ ] (doc/18 sync, technical_writer) `domain_config.base_path_strip` 컬럼 반영.
-- [x] (doc/03 §2.2 갱신) 결합 토글 → at-match strip prefix 메커니즘으로 정제 명시(doc/27 참조).
-
-## 7. 범위 밖 / 후속
+## 6. 범위 밖 / 후속
 
 - **다중 strip prefix**(`List<String>`, 멀티 server 별 strip) — 단일 String 으로 공통 케이스 충족, 다중은 후속.
 - **자동 strip 감지**(관측 vs 스펙 basePath 비교) — fragile·오strip 위험으로 미채택.
