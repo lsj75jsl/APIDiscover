@@ -1,7 +1,16 @@
 # API 판단 근거(점수 산출 내역) 노출 — /discovery 응답 가시화 (사용자 개선요구)
 
-> 브랜치 `feat/api-rationale-exposure`. 근거: doc/08(ApiScorer 점수모델)·doc/10·11(effective 분류설정)·doc/26(CombinedDiscovery·Finding)·doc/04(분류). 근거 결정 **DECISIONS D49**.
-> **구현 완료(§7 dev 체크리스트 [x], build green 457, PR #38 dcdd4dc 머지).** 매뉴얼 §4.3(§5)은 TW 반영 완료(`api-discovery-manual.html` §4.3). 운영 Loki 미호출(정적/mock).
+> `GET /api/v1/domains/{host}/discovery` 응답에 도메인 현재 preset/threshold 와 엔드포인트별 판단 근거(Shadow=신호별 점수·게이트, Active/Zombie=스펙 매칭, Unused=spec_only)를 **조회 시 재계산**해 additive 로 동봉한다(스키마 변경 0). 근거 [08](08-api-scoring-and-profiles.md)(ApiScorer)·[10](10-classification-config-store.md)·[11](11-classification-rest-api.md)(effective 설정)·[26](26-multi-spec-merge.md)(CombinedDiscovery)·[04](04-matching-and-classification.md)(분류), 결정 [DECISIONS](DECISIONS.md) **D49**.
+> 매뉴얼 §4.3 은 `doc/manual/api-discovery-manual.html` 에 반영 완료. 운영 Loki 미호출(정적/mock).
+
+**구현 위치**
+
+| 대상 | 소스 |
+|---|---|
+| 신호별 점수 내역 | `classify/ApiScorer.scoreExplain()` → `ScoreBreakdown`(`score()` 위임·단일 진실원) + `weightsAsMap()` |
+| 근거 수집 | `classify/Classifier.classifyExplained()`(rationaleOut, 스캔 경로=null=바이트 동일) |
+| 근거 모델 | `model/EndpointRationale` + `model/ApiBasis`(sealed: Score/SpecMatch/SpecOnly/Kind) + `EffectiveClassificationView` |
+| 응답 동봉 | `batch/CombinedDiscoveryService.forHost()` → `model/CombinedDiscovery.effectiveClassification`/`rationale`(/discovery 전용 additive) |
 
 ## 0. 목적 / 문제 / 현황
 
@@ -92,7 +101,24 @@
 - `signals[]` = `score()` 가 평가하는 신호 전부 + **effective weight**(현재 preset/override) + `fired`(발화) + `contribution`(fired 면 weight, staticAssetPenalty 발화 시 음수). 합(clamp[0,1], 3자리)=`apiScore`. `mode=explicit_hint` 면 path-shape 신호 대신 `pathHint` 평가(doc/09 §2.3) — `mode` 로 구분.
 - **dropped(비-API) 엔드포인트는 findings 에 없음** → rationale 도 없음(집계만 `droppedNonApi`). per-dropped 근거는 범위 밖(§8).
 
-## 3. 생산 메커니즘 (구현 가이드 — dev)
+## 3. 생산 메커니즘
+
+```mermaid
+flowchart TD
+    F["forHost(host): classifyExplained(discovered, spec, ...)"] --> C{"분류?"}
+    C -->|"Shadow"| SC["ApiScorer.scoreExplain → ScoreBasis(signals·apiScore·threshold·gate·mode)"]
+    C -->|"Active"| AM["SpecMatchBasis(specRef, deprecated=false)"]
+    C -->|"Zombie"| ZM["SpecMatchBasis(specRef, deprecated/estimated)"]
+    C -->|"Unused"| UO["SpecOnlyBasis(specRef)"]
+    C -->|"WebPage"| KB["KindBasis(endpointKind·kindConfidence)"]
+    SC --> R["rationale[] (findings 병렬)"]
+    AM --> R
+    ZM --> R
+    UO --> R
+    KB --> R
+    R --> CD["CombinedDiscovery + effectiveClassification (조회 시 재계산·스키마 0)"]
+```
+
 
 - **`ApiScorer.scoreExplain(d, corsPreflight, hints)` 신규** → `ScoreBreakdown{double total, List<SignalContribution> signals}`(`SignalContribution{key, weight, fired, contribution}`). 기존 `score()` 와 **동일 로직 미러**(발화 조건 1:1) — 중복 회피 위해 `score()` 가 `scoreExplain().total` 을 반환하도록 리팩터 권장(단일 진실원). `evaluate()` 의 `Gate` 는 그대로.
 - **`Classifier` 설명 변형(query 전용)**: 분류 core(1차 corsKeys/게이트 + 2차 스펙)를 공유하되, **explain 모드**에서만 `rationale` 수집(Shadow→scoreExplain, Active/Zombie→spec_match, Unused→spec_only, WebPage→kind). 스캔 경로(`classifyWithMetrics`→report_json)는 **explain=false=바이트 동일**(무회귀·ETag 불변). → 게이트/corsKeys 결정 단일 소스 유지(분기 발산 금지).
@@ -124,16 +150,7 @@
 - **리스크③(acrm-active 시 corsPreflight 미세차, dormant 기본)**: M3 preflight(acrm)가 ACTIVE 면 genuine-OPTIONS 구분에 per-OPTIONS `acrmPresentCount` 필요한데 `discovered_endpoint` 미영속(toDiscovered=0) → 재계산은 DORMANT(전 OPTIONS=cors) 가정. **기본 acrm-field-index=-1=DORMANT 라 현 출하 상태선 무차이**. M3 활성 운영 시 corsPreflight 도출이 스캔시와 다를 수 있음(후속 — acrm 영속 시 해소).
 - **리스크④(dropped 근거 부재)**: 비-API drop 은 findings 에 없어 per-endpoint 근거 미제공(집계만). 필요 시 후속(§8).
 
-## 7. dev 구현 체크리스트 (TASKS subitem, D26 / P3)
-
-- [x] `ApiScorer.scoreExplain(d, cors, hints)`→`ScoreBreakdown`(신호별 key/weight/fired/contribution + total) + `score()` 를 `scoreExplain().total` 위임(동일 값 회귀 테스트). 신호 발화 조건은 scoreExplain 1곳에만(단일 진실원, 드리프트 차단). `ApiScorer.weightsAsMap` 추가(effective weights 14키 맵).
-- [x] `Classifier` explain 변형 — 9-arg core 에 nullable `rationaleOut` 추가(각 finding 과 병렬로 근거 수집), 기존 8-arg 는 null 위임. `classifyExplained(...)` 진입점(findings+rationale). Shadow=scoreExplain(ScoreBasis)·Active/Zombie=spec_match·Unused=spec_only 근거. WebPage=kind 는 Classifier 가 WebPage finding 미산출이라 생성처 없음(sealed 완전성 위해 KindBasis 만 보유). **스캔 경로(rationaleOut=null) findings 바이트 동일**(테스트로 고정).
-- [x] `model/EndpointRationale`·`ApiBasis`(sealed 4종: Score/SpecMatch/SpecOnly/Kind, `@JsonTypeInfo` "type" 판별자)·`SignalContribution`·`ScoreBreakdown`·`EffectiveClassificationView` + `CombinedDiscovery` 가산(`effectiveClassification`·`rationale`, 6-arg 하위호환 생성자로 Finding/기존 경로 불변).
-- [x] `CombinedDiscoveryService.forHost` — `classifyExplained` 호출·`effectiveView`(profile/threshold/weightsSource/weights) 동봉(추가 조회 0).
-- [x] 매뉴얼 §4.3 변경 스펙(§5) — `api-discovery-manual.html` §4.3 에 반영 완료(TW): effective 확인(`effectiveClassification`)·엔드포인트 점수 내역(`rationale[].basis`)·신호↔`signals[].key` 매핑·분류별 근거 차이.
-- [x] 테스트 — scoreExplain↔score 동치(+contribution 합 재구성), rationale↔findings identity/순서 정합, Shadow score basis(신호·총점·gate·mode)·Active spec_match·deprecated Zombie spec_match(deprecated)·Unused spec_only, basis JSON "type" 판별자, effectiveClassification(MIDDLE/CUSTOM·weightsSource), 스캔경로 findings 동일(report_json·ETag 무영향). (corsPreflight 집합 도출은 기존 ClassifierTest 가 이미 커버.)
-
-## 8. 범위 밖 / 후속
+## 7. 범위 밖 / 후속
 
 - **per-dropped(비-API) 엔드포인트 근거** — findings 부재라 미제공(집계 droppedNonApi 만). 필요 시 별도 노출 설계.
 - **스캔시점 점수 영속(B)** — 현재 미채택. "그때 그 설정의 결정" 감사 필요 시 재검토(stale·스키마 비용 감수).
