@@ -1,9 +1,18 @@
 # endpoint_kind referer 보조 신호 — 설계
 
-> 브랜치 `feature/endpoint-kind-referer-signal`. 근거 doc/02 §5.1(비대칭)·§5.2(PAGE_URLS)·§5.3(절차)·§5.4(커버리지 게이트·노출).
-> 근거 결정 doc/DECISIONS.md **D29**. dev 항목은 TASKS 부모 'endpoint_kind referer 보조 신호' 아래 subitem(D26).
+> 정적 자원의 부모 페이지(referer)를 corpus 에서 모아, `$type` 으로 판정 안 된 UNKNOWN endpoint 를 **WEB_PAGE 로 보조 양성** 분류한다(비대칭 — 부재 시 무감점). 근거 [02-log-parsing-and-normalization](02-log-parsing-and-normalization.md) §5.1(비대칭)·§5.2(PAGE_URLS)·§5.3(절차)·§5.4(게이트·노출), 결정 [DECISIONS](DECISIONS.md) **D29**.
+> 연계: [17-response-type-api](17-response-type-api.md)(responseTypeApi 와 배타), [04-matching-and-classification](04-matching-and-classification.md) §4.1(WEB_PAGE Shadow 제외).
 
-## 0. 현 상태
+**구현 위치**
+
+| 대상 | 소스 |
+|---|---|
+| corpus pre-pass | `normalize/RefererSignalExtractor.build(requests)` → `model/RefererSignal`(status·pageUrls·ratios) |
+| 커버리지 게이트 | `RefererSignalExtractor`(static_ratio≥0.05 && referer_present≥0.20 → ACTIVE, 아니면 DORMANT) |
+| 분류 통합 | `normalize/EndpointKindClassifier.classify(template, typeDist, RefererSignal)`(UNKNOWN+active+자식≥2 → WEB_PAGE 0.6) |
+| 노출 | `model/EndpointKindSignal(status, staticRatio, refererPresentRatio)` → `DiscoveryReport` top-level |
+
+## 0. 설계 당시 현 상태
 
 - `EndpointKindClassifier.classify(pathTemplate, typeDist)`: 확장자 static → `$type=library` static → `document` web_page → API_TYPES api_candidate → **UNKNOWN**. referer 미사용.
 - `Acc` 는 referer 미수집. `ParsedRequest.referer`(필드13, nullable) 존재.
@@ -37,6 +46,16 @@ classify(pathTemplate, typeDist, RefererSignal s):
   return k                               // 그 외 전부 현행
 ```
 
+```mermaid
+flowchart TD
+    C["classify(template, typeDist, signal)"] --> K["$type + 확장자 로직 → KindResult k"]
+    K --> Q{"k.kind == UNKNOWN?"}
+    Q -->|"아니오 (static/web_page/api_candidate 결정)"| KEEP["k 그대로 (referer 분기 skip)"]
+    Q -->|"예"| A{"signal.active && pageUrls[template] >= 2?"}
+    A -->|"예"| W["WEB_PAGE, confidence 0.6 (보조 양성)"]
+    A -->|"아니오"| U["UNKNOWN 유지 (부재=무증거·무감점)"]
+```
+
 - **$type 결정 우선**: static/web_page/api_candidate 로 이미 결정되면 referer 분기 안 탐(doc 명시).
 - **비대칭 양성(§5.1)**: PAGE_URLS 에 있으면 WEB_PAGE 가점, **없으면 UNKNOWN 유지(감점·api 단정 없음)**. 부재=무증거.
 - **인터페이스 최소 변경**: 3-arg 신규 + **2-arg 오버로드(→`RefererSignal.dormant()` 위임)** 하위호환 → 기존 `EndpointKindClassifierTest` 무영향.
@@ -61,20 +80,10 @@ classify(pathTemplate, typeDist, RefererSignal s):
 - **doc/17 responseTypeApi 충돌 없음**: referer 보조는 **UNKNOWN 일 때만**. API_CANDIDATE($type=json 등)는 이미 결정돼 분기 안 탐 → responseTypeApi 그대로.
   UNKNOWN→WEB_PAGE 전환은 원래 responseTypeApi 안 받던 케이스(WEB_PAGE⊕API_CANDIDATE 배타) → 손실 없음.
 - **doc/09 web-form drop 일관**: WEB_PAGE 정확도↑ → write-to-WEB_PAGE 폼 억제 정확도↑(의도). referer WEB_PAGE 는 GET 페이지 위주라 write 와 겹침 적음.
-- **Classifier**: WEB_PAGE 미문서 → undocumented_web_page/Shadow 제외(doc/04 §4.1.1) → Shadow 오탐 감소(정확도 개선).
+- **Classifier**: WEB_PAGE 미문서 → Shadow 제외(doc/04 §4.1) → Shadow 오탐 감소(정확도 개선).
 - 기존 테스트: `EndpointKindClassifierTest`(2-arg) 오버로드로 무영향. `InventoryBuilderTest` 는 dormant 기본 → 대체로 무영향, 영향 시 dev 갱신.
 
-## 7. dev 구현 체크리스트 (TASKS subitem, D26)
-
-> ✅ **구현 완료 (PR 머지)** — 아래는 historical 체크리스트(2026-06-24 실제 머지 코드 대조 후 완료 표기, D28). 잔여는 §'범위 밖/후속'·TASKS 참조.
-- [x] `model/RefererSignal`(internal: SignalStatus·pageUrls(Map<String,Long>)·staticRatio·refererPresentRatio·`dormant()`) + `model/EndpointKindSignal`(노출: status·ratios·`NONE`) + `enum SignalStatus{ACTIVE,DORMANT}`.
-- [x] `normalize/RefererSignalExtractor`(@Component) — `build(requests)`: static referer path 정규화→PAGE_URLS freq + static_ratio/referer_present_ratio + 게이트(임계 미달→dormant).
-- [x] `EndpointKindClassifier` — 3-arg `classify(pathTemplate, typeDist, RefererSignal)`(UNKNOWN+active+PAGE_URLS≥2→WEB_PAGE conf 0.6), 2-arg 오버로드(dormant 위임) 하위호환, `isStaticPath()` public 노출.
-- [x] `InventoryBuilder.buildWithLimits` — corpus pre-pass(RefererSignalExtractor) → classify 3-arg 전달 → `InventoryResult` 에 EndpointKindSignal 추가.
-- [x] `model/DiscoveryReport` top-level `endpointKindSignal`(항상 non-null) + `ReportBuilder.build` 인자 + `DiscoveryJobService.analyze` ETag 입력(ratios round3).
-- [x] 테스트 — PAGE_URLS 구축(static referer→정규화) / web_page 가점(UNKNOWN+PAGE_URLS≥2) / 비대칭(부재→UNKNOWN·무감점) / dormant 게이트(낮은 ratio→전부 현행) / $type 우선(document·library·json 결정 케이스 referer 무시) / 2-arg 오버로드 하위호환 / 노출(active·dormant)·ETag.
-
-## 8. 범위 밖 / 후속
+## 7. 범위 밖 / 후속
 
 - api_candidate 약가점(non-browser UA + referer 부재) — §4 사유로 미채택.
 - referer 동적 임계 중앙 API 튜닝(현재 코드 상수, seam=`@ConfigurationProperties`).
