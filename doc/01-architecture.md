@@ -5,59 +5,22 @@
 > MSA: 본 파이프라인은 **API Discovery Worker** 서비스 내부 흐름이다. 중앙 서버 연동(도메인 설정 수신·결과 제공)은 [07-msa-and-central-integration](07-msa-and-central-integration.md).
 > 한 도메인 1회 스캔에서 A~F 를 실제로 엮어 돌리는 진입점은 `batch/DiscoveryJobService` 의 `runScan()`(배치 묶음은 `runScanBatched()`).
 
-```
-   ┌───────────┐ 도메인설정/결과조회 ┌──────────────────────────┐
-   │ 중앙 서버 │◀───── REST API ────▶│ (G) Worker REST API      │  ← 07 문서
-   └───────────┘                     └────────────┬─────────────┘
-                                                   │ 도메인 설정(DB)
-   ┌───────────┐  주기 실행   ┌──────────────────────────┐       │
-   │ Scheduler │─────────────▶│ (S0) Loki Fetcher        │  ← 05 │
-   │ @Scheduled│              │  도메인별 watermark·덤프 │◀──────┘
-   └───────────┘              └────────────┬─────────────┘
-                                           │ raw log lines (^|^, jsonl)
-                                           ▼
-                  ┌──────────────────────────────────────────────┐
-   사내 Loki ─────▶│  (A) Log Ingestor & Parser                   │
-   (LogQL)        │      필드 분리 → method/path/status/host 추출 │
-                  └───────────────┬──────────────────────────────┘
-                                  │ ParsedRequest[]
-                                  ▼
-                  ┌──────────────────────────────────────────────┐
-                  │  (B) Normalizer & Inventory Builder           │
-                  │      경로 정규화 → 엔드포인트 시그니처 집계   │
-                  └───────────────┬──────────────────────────────┘
-                                  │ Discovered 집합 D (메트릭 포함)
-                                  │
-  [업로드 시점·스캔과 분리]        │
-   중앙 PUT /spec ─┐               │
-   (OpenAPI/        ▼              │
-    Postman/   ┌────────────────────────┐ │
-    CSV)       │ (C) Spec Loader        │ │
-               │  파싱·검증 → Canonical │ │
-               │  → Spec Store 영속     │ │
-               └───────────┬────────────┘ │
-                   ┌────────▼─────────┐    │
-                   │   Spec Store     │    │  도메인×specVersion
-                   │ (Canonical 영속) │    │  스캔 시 로드(재파싱X)
-                   └────────┬─────────┘    │
-                   │ Spec 집합 S(버전)│    │
-                   ▼               ▼
-              ┌──────────────────────────────────────┐
-              │  (D) Matching Engine                  │
-              │     템플릿 컴파일 → D×S 매칭          │
-              └───────────────┬───────────────────────┘
-                              │ 매칭 결과
-                              ▼
-              ┌──────────────────────────────────────┐
-              │  (E) Classifier                       │
-              │     Shadow / Zombie / Active / Unused │
-              │     + 신뢰도 점수                     │
-              └───────────────┬───────────────────────┘
-                              │
-                              ▼
-              ┌──────────────────────────────────────┐
-              │  (F) Reporter → JSON 리포트 / 대시보드 │
-              └──────────────────────────────────────┘
+```mermaid
+flowchart TD
+    Central["중앙 서버"]
+    Central <-->|"REST API · 도메인설정/결과조회"| G["(G) Worker REST API"]
+    Central -.->|"PUT /spec · 업로드 시점, 스캔과 분리<br/>OpenAPI / Postman / CSV"| C["(C) Spec Loader<br/>파싱·검증 → Canonical"]
+    C --> Store[("Spec Store · Canonical 영속<br/>도메인 × specVersion, 스캔 시 로드(재파싱X)")]
+
+    Sched["Scheduler @Scheduled"] -->|"주기 실행"| S0["(S0) Loki Fetcher<br/>도메인별 watermark 증분·덤프"]
+    G -.->|"도메인 설정(DB)"| S0
+    Loki["사내 Loki"] -->|"LogQL range query"| S0
+    S0 -->|"raw log lines"| A["(A) Log Ingestor &amp; Parser<br/>필드 분리 → method/path/status/host"]
+    A -->|"ParsedRequest[]"| B["(B) Normalizer &amp; Inventory Builder<br/>경로 정규화 → 시그니처 집계"]
+    B -->|"Discovered 집합 D (메트릭 포함)"| M["(D) Matching Engine<br/>템플릿 컴파일 → D × S 매칭"]
+    Store -->|"Spec 집합 S (버전)"| M
+    M -->|"매칭 결과"| E["(E) Classifier<br/>Shadow / Zombie / Active / Unused + 신뢰도"]
+    E --> F["(F) Reporter → JSON 리포트 / 대시보드"]
 ```
 
 ## 2. 컴포넌트 책임
