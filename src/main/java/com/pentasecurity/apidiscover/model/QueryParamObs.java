@@ -2,4 +2,5 @@
 package com.pentasecurity.apidiscover.model;
 
 public record QueryParamObs(String name, ValueLenBucket lenBucket) {
+    // record — 필드는 헤더 괄호에 선언, 본문 비움이 정상(순수 데이터, dead 아님).
 }

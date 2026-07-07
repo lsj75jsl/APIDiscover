@@ -8,4 +8,5 @@ import java.util.List;
  * {@code signals} = 평가된 신호 전부(mode 에 따라 path-shape vs pathHint, doc/34 §2).
  */
 public record ScoreBreakdown(double total, List<SignalContribution> signals) {
+    // record — 필드는 헤더 괄호에 선언, 본문 비움이 정상(순수 데이터, dead 아님).
 }

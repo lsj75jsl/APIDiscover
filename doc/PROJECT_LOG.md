@@ -10,6 +10,7 @@
 ### 한 일
 - **운영 상태 점검(DB)** — eligible 38,178 / due 24,166(≈63%). 밀림 상한 ~6h(최대 364분·p50 142분·p90 319분), 다일치 백로그 0. 처리량 ~14.5k 도메인/h(대부분 delta-skip, 실 Loki 조회는 6000/h 예산 캡). watermark 수집지연(eligible) 중앙값 2.4h. 스캔 라이브(마지막 attempt 36초 전). 판정 = 안정 steady-state(30분 active-SLA 는 용량한계로 ~5–6배 미달하나 폭주 아님).
 - **미사용 소스 정리(D73)** — 전 타입 외부참조 0건 전수 스캔. 진짜 미사용 = `central/CentralWebhookClient`(no-op TODO 스텁) 하나 삭제. "빈 것처럼 보이던" SchedulingConfig(annotation-config)·record·Spring Data 인터페이스·@RestController 는 정상이라 유지. doc/07 dangling 참조 정리.
+- **빈 본문 사유 주석 추가**(사용자 요청) — 본문이 빈 10개 파일(SchedulingConfig·record 5·Spring Data 인터페이스 4)에 "왜 비었는지(dead 아님)" 한 줄 주석. 다음 리더가 dead 로 오인 안 하도록. ★ParamDiff 는 로직 가득한 유틸이라(detector 오탐) 제외.
 
 ### 결과
 - compileJava+compileTestJava green. 삭제로 central 패키지 소멸.

@@ -13,4 +13,5 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @EnableScheduling
 @Profile("!cli")
 public class SchedulingConfig {
+    // 본문 없음이 정상 — @EnableScheduling 활성화 자체가 목적(빈·메서드 불필요, dead 아님).
 }
