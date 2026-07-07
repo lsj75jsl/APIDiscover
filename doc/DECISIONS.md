@@ -635,6 +635,11 @@ gap-free 크롤은 활성 수요(~22.6k 윈도우/h) vs 예산 용량(D65 후 ~7
 - **운영 반영(D56 런타임 경로)**: 이미 시드된 운영 DB 는 코드 `DEFAULT_STATIC_EXT` 변경만으론 반영 안 됨(`seedIfEmpty` 는 빈 테이블 전용). `POST /config/static-classify {kind:EXTENSION,value:...}` 6회로 `static_classify_rule` insert + 즉시 reload — 재배포 불필요. DB 영속 6행·목록 24종 확인.
 - **검증**: build green·신규 가드 테스트(`configSecretExtensionsAreStaticButJsonYamlAreNot` — 6종 STATIC·.json/.yaml 비-STATIC). D55/D56 후속.
 
+### D73. 미사용 스캐폴딩 제거 — central/CentralWebhookClient (2026-07-07, 사용자 요청)
+- **배경**: 소스 점검 중 "본문 없는 클래스" 지적. 전수 스캔(전 타입 외부 참조 0건 검사) 결과 진짜 미사용은 `central/CentralWebhookClient`(@Component, `notifyScanCompleted()` = no-op TODO 스텁) 하나 — 어디서도 주입·호출 안 됨(central 패키지 유일 파일). 나머지 "빈 것처럼 보이던" 파일은 정상: `SchedulingConfig`(@EnableScheduling 자체가 목적)·record(필드는 헤더)·Spring Data 인터페이스·@RestController(HTTP 호출이라 코드참조 0 정상).
+- **결정**: CentralWebhookClient 삭제(central 패키지 소멸). doc/07 §0 표 행·§6 '현재 상태' 문구를 "미구현(설계만)"으로 갱신. 완료 웹훅은 선택적 후속 설계로 §6 에 유지(결과 동기화는 §7 조건부 pull 로만 동작 — 무회귀).
+- **검증**: compileJava+compileTestJava green(참조 0 확인 후 삭제라 무영향).
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.
