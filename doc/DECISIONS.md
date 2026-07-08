@@ -646,8 +646,8 @@ gap-free 크롤은 활성 수요(~22.6k 윈도우/h) vs 예산 용량(D65 후 ~7
   - `loki.page-limit 2000→5000` — 페이지네이션 쿼리의 페이지수 ~60%↓ → 총 페이지율↓(예산 여유↑)·truncation 여유↑. queryRange 는 per-query 페이지 캡이 없어 데이터 손실은 원래 없음 — 이득은 완결성이 아니라 효율. Loki 기본 `max_entries_limit_per_query=5000` 천장 가정(서버 확인 권장).
   - `scan.domains-per-tick 500→650`(+`off-peak-domains-per-tick` 동반, 주야 균일 유지) — 여유로 백로그 감축, **점진 상향 1단계**.
   - `max-queries-per-hour 6000 유지` — 현재 미포화라 상향해도 무효과. Loki 서버 한계 확인은 보류, 이후 모니터링하며 점진 조정(사용자 방향).
-- **운영 반영(재빌드 없이, 사용자 지시)**: 이미지 재빌드/재배포 안 함. 현 이미지(`localhost/apidiscover:test`) JAR 은 옛 baked 값이라, adc.yaml app 컨테이너에 env override(`APIDISCOVER_LOKI_PAGELIMIT=5000`·`APIDISCOVER_SCAN_DOMAINSPERTICK=650`·`APIDISCOVER_SCAN_OFFPEAKDOMAINSPERTICK=650`, Spring relaxed binding=대시 제거) 추가 후 `podman play kube --replace`(동일 이미지 파드 재생성)로 적용. 다음 재빌드 시 application.yml 이 이미 신값이라 이 3 env 제거 무방(중복·무해).
-- **검증(예정)**: 재생성 후 `/actuator/configprops` 로 신값(5000·650) 확인 · `deferred=0` · 페이지율 <5.5k/h 모니터. rootful 파드라 재생성은 root 권한 필요(운영자 실행).
+- **운영 반영(재빌드 후 재배포, 사용자 최종 결정)**: 처음엔 "재빌드 없이 adc.yaml env override" 로 진행했으나, rootful 파드+무암호 sudo 부재로 재생성이 막혀 **소스 재빌드 후 재배포**로 전환. 새 `application.yml`(5000·650)이 이미지에 baked 되므로 env override 불요 → adc.yaml 의 D74 env 3개는 제거(clean, D67 철학 복귀). 절차: dev(prox-dev, .198)에서 `podman build` → `podman save` → VM(.197) scp → root `podman load` + `podman play kube --replace`. 빌드/save/scp 는 무권한 가능, load+play kube 만 root.
+- **검증(예정)**: 재배포 후 configprops 는 값 마스킹(`******`)이라 못 씀 — env(`podman exec … env|grep APIDISCOVER` 는 이제 없음, 대신 baked)·동작 로그로 검증. loki-query.log 페이지네이션(중복 logql) 급감·페이지당 bytes↑(page-limit 5000 발효), adc.log `batched scan tick` jobs↑·`deferred=0`(domains-per-tick 650 발효)·백로그 감소.
 
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.

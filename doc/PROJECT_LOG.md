@@ -13,11 +13,11 @@
 - **D74 튜닝 소스 반영** — application.yml: page-limit 2000→5000, domains-per-tick 500→650(+off-peak 동반). max-queries-per-hour 6000 유지(보류). adc.yaml 에 재빌드 없는 운영 반영용 env override 3개 추가.
 
 ### 결과
-- 소스·adc.yaml·문서 커밋. build 무관(설정만).
-- ★운영 반영은 **rootful 파드 재생성(sudo podman play kube --replace)** 이 필요 — kaga 계정 무암호 sudo 불가라 운영자(root) 실행 대기. 갱신 adc.yaml 은 VM(kaga home)에 stage 완료, sudo 명령·검증 절차 전달.
+- 소스 application.yml·문서 커밋.
+- 운영 반영 방식 전환 — 처음 "재빌드 없이 env override" 시도했으나 rootful 파드+무암호 sudo 부재로 재생성 불가 → **소스 재빌드 후 재배포**로 결정(사용자). adc.yaml 의 env override 는 제거(baked 로 대체). dev(.198)에서 빌드→save→VM(.197) scp→root load+play kube.
 
 ### 다음 단계
-- 운영자가 파드 재생성 → configprops(5000·650) 확인 → deferred=0·페이지율<5.5k/h·백로그 감소 모니터. 안정 확인 후 domains-per-tick·max-queries-per-hour 추가 점진 상향 검토.
+- 이미지 빌드(prox-dev)→VM scp→운영자 load+`play kube --replace`. 재배포 후 동작 로그(loki-query.log 페이지네이션 급감·adc.log jobs↑·deferred=0)로 5000·650 발효 검증. 안정 후 domains-per-tick·max-queries-per-hour 추가 점진 상향.
 
 ## 2026-07-07 세션 71 — 운영 상태 점검 + 미사용 스캐폴딩 제거(D73)
 
