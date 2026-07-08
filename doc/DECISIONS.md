@@ -662,11 +662,12 @@ gap-free 크롤은 활성 수요(~22.6k 윈도우/h) vs 예산 용량(D65 후 ~7
 - **발견(shm)**: 컨테이너 `/dev/shm` 기본 **64MB** 라 **병렬 VACUUM 실패**("could not resize shared memory … No space left on device", 282MB 인덱스 병렬 처리 시). `PARALLEL 0` 로 회피. autovacuum 은 병렬을 안 써서 무영향. 병렬 유지보수/대형 병렬쿼리가 필요하면 adc.yaml 에 shm 확대(별도 결정).
 - **잔여(선택)**: 282MB 인덱스 bloat 는 VACUUM 으로 안 줄어듦 — 디스크 회수하려면 `SET max_parallel_maintenance_workers=0; REINDEX INDEX CONCURRENTLY ukktr…`(I/O 큼·성능 아닌 디스크 목적, shm 회피 위해 병렬 0).
 
-### D77. 컨테이너 /dev/shm 64MB→1Gi — 병렬 VACUUM/REINDEX 지원 (2026-07-09, 사용자 요청)
-- **배경**: D76 에서 `VACUUM (ANALYZE) discovered_endpoint` 가 컨테이너 기본 `/dev/shm` 64MB 부족으로 병렬 워커 DSM 세그먼트 리사이즈 실패("could not resize shared memory … No space left on device"). `PARALLEL 0` 으로 회피했으나 병렬 유지보수(REINDEX 등)가 막힘.
-- **결정**: adc.yaml db 컨테이너에 `/dev/shm` = `emptyDir(medium:Memory, sizeLimit:1Gi)` 마운트. PG **동적 공유메모리(DSM)** = 병렬 VACUUM/REINDEX/병렬쿼리 워커용. 주 `shared_buffers` 는 /dev/shm 이 아니라 무관, autovacuum 은 병렬 미사용이라 무관(D76 튜닝은 영향 없음).
-- **반영**: adc.yaml-only 라 원칙상 이미지 재빌드 불요이나, 사용자 요청대로 소스 HEAD(@Index D75 포함 — 현 배포 이미지는 그 직전 ed19809 기반) 재빌드해 이미지도 동기화 후 `podman play kube --replace`. DB 데이터·인덱스·reloptions 는 hostPath 라 재기동에도 유지.
-- **후속**: 282MB bloat 인덱스 `ukktr…` REINDEX INDEX CONCURRENTLY 로 디스크 회수(shm 확대로 병렬 가능).
+### D77. 컨테이너 /dev/shm 확대 시도 → SELinux 로 실패·롤백, 비병렬로 대체 (2026-07-09, 사용자 요청)
+- **배경**: D76 에서 `VACUUM (ANALYZE) discovered_endpoint` 가 컨테이너 기본 `/dev/shm` 64MB 부족으로 병렬 워커 DSM 세그먼트 리사이즈 실패("could not resize shared memory … No space left on device"). 병렬 유지보수(REINDEX 등) 지원을 위해 shm 확대 요청.
+- **시도**: adc.yaml db 컨테이너에 `/dev/shm` = `emptyDir(medium:Memory, sizeLimit:1Gi)` 마운트 + 소스 HEAD(@Index D75 포함) 재빌드(이미지 9cf1551) → `podman play kube --replace`.
+- **실패(SELinux)**: el8 SELinux Enforcing 이 **emptyDir(Memory) tmpfs 를 컨테이너 MCS 라벨로 relabel 하지 않아**, PG 가 `/dev/shm` 공유메모리 세그먼트 접근 거부(`FATAL: could not open shared memory segment: Permission denied`) → adc-db 크래시루프. **즉시 롤백**(shm 마운트 제거한 adc.yaml 재배포) → DB 복구·app UP 확인. (hostPath 와 동일 부류 트랩 — hostPath 는 chcon 으로 되지만 tmpfs emptyDir 은 relabel 미적용.)
+- **재검토(결론)**: shm 확대는 **불필요**. "shm 부족으로 못 한 작업"(discovered_endpoint VACUUM)은 이미 D76 에서 `PARALLEL 0` 으로 완료(dead 0). 유일한 잔여인 282MB 인덱스 bloat 회수도 `SET max_parallel_maintenance_workers=0; REINDEX INDEX CONCURRENTLY` **비병렬**로 하면 /dev/shm 이 필요 없다. 병렬(속도)만 아쉬운데 이득 대비 위험·복잡도가 커 shm 확대는 보류. 정 필요하면 podman 라벨 annotation(`io.podman.annotations.label/db: disable`, 단 db 컨테이너 SELinux 분리 해제=보안 다운) 또는 tmpfs relabel 방법을 별도 검증.
+- **소스 상태**: adc.yaml 은 shm 마운트 제거로 롤백(HEAD=배포본 일치). 이미지 9cf1551(@Index 포함)은 배포 유지.
 
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
