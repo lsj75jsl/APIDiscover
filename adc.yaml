@@ -26,6 +26,8 @@ spec:
       volumeMounts:
         - name: pgdata
           mountPath: /var/lib/postgresql/data
+        - name: dshm
+          mountPath: /dev/shm        # D77: PG 동적 공유메모리(병렬 VACUUM/REINDEX/병렬쿼리) — 컨테이너 기본 64MB→1Gi tmpfs
     - name: app
       image: localhost/apidiscover:test
       env:
@@ -60,3 +62,7 @@ spec:
         path: /opt/adc-log        # D58 로그 마운트(컨테이너 외부). 사전 생성+SELinux relabel 필요:
         type: Directory           #   mkdir -p /opt/adc-log && chcon -Rt container_file_t /opt/adc-log
                                   # (el8 SELinux Enforcing — 미적용 시 컨테이너 쓰기 Permission denied → 앱 크래시루프. pgdata /opt/adc 와 동일)
+    - name: dshm                  # D77: /dev/shm tmpfs. 기본 64MB 는 병렬 VACUUM/REINDEX 시 부족("No space left on device").
+      emptyDir:                   #   메모리 backed(호스트 RAM 8GB 중 1Gi). autovacuum 은 병렬 미사용이라 이 마운트와 무관.
+        medium: Memory
+        sizeLimit: 1Gi

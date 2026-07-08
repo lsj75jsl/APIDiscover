@@ -662,6 +662,12 @@ gap-free 크롤은 활성 수요(~22.6k 윈도우/h) vs 예산 용량(D65 후 ~7
 - **발견(shm)**: 컨테이너 `/dev/shm` 기본 **64MB** 라 **병렬 VACUUM 실패**("could not resize shared memory … No space left on device", 282MB 인덱스 병렬 처리 시). `PARALLEL 0` 로 회피. autovacuum 은 병렬을 안 써서 무영향. 병렬 유지보수/대형 병렬쿼리가 필요하면 adc.yaml 에 shm 확대(별도 결정).
 - **잔여(선택)**: 282MB 인덱스 bloat 는 VACUUM 으로 안 줄어듦 — 디스크 회수하려면 `SET max_parallel_maintenance_workers=0; REINDEX INDEX CONCURRENTLY ukktr…`(I/O 큼·성능 아닌 디스크 목적, shm 회피 위해 병렬 0).
 
+### D77. 컨테이너 /dev/shm 64MB→1Gi — 병렬 VACUUM/REINDEX 지원 (2026-07-09, 사용자 요청)
+- **배경**: D76 에서 `VACUUM (ANALYZE) discovered_endpoint` 가 컨테이너 기본 `/dev/shm` 64MB 부족으로 병렬 워커 DSM 세그먼트 리사이즈 실패("could not resize shared memory … No space left on device"). `PARALLEL 0` 으로 회피했으나 병렬 유지보수(REINDEX 등)가 막힘.
+- **결정**: adc.yaml db 컨테이너에 `/dev/shm` = `emptyDir(medium:Memory, sizeLimit:1Gi)` 마운트. PG **동적 공유메모리(DSM)** = 병렬 VACUUM/REINDEX/병렬쿼리 워커용. 주 `shared_buffers` 는 /dev/shm 이 아니라 무관, autovacuum 은 병렬 미사용이라 무관(D76 튜닝은 영향 없음).
+- **반영**: adc.yaml-only 라 원칙상 이미지 재빌드 불요이나, 사용자 요청대로 소스 HEAD(@Index D75 포함 — 현 배포 이미지는 그 직전 ed19809 기반) 재빌드해 이미지도 동기화 후 `podman play kube --replace`. DB 데이터·인덱스·reloptions 는 hostPath 라 재기동에도 유지.
+- **후속**: 282MB bloat 인덱스 `ukktr…` REINDEX INDEX CONCURRENTLY 로 디스크 회수(shm 확대로 병렬 가능).
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.
