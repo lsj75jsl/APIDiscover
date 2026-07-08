@@ -11,12 +11,14 @@
 - **D74 밀림 12h 확인** — due 18,734→15,612(−17%), 밀림 max 6.1h→2.6h·p50 2.4h→1.0h·p90 5.3h→2.3h, 페이지율 ~3,078/h(budget 51%), deferred 0. 튜닝 효과 확인. 단 jobs/틱 ~500<650 상한 = 수요-제한이라 domains-per-tick 추가 상향(→800)은 무효 — 제안 철회, 현 설정 유지 권고.
 - **PG CPU 포화 진단·해소(D75)** — adc-db 백엔드 1개 90%+. 원인=`domain_hostnames.host` 무인덱스 → `@ElementCollection(EAGER)` 로드마다 95k행 seq scan(N+1), 틱당 수백회. `CREATE INDEX CONCURRENTLY`(라이브 무락) 즉시 완화(seq 12ms→idx 0.066ms, 백엔드 90%→~0). 소스 `@CollectionTable(indexes=@Index)` 영구 반영(동일명 → ddl-auto 무충돌).
 
+- **discovered_endpoint autovacuum 튜닝·초기 정리(D76)** — never-vacuum(임계 ~459k dead) 스파이크 우려 → per-table autovacuum scale 0.2→0.05(발화 ~125k dead)·`VACUUM (ANALYZE, PARALLEL 0)` 로 dead 153k→0. 발견: 컨테이너 /dev/shm 64MB 라 병렬 VACUUM 실패→PARALLEL 0 회피(autovacuum 은 병렬 미사용, 무영향). 282MB unique 인덱스 bloat 는 선택적 REINDEX 로 회수 가능(미실행).
+
 ### 결과
 - 라이브 CPU 즉시 해소·소스 커밋·build green. domain_hostnames seq_scan 정체·idx_scan 전환 실측 확인.
+- discovered_endpoint dead 0·autovacuum 자주·소량화. reloptions pg_class 영속(fresh DB 만 재적용 필요 = ops 스텝).
 
 ### 다음 단계
-- (비긴급) discovered_endpoint(2.3M행·dead 153k·autovacuum 미실행) 오토배큠 튜닝 검토.
-- ★중단됨: 매뉴얼 현행화(설정값 5000/650·밀림추이·스캔 방식/절차) — CPU 이슈로 보류, 재개 필요.
+- ★재개 필요: 매뉴얼 현행화(설정값 5000/650·밀림추이·스캔 방식/절차·D76 DB 튜닝 ops 스텝) — CPU/DB 이슈로 보류했던 작업.
 
 ## 2026-07-08 세션 72 — Loki 예산 실측 분석 + 스캔 처리량 튜닝(D74)
 

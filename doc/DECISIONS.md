@@ -654,7 +654,13 @@ gap-free 크롤은 활성 수요(~22.6k 윈도우/h) vs 예산 용량(D65 후 ~7
 - **진단**: `pg_stat_activity` 반복 샘플에서 `select ... from domain_hostnames where host=$1` 이 상시 active(5회 중 4회). `EXPLAIN`=Seq Scan(95,754행 중 95,753 버림·952페이지·~12ms, shared hit=순수 CPU). `pg_stat_user_tables` domain_hostnames seq_scan **1.45M**·idx_scan 없음. 원인 = `DomainConfig.hostnames` 가 `@ElementCollection(fetch=EAGER)` 라 도메인 로드마다 hostnames 조회가 발생하는데, **FK(host)는 자식 컬럼 인덱스를 자동 생성하지 않아** 매 조회가 전체 seq scan → 스캔 틱마다 도메인당(수백회/틱) 반복으로 한 코어 포화.
 - **조치**: ① 라이브 즉시 `CREATE INDEX CONCURRENTLY idx_domain_hostnames_host ON domain_hostnames(host)`(무락, 2.1초). EXPLAIN Seq Scan(12ms)→Index Scan(0.066ms, **~180배**)·백엔드 CPU 90%→~0·seq_scan 정체+idx_scan 전환 확인. ② 소스 영구: `@CollectionTable(..., indexes=@Index(name="idx_domain_hostnames_host", columnList="host"))` — 이름이 수동생성 인덱스와 동일해 ddl-auto=update 무충돌, fresh 설치는 자동 생성.
 - **불변식**: JPA `@ElementCollection`/`@OneToMany` 조인 컬럼(자식 FK)은 인덱스가 자동 생성되지 않는다 — 조회 술어가 되는 컬럼엔 반드시 명시 `@Index`. (동류 트랩: `@Lob`→oid D40.)
-- **후속(비긴급)**: discovered_endpoint 2.3M행·dead 153k·autovacuum 미실행(기본 임계 ~458k) — 오토배큠 발화 시 1GB 테이블 배큠 CPU 스파이크 가능. 필요 시 테이블별 autovacuum scale factor 하향 검토.
+- **후속**: discovered_endpoint autovacuum/bloat → D76 에서 처리.
+
+### D76. discovered_endpoint autovacuum 튜닝 + 초기 VACUUM (2026-07-09, D75 후속)
+- **배경**: discovered_endpoint(2.3M행·1GB)가 한 번도 vacuum 안 됨 — 전역 임계(scale 0.2 → ~459k dead)에서야 발화해 1GB 대형 vacuum CPU/IO 스파이크 우려. unique 인덱스 `ukktr…`(host,method,path_template) 282MB(조회 idx_scan=0, 제약 강제 전용) never-vacuum bloat.
+- **조치**: ① per-table `ALTER TABLE discovered_endpoint SET (autovacuum_vacuum_scale_factor=0.05, autovacuum_vacuum_threshold=10000, autovacuum_analyze_scale_factor=0.05, autovacuum_analyze_threshold=10000)` → 발화 ~125k dead(기존 ~459k 대비 ~3.7배 자주·소량 = 스파이크 분산). ② 즉시 `VACUUM (ANALYZE, PARALLEL 0)` — dead 153k→**0**·통계 갱신(1m53s, 무락). reloptions 는 pg_class 영속(재기동·재배포 유지 — DB 는 hostPath). ★JPA `@Table` 로 표현 불가한 DB-레벨 설정 → fresh DB(신규 /opt/adc)는 재적용 필요(ops 스텝, deploy 매뉴얼에 기재).
+- **발견(shm)**: 컨테이너 `/dev/shm` 기본 **64MB** 라 **병렬 VACUUM 실패**("could not resize shared memory … No space left on device", 282MB 인덱스 병렬 처리 시). `PARALLEL 0` 로 회피. autovacuum 은 병렬을 안 써서 무영향. 병렬 유지보수/대형 병렬쿼리가 필요하면 adc.yaml 에 shm 확대(별도 결정).
+- **잔여(선택)**: 282MB 인덱스 bloat 는 VACUUM 으로 안 줄어듦 — 디스크 회수하려면 `SET max_parallel_maintenance_workers=0; REINDEX INDEX CONCURRENTLY ukktr…`(I/O 큼·성능 아닌 디스크 목적, shm 회피 위해 병렬 0).
 
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
