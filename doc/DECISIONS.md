@@ -649,6 +649,13 @@ gap-free 크롤은 활성 수요(~22.6k 윈도우/h) vs 예산 용량(D65 후 ~7
 - **운영 반영(재빌드 후 재배포, 사용자 최종 결정)**: 처음엔 "재빌드 없이 adc.yaml env override" 로 진행했으나, rootful 파드+무암호 sudo 부재로 재생성이 막혀 **소스 재빌드 후 재배포**로 전환. 새 `application.yml`(5000·650)이 이미지에 baked 되므로 env override 불요 → adc.yaml 의 D74 env 3개는 제거(clean, D67 철학 복귀). 절차: dev(prox-dev, .198)에서 `podman build` → `podman save` → VM(.197) scp → root `podman load` + `podman play kube --replace`. 빌드/save/scp 는 무권한 가능, load+play kube 만 root.
 - **검증(예정)**: 재배포 후 configprops 는 값 마스킹(`******`)이라 못 씀 — env(`podman exec … env|grep APIDISCOVER` 는 이제 없음, 대신 baked)·동작 로그로 검증. loki-query.log 페이지네이션(중복 logql) 급감·페이지당 bytes↑(page-limit 5000 발효), adc.log `batched scan tick` jobs↑·`deferred=0`(domains-per-tick 650 발효)·백로그 감소.
 
+### D75. domain_hostnames.host 인덱스 추가 — PG CPU 포화(seq scan N+1) 해소 (2026-07-09, 실운영 진단)
+- **증상**: 테스트 VM adc-db PG 백엔드 1개가 CPU 90%+ 지속 점유(단일 프로세스).
+- **진단**: `pg_stat_activity` 반복 샘플에서 `select ... from domain_hostnames where host=$1` 이 상시 active(5회 중 4회). `EXPLAIN`=Seq Scan(95,754행 중 95,753 버림·952페이지·~12ms, shared hit=순수 CPU). `pg_stat_user_tables` domain_hostnames seq_scan **1.45M**·idx_scan 없음. 원인 = `DomainConfig.hostnames` 가 `@ElementCollection(fetch=EAGER)` 라 도메인 로드마다 hostnames 조회가 발생하는데, **FK(host)는 자식 컬럼 인덱스를 자동 생성하지 않아** 매 조회가 전체 seq scan → 스캔 틱마다 도메인당(수백회/틱) 반복으로 한 코어 포화.
+- **조치**: ① 라이브 즉시 `CREATE INDEX CONCURRENTLY idx_domain_hostnames_host ON domain_hostnames(host)`(무락, 2.1초). EXPLAIN Seq Scan(12ms)→Index Scan(0.066ms, **~180배**)·백엔드 CPU 90%→~0·seq_scan 정체+idx_scan 전환 확인. ② 소스 영구: `@CollectionTable(..., indexes=@Index(name="idx_domain_hostnames_host", columnList="host"))` — 이름이 수동생성 인덱스와 동일해 ddl-auto=update 무충돌, fresh 설치는 자동 생성.
+- **불변식**: JPA `@ElementCollection`/`@OneToMany` 조인 컬럼(자식 FK)은 인덱스가 자동 생성되지 않는다 — 조회 술어가 되는 컬럼엔 반드시 명시 `@Index`. (동류 트랩: `@Lob`→oid D40.)
+- **후속(비긴급)**: discovered_endpoint 2.3M행·dead 153k·autovacuum 미실행(기본 임계 ~458k) — 오토배큠 발화 시 1GB 테이블 배큠 CPU 스파이크 가능. 필요 시 테이블별 autovacuum scale factor 하향 검토.
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.

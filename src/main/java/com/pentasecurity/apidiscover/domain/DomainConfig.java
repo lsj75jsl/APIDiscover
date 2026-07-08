@@ -33,8 +33,11 @@ public class DomainConfig {
     private boolean enabled = true;
 
     /** 이 도메인을 서빙하는 엣지 서버(Loki hostname 라벨) (doc/05 §2.3). */
+    // ★host 인덱스 필수(D75): EAGER 라 도메인 로드마다 `where host=?` 조회 발생 — 인덱스 없으면 95k행 seq scan
+    // (틱당 수백회 = PG 백엔드 CPU 포화). FK 는 자식 컬럼 인덱스를 자동 생성하지 않으므로 명시.
     @ElementCollection(fetch = FetchType.EAGER)
-    @CollectionTable(name = "domain_hostnames", joinColumns = @JoinColumn(name = "host"))
+    @CollectionTable(name = "domain_hostnames", joinColumns = @JoinColumn(name = "host"),
+            indexes = @Index(name = "idx_domain_hostnames_host", columnList = "host"))
     @Column(name = "hostname")
     private List<String> hostnames = new ArrayList<>();
 
