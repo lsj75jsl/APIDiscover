@@ -42,6 +42,17 @@ spec:
         # AAJ 23개 제외, 배칭 20, Main-only, 샘플링 PT10M, 캡 6000/h)을 전부 application.yml 기본값으로 승격 —
         # 다른 서버도 env override 없이 기본값 배포만으로 동일 동작. 필요 시 여기 env 로만 조정(재빌드 불요).
         # ★off-peak-max-window PT24H 대량조회는 복구 금지(Loki 과부하 이력).
+        # --- D74 env override(재빌드 없이 운영 반영) ---
+        # 현 이미지 JAR 엔 옛 application.yml(page-limit 2000·domains-per-tick 500)이 baked.
+        # 재빌드 안 하고 운영 컨테이너에 신값을 적용하려 아래 env 로 override(신 application.yml 기본값과 동일).
+        # ★다음 이미지 재빌드 시 application.yml 이 이미 신값이라 이 3개 env 는 제거해도 무방(중복·무해).
+        # max-queries-per-hour 는 6000 유지(Loki 서버 한계 확인 보류 — 점진 조정 예정).
+        - name: APIDISCOVER_LOKI_PAGELIMIT
+          value: "5000"
+        - name: APIDISCOVER_SCAN_DOMAINSPERTICK
+          value: "650"
+        - name: APIDISCOVER_SCAN_OFFPEAKDOMAINSPERTICK
+          value: "650"
         - name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE   # 설정값 검증용 configprops 노출(내부)
           value: "health,info,metrics,configprops"
       volumeMounts:

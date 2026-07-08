@@ -30,7 +30,7 @@ apidiscover:
     query-timeout: "30s"
     # --- 운영 서버 부하 보호 (doc/05 §2.4, §6) ---
     chunk-window: "PT30M"          # range query 1회당 시간창 (D60: PT10M→PT30M, slice 와 동반 — 쿼리수 1/3)
-    page-limit: 2000               # query_range limit (유한값, 1e8 금지)
+    page-limit: 5000               # query_range limit (유한값, 1e8 금지. D74: 2000→5000 — 26% 쿼리가 페이지네이션(최대 93p)해 페이지=예산 낭비, 상향 시 페이지수↓·truncation여유↑)
     max-concurrent-queries: 2      # Loki 동시 쿼리 상한
     min-query-interval: "200ms"    # 쿼리 간 최소 간격(스로틀)
   schedule:
@@ -40,7 +40,7 @@ apidiscover:
     off-peak-window: "01:00-06:00" # (선택) 백필/대용량 저부하 시간대
   scan:                            # 엔드포인트 스캔 부하 운영정책 (doc/33, B+A+E + PR1.1 §14)
     tick-interval: "PT1M"          # B 스캔 틱(전수순회 대체) — 주야 공통 PT1M(워터마크 최대 빈도 전진, delta-skip+캡이 Loki 보호)
-    domains-per-tick: 500          # B 틱당 도메인 예산(주간=off-peak 동일 500, 대부분 cheap skip)
+    domains-per-tick: 650          # B 틱당 도메인 예산(주간=off-peak 동일, 대부분 cheap skip. D74: 500→650 — 엣지축소 여유(피크 3.6k/6k q/h)로 백로그(~6h) 감축, 점진 상향 1단계)
     max-window: "PT30M"            # A per-scan 윈도우 상한(②: PT6H→PT30M, 백필 슬라이스, 0=무제한)
     slice-window: "PT30M"          # ① 부분전진 슬라이스 단위(D60: chunk-window 와 동반 PT30M)
     max-queries-per-scan: 50       # ① per-scan 하드캡(슬라이스 경계, 0=무제한=현행)
@@ -53,7 +53,7 @@ apidiscover:
     default-interval: "PT2H"       # lastSeenAt 부재(신호 없음)
     inactive-interval: "PT6H"      # C inactive 주기
     active-threshold: "PT24H"      # C lastSeenAt age 이내=active
-    off-peak-domains-per-tick: 500 # D off-peak 틱당 도메인 K(주간과 동일 — 주야 균일, 사용자 확정)
+    off-peak-domains-per-tick: 650 # D off-peak 틱당 도메인 K(주간과 동일 — 주야 균일, 사용자 확정. D74: 500→650 주간과 동반 상향)
     off-peak-max-window: "PT30M"   # D off-peak 윈도우 = 주간과 동일. ★PT24H 대량조회 복구 금지(Loki 과부하 이력)
     off-peak-zone: "Asia/Seoul"    # D off-peak 01-06 판정 zone(KST 실 저부하 시간대 정렬)
     dormant-after: "P14D"          # F dormant 진입 age(삭제 아님, 최장 주기로 강등)

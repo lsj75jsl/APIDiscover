@@ -5,6 +5,20 @@
 
 ---
 
+## 2026-07-08 세션 72 — Loki 예산 실측 분석 + 스캔 처리량 튜닝(D74)
+
+### 한 일
+- **Loki 쿼리 예산 실측 분석**(loki-query.log) — 쿼리(페이지)율 24h 평탄 ~3.0–3.6k/h(피크 3,630), budget 6000/h 의 60%만 사용·deferred=0(여유 40%). budget=페이지 단위 소비. page-limit 2000 에 26% 쿼리가 페이지네이션(최대 93p). 틱당 jobs~390/queries~74(도메인 5.3/쿼리 ≪ batch 20 — 엣지 fan-out 지배).
+- **엣지 축소 효과 정리(질의응답)** — distinct 엣지 413, P* 197(48%) 제외(D69)·그룹 collapse(D65). 도메인당 엣지 평균 1.68. 효과 = 쿼리수↓·Loki부하↓·백로그↓·수렴신뢰도↑. domains-per-tick 상향 지렛대·상한은 6000 예산·batchSize 는 2000줄/쿼리 한계.
+- **D74 튜닝 소스 반영** — application.yml: page-limit 2000→5000, domains-per-tick 500→650(+off-peak 동반). max-queries-per-hour 6000 유지(보류). adc.yaml 에 재빌드 없는 운영 반영용 env override 3개 추가.
+
+### 결과
+- 소스·adc.yaml·문서 커밋. build 무관(설정만).
+- ★운영 반영은 **rootful 파드 재생성(sudo podman play kube --replace)** 이 필요 — kaga 계정 무암호 sudo 불가라 운영자(root) 실행 대기. 갱신 adc.yaml 은 VM(kaga home)에 stage 완료, sudo 명령·검증 절차 전달.
+
+### 다음 단계
+- 운영자가 파드 재생성 → configprops(5000·650) 확인 → deferred=0·페이지율<5.5k/h·백로그 감소 모니터. 안정 확인 후 domains-per-tick·max-queries-per-hour 추가 점진 상향 검토.
+
 ## 2026-07-07 세션 71 — 운영 상태 점검 + 미사용 스캐폴딩 제거(D73)
 
 ### 한 일
