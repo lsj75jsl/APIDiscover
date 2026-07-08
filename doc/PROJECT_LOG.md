@@ -13,11 +13,13 @@
 - **D74 튜닝 소스 반영** — application.yml: page-limit 2000→5000, domains-per-tick 500→650(+off-peak 동반). max-queries-per-hour 6000 유지(보류). adc.yaml 에 재빌드 없는 운영 반영용 env override 3개 추가.
 
 ### 결과
-- 소스 application.yml·문서 커밋.
-- 운영 반영 방식 전환 — 처음 "재빌드 없이 env override" 시도했으나 rootful 파드+무암호 sudo 부재로 재생성 불가 → **소스 재빌드 후 재배포**로 결정(사용자). adc.yaml 의 env override 는 제거(baked 로 대체). dev(.198)에서 빌드→save→VM(.197) scp→root load+play kube.
+- 소스 application.yml·adc.yaml(env 제거)·문서 커밋(ed19809 외).
+- 운영 반영 방식 전환 — 처음 "재빌드 없이 env override" 시도했으나 rootful 파드+kaga 무암호 sudo 부재로 재생성 불가 → **소스 재빌드 후 재배포**로 결정(사용자). ★접속 정정: 배포는 `ssh root@192.168.8.197`(key기반 무암호)로 함(kaga sudo 아님). dev(.198)에서 podman build→save(166MB gz)→VM scp→root `podman load`+`play kube --replace`.
+- **재배포 완료·라이브 검증**(2026-07-08 ~12:53Z): 앱 UP(12s). domains-per-tick 650 발효=틱 jobs 508·509(옛 상한 500 초과). page-limit 5000 발효=페이지네이션 26%→3.8%·최대 93p→13p. **페이지율 3,630→~2,988/h(budget 50%)** — throughput↑인데 Loki부하↓. deferred=0. due 18,734 기준선.
+- 롤백 이미지 `localhost/apidiscover:prev-d74`(fbc4e95b17c0) 확보.
 
 ### 다음 단계
-- 이미지 빌드(prox-dev)→VM scp→운영자 load+`play kube --replace`. 재배포 후 동작 로그(loki-query.log 페이지네이션 급감·adc.log jobs↑·deferred=0)로 5000·650 발효 검증. 안정 후 domains-per-tick·max-queries-per-hour 추가 점진 상향.
+- 백로그 드레인 추이 관찰(due·밀림 감소). 여유가 오히려 커졌으니(50%) 안정 확인 후 domains-per-tick 추가 상향 여지. max-queries-per-hour 는 6000 유지(미포화).
 
 ## 2026-07-07 세션 71 — 운영 상태 점검 + 미사용 스캐폴딩 제거(D73)
 
