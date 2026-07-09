@@ -14,13 +14,14 @@
 - **discovered_endpoint autovacuum 튜닝·초기 정리(D76)** — never-vacuum(임계 ~459k dead) 스파이크 우려 → per-table autovacuum scale 0.2→0.05(발화 ~125k dead)·`VACUUM (ANALYZE, PARALLEL 0)` 로 dead 153k→0. 발견: 컨테이너 /dev/shm 64MB 라 병렬 VACUUM 실패→PARALLEL 0 회피(autovacuum 은 병렬 미사용, 무영향).
 - **/dev/shm 확대 시도→실패·롤백(D77)** — adc.yaml emptyDir(Memory,1Gi)+재빌드(이미지 9cf1551, @Index D75 포함)+재배포했으나 el8 SELinux 가 tmpfs relabel 안 해 PG 크래시루프 → 즉시 롤백(DB 복구·UP). 소스 adc.yaml 원복(e69d614). 결론: shm 확대 불필요(비병렬로 목적 달성).
 - **282MB 인덱스 bloat 회수(D77 완료)** — `max_parallel_maintenance_workers=0`+`REINDEX INDEX CONCURRENTLY`(비병렬·무락 23.6초) → ukktr 인덱스 283MB→205MB, 테이블 1031→956MB. 재빌드로 배포 이미지가 소스 HEAD(@Index)와 동기화된 것은 부수 이득.
+- **매뉴얼 현행화(4종)** — scan-tick·collection-ops·api-discovery·deploy-verify: domains-per-tick 500→650·page-limit 2000→5000·chunk-window 예10분→30분·max-domains-per-run 200→0·엣지 제외 AAJ→AAJ+P*(D69)·"env override 기준"→baked(D74) 정정. scan-tick 에 **밀림추이 모니터링** 콜아웃(DB/로그 조회법 + D74 전후 실측), deploy-verify 에 **DB 유지보수(D75~D77)** 섹션(fresh DB autovacuum ALTER·병렬/dev/shm 주의) 추가.
 
 ### 결과
 - 라이브 CPU 즉시 해소·소스 커밋·build green. domain_hostnames seq_scan 정체·idx_scan 전환 실측 확인.
 - discovered_endpoint dead 0·autovacuum 자주·소량화. reloptions pg_class 영속(fresh DB 만 재적용 필요 = ops 스텝).
 
 ### 다음 단계
-- ★재개 필요: 매뉴얼 현행화(설정값 5000/650·밀림추이·스캔 방식/절차·D76 DB 튜닝 ops 스텝) — CPU/DB 이슈로 보류했던 작업.
+- 없음(이 세션 항목 완료). 밀림 추이는 안정 관찰만.
 
 ## 2026-07-08 세션 72 — Loki 예산 실측 분석 + 스캔 처리량 튜닝(D74)
 

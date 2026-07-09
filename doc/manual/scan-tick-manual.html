@@ -123,7 +123,7 @@
 
 <div class="callout note" style="margin-top:20px;">
   <span class="ct">이 문서의 범위</span>
-  주기 스캔의 "한 번에 다 훑지 않고 조금씩 나눠 처리"하는 <b>틱 모델</b>과, 한 틱에 몇 개를 처리할지 정하는 <code>domains-per-tick</code>, 그리고 D58~D66 으로 확장된 <b>판정 파이프라인 전체</b>(활성 우선 선발·엣지 제외/그룹치환·롤링 샘플링·delta-skip·배칭 조회)를 설명한다. 부하 전체 정책(A watermark · E 전역 레이트 가드 등)은 <a href="collection-ops-manual.html">수집 운영 매뉴얼</a>을 참조. 본 문서 수치는 실제 배포값(<code>adc.yaml</code> env override) 기준이며, 기본값(<code>application.yml</code>)과 구분해 표기한다.
+  주기 스캔의 "한 번에 다 훑지 않고 조금씩 나눠 처리"하는 <b>틱 모델</b>과, 한 틱에 몇 개를 처리할지 정하는 <code>domains-per-tick</code>, 그리고 D58~D66 으로 확장된 <b>판정 파이프라인 전체</b>(활성 우선 선발·엣지 제외/그룹치환·롤링 샘플링·delta-skip·배칭 조회)를 설명한다. 부하 전체 정책(A watermark · E 전역 레이트 가드 등)은 <a href="collection-ops-manual.html">수집 운영 매뉴얼</a>을 참조. 본 문서 수치는 현 배포값 기준이며, 이 값들은 <code>application.yml</code> 기본값에 반영돼 있다(D74 — 재빌드로 이미지에 baked, 별도 env override 없음).
 </div>
 
 <nav class="toc">
@@ -143,17 +143,17 @@
 </nav>
 
 <h2 id="s1">1. 큰 그림 — 왜 "틱" 방식인가</h2>
-<p>도메인이 53,718개입니다. 이걸 한 번에 다 스캔하면 Loki 에 순간적으로 수만 건 쿼리가 몰려 <strong>운영 Loki 가 죽습니다.</strong> 그래서 "한 번에 다 훑기"를 버리고, <strong>짧은 주기마다 조금씩 나눠 처리</strong>하는 방식을 씁니다. 이 "조금씩"의 주기가 <strong>tick</strong>, 한 틱에서 처리할 도메인 개수가 <strong>domains-per-tick</strong> 입니다.</p>
+<p>도메인이 약 5만여 개(enabled 기준·변동)입니다. 이걸 한 번에 다 스캔하면 Loki 에 순간적으로 수만 건 쿼리가 몰려 <strong>운영 Loki 가 죽습니다.</strong> 그래서 "한 번에 다 훑기"를 버리고, <strong>짧은 주기마다 조금씩 나눠 처리</strong>하는 방식을 씁니다. 이 "조금씩"의 주기가 <strong>tick</strong>, 한 틱에서 처리할 도메인 개수가 <strong>domains-per-tick</strong> 입니다.</p>
 
 <div class="callout ok">
   <span class="ct">은행 창구 비유</span>
-  대기번호표를 뽑은 손님(도메인)이 53,718명 있고, 창구는 <b>약 1분마다 한 번(tick)</b> 열려서 <b>번호 순으로 앞에서 500명(domains-per-tick)</b> 만 부릅니다. 나머지는 다음 회차로 이월됩니다.
+  대기번호표를 뽑은 손님(도메인)이 약 5만여 명 있고, 창구는 <b>약 1분마다 한 번(tick)</b> 열려서 <b>번호 순으로 앞에서 650명(domains-per-tick)</b> 만 부릅니다. 나머지는 다음 회차로 이월됩니다.
 </div>
 
 <h2 id="s2">2. 한 틱이 실제로 하는 일 <span class="b-key">DiscoveryScheduler.scanTick</span></h2>
 <p>약 1분마다(배포값 PT1M — fixedDelay 라 이전 회차 <em>완료 후</em> 1분) 이 루프가 돕니다.</p>
 <pre><code>1. 지금이 off-peak 시간대인가? 판정   (밤 01~06시 Asia/Seoul 인가)
-2. K 결정 = 500   ← domains-per-tick (현 배포는 주간·off-peak 동일 500)
+2. K 결정 = 650   ← domains-per-tick (현 배포는 주간·off-peak 동일 650)
 3. K개 선발 — ★신규 방문 확정 사이트 우선 + 나머지(통과 예정) 최소 1/5 예약  (ScanSelector, D64)
 4. 꺼낸 K개를 하나씩:
      - Loki 쿼리 예산 남았나? 없으면 즉시 중단, 나머지는 다음 틱으로  (LokiBudget)
@@ -168,29 +168,29 @@
 
 <h2 id="s3">3. domains-per-tick = 평상시 한 틱의 몫</h2>
 <ul>
-  <li>현재 <strong>500</strong>(배포값). tick 1분(fixedDelay·처리시간 포함 실제 ~2분 간격) → 이론상 <strong>시간당 ~15,000 도메인</strong> 을 검토하는 속도. 검토 대부분은 로그를 안 읽는 값싼 통과(§8 delta-skip)라 가능한 수치입니다.</li>
+  <li>현재 <strong>650</strong>(배포값·D74로 500→650 상향). tick 1분(fixedDelay·처리시간 포함 실제 ~2분 간격) → 이론상 <strong>시간당 ~19,500 도메인</strong> 을 검토하는 속도. 검토 대부분은 로그를 안 읽는 값싼 통과(§8 delta-skip)라 가능한 수치입니다.</li>
   <li>이 값이 <strong>처리 속도의 메인 다이얼</strong>입니다. 올리면 순회가 빨라지지만 Loki 쿼리도 비례해 늘어 부하↑. 내리면 부하↓·순회 느려짐.</li>
 </ul>
 
 <h2 id="s4">4. off-peak-domains-per-tick = 밤에만 몫을 키우는 다이얼</h2>
 <p><strong>off-peak = 트래픽이 적은 새벽 시간대</strong>(현재 <code>01:00–06:00</code>, <code>Asia/Seoul</code>)를 말합니다. 이 시간엔 운영 Loki 자체도 한가하므로, <strong>밀린 도메인을 더 빨리 따라잡으라고(backfill) 한 틱의 몫을 키웁니다.</strong></p>
 <ul>
-  <li>평시(주간): 틱당 <strong>500</strong> (domains-per-tick).</li>
-  <li>off-peak(새벽 01~06시): 틱당 <strong>500</strong> (off-peak-domains-per-tick) — ★현 배포는 <b>주야 동일</b>로 설정(야간 몰아치기 방지, 사용자 확정). 값만 바꾸면 야간 가속을 다시 켤 수 있는 <em>기능</em>은 그대로입니다.</li>
+  <li>평시(주간): 틱당 <strong>650</strong> (domains-per-tick).</li>
+  <li>off-peak(새벽 01~06시): 틱당 <strong>650</strong> (off-peak-domains-per-tick) — ★현 배포는 <b>주야 동일</b>로 설정(야간 몰아치기 방지, 사용자 확정). 값만 바꾸면 야간 가속을 다시 켤 수 있는 <em>기능</em>은 그대로입니다.</li>
 </ul>
 <p>코드로는 딱 한 줄 삼항입니다 (ScanSelector.selectForTick:50).</p>
-<pre><code>int k = Math.max(1, offPeak ? props.scan().offPeakDomainsPerTick()   // 새벽 (현 배포 500)
-                            : props.scan().domainsPerTick());         // 평시 (현 배포 500)</code></pre>
+<pre><code>int k = Math.max(1, offPeak ? props.scan().offPeakDomainsPerTick()   // 새벽 (현 배포 650)
+                            : props.scan().domainsPerTick());         // 평시 (현 배포 650)</code></pre>
 <p>즉 <strong>"누구를 뽑느냐(밀린 순)"는 밤낮 동일하고, "몇 개 뽑느냐(K)"만 밤에 커집니다.</strong> 부하 여유가 있는 시간에 몰아서 백로그를 태우는 전략입니다. (참고. 조회 윈도우 <code>off-peak-max-window</code> 도 현 배포는 주간과 동일 <b>PT30M</b> 입니다 — 과거 PT24H 대량조회가 Loki 과부하를 유발해 축소. DiscoveryScheduler.java:52.)</p>
 
 <h2 id="s5">5. 하루 타임라인으로 보면</h2>
-<p>★현 배포는 <b>주야 동일</b>(틱당 500·윈도우 PT30M)입니다 — 야간 몰아치기 방지를 위해 off-peak 가속을 평시와 같게 맞췄습니다(사용자 확정). 아래는 그 상태의 하루입니다.</p>
+<p>★현 배포는 <b>주야 동일</b>(틱당 650·윈도우 PT30M)입니다 — 야간 몰아치기 방지를 위해 off-peak 가속을 평시와 같게 맞췄습니다(사용자 확정). 아래는 그 상태의 하루입니다.</p>
 <div class="mermaid">
 gantt
     title 하루 스캔 처리량 (현 배포 — 주야 동일)
     dateFormat HH:mm
     axisFormat %H:%M
-    section 주야 동일 500개/틱 · 윈도우 30분
+    section 주야 동일 650개/틱 · 윈도우 30분
     00–24시 :done, p1, 00:00, 24h
     section (참고) off-peak 01–06시 — 별도 가속 없음
     01–06시 :o1, 01:00, 5h
@@ -207,7 +207,17 @@ gantt
 
 <div class="callout note">
   <span class="ct">정리</span>
-  <strong>domains-per-tick = 평상시 한 틱(현 배포 tick-interval PT1M)마다 처리할 도메인 수, off-peak-domains-per-tick = 새벽 저부하 시간대에 대신 쓰는 수(현 배포는 주간과 동일 500)</strong>입니다. 둘 다 "속도 다이얼"이고, 뽑는 순서(가장 밀린 순)는 바꾸지 않습니다.
+  <strong>domains-per-tick = 평상시 한 틱(현 배포 tick-interval PT1M)마다 처리할 도메인 수, off-peak-domains-per-tick = 새벽 저부하 시간대에 대신 쓰는 수(현 배포는 주간과 동일 650)</strong>입니다. 둘 다 "속도 다이얼"이고, 뽑는 순서(가장 밀린 순)는 바꾸지 않습니다.
+</div>
+
+<div class="callout note">
+  <span class="ct">밀림(백로그) 추이 보는 법</span>
+  얼마나 밀렸는지는 <b>due(밀린) 도메인 수</b>와 <b>밀림 시간</b>으로 봅니다.
+  <ul>
+    <li><b>DB</b>: <code>SELECT count(*) FROM domain_config WHERE enabled AND last_seen_at &gt;= now()-interval '3 days' AND (next_scan_due_at IS NULL OR next_scan_due_at &lt;= now())</code> = 지금 밀린 수. <code>now()-next_scan_due_at</code> 의 p50/p90/max = 밀림 시간.</li>
+    <li><b>로그</b>: <code>batched scan tick</code> 라인의 <code>jobs</code>(틱당 실처리)·<code>deferred</code>(예산소진 이월 — <b>0 유지가 정상</b>). <code>deferred&gt;0</code> 지속이면 예산(<code>max-queries-per-hour</code>) 포화 신호.</li>
+    <li><b>실측 추이(D74 튜닝, 2026-07-08 전후)</b>: page-limit 2000→5000·domains-per-tick 500→650 상향 후 12h — 밀림 <b>최대 6.1h→2.6h·p50 2.4h→1.0h</b>, due <b>~24k→~16k</b>, 페이지율 ~3.6k→~3.0k/h(budget 6000), deferred 0 유지. 처리량↑인데 Loki 부하↓(페이지네이션 감소 덕).</li>
+  </ul>
 </div>
 
 <hr>
@@ -307,11 +317,11 @@ sequenceDiagram
     Note over D,L: 14:00:00 — 출석부 갱신 (10분마다)
     D->>L: 최근 12분간 방문 있던 사이트 명단 주세요 (요약 1장)
     L-->>D: 약 28,000줄 요약 (사이트×중계서버별 방문 수)
-    D->>D: 제외 명단(AAJ 중계서버 23곳) 기록 무시 (~4,100줄)
+    D->>D: 제외 명단(AAJ 23곳 + P* 계열 엣지, D62/D69) 기록 무시
     D->>B: 나머지 ~11,000개 사이트 출석부에 14:00 도장
     Note over W,A: 14:00:30 — 작업 회차(틱) 시작 (약 1분마다 반복)
-    W->>B: 차례 된 사이트 500개 주세요 — 신규 방문 확정 우선 + 통과류 예약 1/5 (D64)
-    B-->>W: 500개 명단 (중지·3일 무접속(D59)·제외 엣지 전용(D62) 사이트는 애초 제외)
+    W->>B: 차례 된 사이트 650개 주세요 — 신규 방문 확정 우선 + 통과류 예약 1/5 (D64)
+    B-->>W: 650개 명단 (중지·3일 무접속(D59)·제외 엣지 전용(D62/D69) 사이트는 애초 제외)
     loop 사이트 하나씩 (500회)
         W->>B: 이 사이트 책갈피·출석부 확인
         alt 출석부에 새 도장 없음 (구간에 방문 없음)
@@ -319,7 +329,7 @@ sequenceDiagram
         else 새 도장 있음 (방문 있었음)
             W->>W: 중계서버를 그룹 대표(Master)로 치환 (D65)
             W->>L: 최신 10분 표본 구간만 주세요 — 여러 사이트 묶음 1쿼리 (D66+D63)
-            L-->>W: 기록 뭉치 (2,000줄씩 나눠서)
+            L-->>W: 기록 뭉치 (page-limit 5,000줄씩 페이지네이션, D74)
             W->>A: 사이트별로 나눠 분석 의뢰
             A->>B: API 판정 저장 + 책갈피를 "지금−10분"으로 점프 (표본 밖 구간은 의도적 통과)
         end
@@ -335,8 +345,9 @@ sequenceDiagram
 flowchart TD
     S(["사이트 1개, 틱에 뽑힘<br/>(선발부터 이미 활성 우선 — D64)"]) --> Q0{"사용 중지<br/>(enabled=false)?"}
     Q0 -- "예" --> X0["아무것도 안 함"]:::skip
-    Q0 -- "아니오" --> Q1{"중계서버가 전부<br/>제외 명단(AAJ)? (D62)"}
+    Q0 -- "아니오" --> Q1{"중계서버가 전부<br/>제외 명단(AAJ·P*)? (D62/D69)"}
     Q1 -- "예" --> X1["건너뜀 — 전 스트림 폴백 금지"]:::skip
+    %% 제외 엣지 = AAJ(D62) + P* 계열(D69)
     Q1 -- "아니오" --> M1["중계서버를 그룹 대표(Master)로 치환 (D65)<br/>같은 그룹 중복은 1곳만"]:::step
     M1 --> Q2{"읽을 새 구간이 있나?<br/>(책갈피가 이미 지금−10분?)"}
     Q2 -- "이미 최신" --> X2["건너뜀 — 다음 차례에"]:::skip
@@ -464,8 +475,8 @@ gantt
   <thead><tr><th>설정 키</th><th>기본값 = 배포값<br>(application.yml, D67)</th><th>의미</th></tr></thead>
   <tbody>
     <tr><td><code>tick-interval</code></td><td><b>PT1M</b></td><td>틱 주기(주야 공통). 짧을수록 워터마크가 자주 전진.</td></tr>
-    <tr><td><code>domains-per-tick</code></td><td><b>500</b></td><td>평시 한 틱에 처리할 도메인 수(K).</td></tr>
-    <tr><td><code>off-peak-domains-per-tick</code></td><td><b>500 (=주간)</b></td><td>주야 동일 — 야간 가속 비활성(사용자 확정).</td></tr>
+    <tr><td><code>domains-per-tick</code></td><td><b>650</b></td><td>평시 한 틱에 처리할 도메인 수(K). D74: 500→650.</td></tr>
+    <tr><td><code>off-peak-domains-per-tick</code></td><td><b>650 (=주간)</b></td><td>주야 동일 — 야간 가속 비활성(사용자 확정).</td></tr>
     <tr><td><code>off-peak-max-window</code></td><td><b>PT30M (=주간)</b></td><td>PT24H 대량조회는 Loki 과부하 이력으로 축소 — 복구 금지.</td></tr>
     <tr><td><code>off-peak-zone</code></td><td><b>Asia/Seoul</b></td><td>off-peak 시각대(01–06시) 판정 기준 타임존.</td></tr>
     <tr><td><code>max-queries-per-hour</code></td><td><b>6000</b></td><td>전역 시간당 Loki 쿼리 하드캡(D66 동반 상향 — 배칭·Main-only 로 쿼리당 부하 급감 후라 안전). 주야 공통.</td></tr>

@@ -99,10 +99,19 @@ podman pod ps && podman ps --pod        # adc pod 의 db·app Running</code></pr
 
 <h2>7. 한계 / 주의</h2>
 <ul>
-  <li><b><code>max-domains-per-run</code> 캡</b> — 1회 run 당 트래픽 상위 N 도메인만 등록(기본 200). 관측 도메인이 많으면(예 ~13,900) 롱테일이 매 run 드롭된다. 캡은 DB 업서트량만 제한(Loki 부하 아님 — 벡터는 이미 수신)이라 <b>상향은 저위험</b>. 전수 인벤토리가 필요하면 <code>apidiscover.discovery.max-domains-per-run</code> 을 관측 규모에 맞춰 올린다.</li>
+  <li><b><code>max-domains-per-run</code></b> — 1회 run 등록 도메인 캡. <b>현재 <code>0</code>(무제한·전수 등록)</b>이라 롱테일 드롭 없음(과거 기본 200 → 0 으로 상향). 대상 축소는 대신 <code>excluded-hostnames</code>(AAJ·P* 계열 엣지 제외, D62/D69)로 한다. 캡은 DB 업서트량만 제한(Loki 부하 아님 — 벡터는 이미 수신).</li>
   <li><b>hostNetwork</b> — postgres 5432(adc/adc)가 VM 인터페이스에 노출된다. 내부 테스트 VM 범위에선 수용 가능하나, VM 공유/노출 시 host 방화벽·<code>listen_addresses</code> 하드닝을 고려.</li>
   <li><b>운영 Loki</b> — 스캔·디스커버리는 운영 Loki 를 호출한다. LokiClient 의 부하보호(윈도우·page-limit·throttle·동시성·백오프)를 우회하지 말 것. 대용량 확인은 off-peak.</li>
 </ul>
+
+<h2>8. DB 성능 유지보수 (D75~D77)</h2>
+<table>
+<tr><th>항목</th><th>내용</th><th>fresh DB 조치</th></tr>
+<tr><td><code>domain_hostnames.host</code> 인덱스 (D75)</td><td><code>@ElementCollection(EAGER)</code> 라 도메인 로드마다 <code>where host=?</code> 조회 — 인덱스 없으면 전체 seq scan 으로 <b>PG 백엔드 CPU 포화</b>(FK 는 자식 인덱스 자동생성 안 함)</td><td class="ok">소스 <code>@Index</code> 로 <code>ddl-auto</code> 자동 생성 — 조치 불요</td></tr>
+<tr><td><code>discovered_endpoint</code> autovacuum (D76)</td><td>수백만 행·고빈도 upsert — 전역 임계(50+0.2×행)에서야 발화 → 대형 vacuum CPU 스파이크</td><td class="warn">DB-레벨(소스 표현 불가) — <b>fresh DB 에 1회 재적용</b>: <code>ALTER TABLE discovered_endpoint SET (autovacuum_vacuum_scale_factor=0.05, autovacuum_vacuum_threshold=10000, autovacuum_analyze_scale_factor=0.05, autovacuum_analyze_threshold=10000);</code></td></tr>
+<tr><td>bloat 정리 (D76/D77)</td><td>never-vacuum 시 dead tuple·인덱스 bloat 누적</td><td>필요 시 <code>VACUUM (ANALYZE, PARALLEL 0) discovered_endpoint;</code> · 인덱스 <code>SET max_parallel_maintenance_workers=0; REINDEX INDEX CONCURRENTLY &lt;idx&gt;;</code></td></tr>
+</table>
+<div class="callout w"><b>⚠️ 병렬 유지보수와 /dev/shm.</b> 컨테이너 기본 <code>/dev/shm</code>(64MB)은 <b>병렬</b> VACUUM/REINDEX 의 동적 공유메모리에 부족해 실패한다(<code>could not resize shared memory … No space left on device</code>). <b>비병렬로 회피</b>: <code>VACUUM (PARALLEL 0)</code> / <code>SET max_parallel_maintenance_workers=0</code> 후 REINDEX. autovacuum 은 병렬을 안 써서 무관. <code>emptyDir(medium:Memory)</code> 로 /dev/shm 확대는 el8 SELinux 가 tmpfs 를 relabel 하지 않아 PG 크래시루프 → 사용 금지(D77).</div>
 
 </div>
 </body>

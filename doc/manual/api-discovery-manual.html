@@ -232,7 +232,7 @@ flowchart TD
   <thead><tr><th>정책 (결정)</th><th>현재 값 / 동작</th><th>판독에 미치는 영향</th></tr></thead>
   <tbody>
     <tr><td>롤링 샘플링 (D66)</td><td>도메인 방문마다 <strong>최신 10분 로그창</strong>만 조회 (<code>sample-window=PT10M</code>)</td><td>전수 크롤이 아닌 표본 — 방문 사이 구간은 그 방문에서 안 읽음</td></tr>
-    <tr><td>스캔 틱 (D67)</td><td>1분 틱 · 틱당 최대 500 도메인 · 티어별 재방문(활성 30분~)</td><td>활성 도메인일수록 자주 재방문 → 표본이 촘촘해짐</td></tr>
+    <tr><td>스캔 틱 (D67)</td><td>1분 틱 · 틱당 최대 650 도메인(D74) · 티어별 재방문(활성 30분~)</td><td>활성 도메인일수록 자주 재방문 → 표본이 촘촘해짐</td></tr>
     <tr><td>증분 + delta-skip (D60·D61)</td><td>watermark 이후만 조회 · discovery 가 "신규 트래픽 없음"으로 보면 조회 없이 watermark 를 <code>now−lag</code> 로 점프</td><td>빈 구간 낭비 조회 제거(무트래픽 보장이라 안전)</td></tr>
     <tr><td>엣지 그룹 Main-only (D65)</td><td>엣지 그룹은 <strong>Master 1곳만</strong> 조회(Master 로그에 그룹 전체 요청이 집계)</td><td>활성 조회 매핑 −47% — 단 "Master 집계" 전제에 의존</td></tr>
     <tr><td>엣지 배칭 (D63·D67)</td><td>같은 엣지의 대상 도메인 ≤20개를 정규식 OR 1쿼리로 묶음</td><td>수집 효율(쿼리 −)만 개선 — 판독 입력 데이터는 동일</td></tr>
@@ -266,8 +266,8 @@ return "{job=\"" + props.loki().jobLabel() + "\", hostname=\"" + hostnameLabel +
 <table>
   <thead><tr><th>보호 장치</th><th>동작</th><th>구현</th></tr></thead>
   <tbody>
-    <tr><td>윈도우 분할</td><td>전체 윈도우를 <code>chunk-window</code>(예 10분) 단위로 쪼개 순차 조회</td><td><code>queryRange()</code> while 루프</td></tr>
-    <tr><td>페이지네이션</td><td>유한 <code>page-limit</code>(예 2000)으로 끊고, 마지막 ts+1ns 부터 forward 재조회</td><td><code>fetchChunk()</code></td></tr>
+    <tr><td>윈도우 분할</td><td>전체 윈도우를 <code>chunk-window</code>(현 30분, D60) 단위로 쪼개 순차 조회</td><td><code>queryRange()</code> while 루프</td></tr>
+    <tr><td>페이지네이션</td><td>유한 <code>page-limit</code>(현 5000, D74)으로 끊고, 마지막 ts+1ns 부터 forward 재조회</td><td><code>fetchChunk()</code></td></tr>
     <tr><td>동시성 제한</td><td><code>maxConcurrentQueries</code> 만큼만 동시 요청 (세마포어)</td><td><code>Semaphore concurrencyGate</code></td></tr>
     <tr><td>스로틀 + 백오프</td><td>쿼리 간 최소 간격 + 429/5xx 에 지수 백오프(최대 4회)</td><td><code>throttle()</code> / <code>backoff()</code></td></tr>
   </tbody>
