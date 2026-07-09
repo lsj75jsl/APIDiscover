@@ -668,6 +668,7 @@ gap-free 크롤은 활성 수요(~22.6k 윈도우/h) vs 예산 용량(D65 후 ~7
 - **실패(SELinux)**: el8 SELinux Enforcing 이 **emptyDir(Memory) tmpfs 를 컨테이너 MCS 라벨로 relabel 하지 않아**, PG 가 `/dev/shm` 공유메모리 세그먼트 접근 거부(`FATAL: could not open shared memory segment: Permission denied`) → adc-db 크래시루프. **즉시 롤백**(shm 마운트 제거한 adc.yaml 재배포) → DB 복구·app UP 확인. (hostPath 와 동일 부류 트랩 — hostPath 는 chcon 으로 되지만 tmpfs emptyDir 은 relabel 미적용.)
 - **재검토(결론)**: shm 확대는 **불필요**. "shm 부족으로 못 한 작업"(discovered_endpoint VACUUM)은 이미 D76 에서 `PARALLEL 0` 으로 완료(dead 0). 유일한 잔여인 282MB 인덱스 bloat 회수도 `SET max_parallel_maintenance_workers=0; REINDEX INDEX CONCURRENTLY` **비병렬**로 하면 /dev/shm 이 필요 없다. 병렬(속도)만 아쉬운데 이득 대비 위험·복잡도가 커 shm 확대는 보류. 정 필요하면 podman 라벨 annotation(`io.podman.annotations.label/db: disable`, 단 db 컨테이너 SELinux 분리 해제=보안 다운) 또는 tmpfs relabel 방법을 별도 검증.
 - **소스 상태**: adc.yaml 은 shm 마운트 제거로 롤백(HEAD=배포본 일치). 이미지 9cf1551(@Index 포함)은 배포 유지.
+- **잔여 처리(완료)**: 282MB bloat 인덱스 `ukktr…` 를 `SET max_parallel_maintenance_workers=0; REINDEX INDEX CONCURRENTLY`(비병렬·무락·23.6초, /dev/shm 불요)로 회수 — **283MB→205MB(78MB↓)**, 테이블 총 1031→956MB. 인덱스 valid·unique 유지, invalid 잔여 0, 서비스 UP. shm 확대 없이 목적 달성.
 
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
