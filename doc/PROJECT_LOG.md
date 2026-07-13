@@ -5,6 +5,23 @@
 
 ---
 
+## 2026-07-13 세션 76 — 8.3 §6 로그변수 소비 구현(응답 CT + 요청측 4신호)
+
+### 한 일
+- §5 시뮬 확정값(가중치 accept 0.20·xhr 0.28·origin 0.15·auth 0.28·발화 다수결) 반영해 doc/40 §6 구현. 커밋 `9a17350`.
+- 코어: ParseProperties 5 신규 인덱스(기본 -1 DORMANT). ★record `@ConfigurationProperties` 는 **생성자 1개 전제** — 편의 생성자 추가 시 "No default constructor" 로 컨텍스트 실패 → 단일 canonical + `acrmOnly`/`defaults` 정적 팩터리로 정정. LogLineParser `readOptional`(ACRM 동형 nullable). ParsedRequest 5 필드(+14-arg 하위호환). Acc: 응답 CT 2xx-only 누적·정규화(;charset 제거·소문자)·요청 4신호 presence→다수결(count*2>=hits, nonBrowserUa 선례). DiscoveredEndpoint 4 불리언(+11-arg 하위호환). Record 4 컬럼(ddl-auto ADD, `boolean not null default false` — 기존 2.9M 행 NULL 회피). upsert 쓰기·serve-time 복원.
+- 소비처: EndpointKindClassifier 4-arg classify — 확장자 정적 veto 우선(§4.3 ④)·CT 분기(2xx dist·dominant<0.5 skip·빈 dist 폴백·html 검사 xml 앞[xhtml 회피]·+json/+xml suffix). ApiScorer 4 양성 가중치·WEIGHT_KEYS 14→18·weightsAsMap·applyOverrides·프리셋 3종. ScoringWeightCatalog 4 설명(ko/en).
+
+### 결과
+- **빌드 그린: 559 tests, 0 fail, 2 skip(라이브 통합). 실 PG 통합 36건 통과** — 신규 컬럼 `default false` ddl-auto ADD 를 실 Postgres 로 검증.
+- 무회귀: 인덱스 -1 → 전 신규 신호 부재 → 점수·kind 불변(기존 스냅샷·부재0 테스트로 고정). 격하 0 = 양성 가산 단조.
+- 신규 테스트: 파서 nullable·CT 오도(4xx/3xx html 미오염·401/403 dist 빈·과반 미달 폴백·정적 veto 우선)·scorer 4 발화/부재0/override/프리셋·Acc 다수결.
+
+### 다음 단계
+- PR 생성·머지. 후속(TW): 매뉴얼 §7(server_protocol·upstream_addr 삭제·CT/신규 신호 반영). 활성 단계: nginx log_format + application.yml 인덱스 세팅 후 전/후 스냅샷 diff 로 CT kind-flip 실측(§4.3 잔여 위험).
+
+---
+
 ## 2026-07-13 세션 75 — 8.3 §5 로그신호 소비 시뮬레이션(과승격 상한 정량화)
 
 ### 한 일
