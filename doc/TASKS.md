@@ -42,12 +42,13 @@
 > (초장문 path_template 가드 — D68 로 구현 완료, Done 참조)
 > (Swagger 2.0 업로드 지원 — D70 구현 완료, Done 참조)
 - [x] **정적 파일 API 오탐 수정 — 하드 veto + 정적 리소스 파일명 감점** **(구현 완료 — build green 504·실 PG OK·RED-확인·커밋 보류·머지 시 Done. D56, 사용자 요청)** — ① 정적 확장자(.css/.js/.png/.webp… isStaticPath 또는 $type=library=STATIC) → `Gate.DROP_STATIC` 하드 veto(점수·api키워드 무관 비-API). `DroppedNonApi` +staticFile. ② 정적 리소스 파일명 토큰(img/image/thumb/resize/css/download… `hasStaticResourceName`) → `staticAssetPenalty`(-0.6) 발화 → img.php(WEB_PAGE) 오탐 탈락. ★.php 는 정적 확장자 미포함(veto 아님·감점만, 실 API 보존)·모호 토큰 제외. 매뉴얼(TW)=후속.
-- [ ] **8.3 로그변수 소비 — 응답 Content-Type + 요청측 API 신호(accept/xhr/origin/auth)** **(설계·범위·가중치 확정, 구현 미착수 — 계획 doc/40 / DECISIONS D79, 사용자 확정. 다음 세션 이어서)** — nginx 로그 8.3 append 필드 소비. `$server_protocol`·`$upstream_addr` 제외. ACRM 은 이미 구현(설정만). 신규 인덱스 기본 -1 DORMANT·양성 가산 → 무회귀. 현행 API 격하 0%(구조 증명). **착수 순서: ①시뮬레이션(과승격 상한·가중치 확정) → ②구현 → ③매뉴얼.** 상세=doc/40.
-  - [ ] §5 시뮬레이션 — `discovered_endpoint`(2.9M) 피처로 현행 점수 재계산·층화샘플 → DROP 중 `[threshold−Σw, threshold)` 카운트(과승격 상한). 가중치(§3 acceptJson 0.20·xRequestedWith 0.28·originHeader 0.15·authScheme 0.28) 확정/조정.
-  - [ ] §6 코어 — ParseProperties(신규 인덱스 -1)·application.yml·LogLineParser(nullable read)·ParsedRequest·Acc·DiscoveredEndpoint(+Record 컬럼)·InventoryBuilder.
-  - [ ] §6 소비처 — EndpointKindClassifier(sent_ct 상위 분기·부재 폴백)·ApiScorer(신규 4 양성 가중치·WEIGHT_KEYS 14→18·weightsAsMap·프리셋 3종).
-  - [ ] 테스트 — 파서 nullable·kind 폴백·scorer 발화/부재0/override·DORMANT(-1) 무회귀 스냅샷.
-  - [ ] 매뉴얼(TW) — api-discovery-manual §8.3 에서 server_protocol·upstream_addr 2줄 삭제·§8.2 현행화·신규 신호 가중치표. **후속.**
+- [ ] **8.3 로그변수 소비 — 응답 Content-Type + 요청측 API 신호(accept/xhr/origin/auth)** **(설계·범위·가중치 확정, 구현 미착수 — 계획 doc/40 / DECISIONS D79, 사용자 확정. 리뷰 반영(2026-07-13): §4 격하 0% 는 점수 신호 한정·CT kind 경로는 완화 가드(2xx 누적·과반·확장자 veto 우선). 다음 세션 이어서)** — nginx 로그 8.3 append 필드 소비. `$server_protocol`·`$upstream_addr` 제외. ACRM 은 이미 구현(설정만). 신규 인덱스 기본 -1 DORMANT·양성 가산 → 무회귀. **착수 순서: ①시뮬레이션(과승격 상한·가중치·발화 조건 확정) → ②구현 → ③매뉴얼 → ④활성 후 실측.** 상세=doc/40.
+  - [ ] §5 시뮬레이션 — `discovered_endpoint`(2.9M) 피처로 현행 점수 재계산·층화샘플. 게이트 재현 후 **DROP_LOW_SCORE 만** `[threshold−Σw, threshold)` 카운트(과승격 상한). endpoint_kind 컬럼으로 responseTypeApi·staticAssetPenalty·corsPreflight(OPTIONS self-join) **정확 재계산**(doc/40 §5 정정). 가중치(§3 acceptJson 0.20·xRequestedWith 0.28·originHeader 0.15·authScheme 0.28)·발화 조건(presence vs 다수결 — 다수결 권장, 리뷰 P2) 확정/조정.
+  - [ ] §6 코어 — ParseProperties(`responseContentTypeFieldIndex` 등 신규 인덱스 -1)·application.yml·LogLineParser(nullable read)·ParsedRequest·Acc(**CT dist 는 2xx 만 누적·정규화**)·DiscoveredEndpoint(+Record 컬럼)·InventoryBuilder.
+  - [ ] §6 소비처 — EndpointKindClassifier(**확장자 veto 우선·CT 분기 = 2xx dist·dominant 과반 가드·부재 폴백**, doc/40 §4.3)·ApiScorer(신규 4 양성 가중치·WEIGHT_KEYS 14→18·weightsAsMap·프리셋 3종·발화 조건 확정치 반영).
+  - [ ] 테스트 — 파서 nullable·kind 폴백·**CT 오도 케이스(4xx/3xx html 미오염·401/403-only dist 빈·과반 미달 폴백·정적 veto 우선)**·scorer 발화/부재0/override·DORMANT(-1) 무회귀 스냅샷.
+  - [ ] 활성 단계 검증 — nginx log_format+인덱스 세팅 후 **전/후 스냅샷 diff 로 kind 재분류·격하 실측**(CT kind-flip 은 사전 시뮬 불가, doc/40 §4.3 잔여 위험).
+  - [ ] 매뉴얼(TW) — api-discovery-manual §8.3 에서 server_protocol·upstream_addr 2줄 삭제·**§8.4 매핑 표 "인벤토리 그룹핑(보조)" 행 동일 처리**·§8.2 현행화·신규 신호 가중치표. **후속.**
 
 #### 리포트/출력 (01/12/14 문서)
 > (low_confidence+warnings·Active/Zombie params·total_dropped·API 판단근거 노출 완료, Done 참조)
