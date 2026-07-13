@@ -17,8 +17,12 @@
 - 무회귀: 인덱스 -1 → 전 신규 신호 부재 → 점수·kind 불변(기존 스냅샷·부재0 테스트로 고정). 격하 0 = 양성 가산 단조.
 - 신규 테스트: 파서 nullable·CT 오도(4xx/3xx html 미오염·401/403 dist 빈·과반 미달 폴백·정적 veto 우선)·scorer 4 발화/부재0/override/프리셋·Acc 다수결.
 
+### QA 리뷰 반영 (PR #73, 커밋 7697f1e)
+- **P2(코드)**: EndpointKindClassifier CT 과반 가드가 `fraction<0.5` 만 skip → 50/50 tie(fraction==0.5)는 통과 → dominantOf 가 Map 반복순(JVM salt 랜덤)으로 임의 CT dominant 선택 = 비결정 분류. `<0.5`→`<=0.5`(엄격 과반, tie skip·폴백). 경계 테스트 추가 + fix 원복 RED 확인(판별력 증명). doc/40 §4.3 ② 문구 동기.
+- **P3(문서)**: doc/40 상태 헤더·발화조건 결정포인트·§8 순서를 구현 완료로 갱신. 빌드 그린 560 tests.
+
 ### 다음 단계
-- PR 생성·머지. 후속(TW): 매뉴얼 §7(server_protocol·upstream_addr 삭제·CT/신규 신호 반영). 활성 단계: nginx log_format + application.yml 인덱스 세팅 후 전/후 스냅샷 diff 로 CT kind-flip 실측(§4.3 잔여 위험).
+- PR #73 머지. 후속(TW): 매뉴얼 §7(server_protocol·upstream_addr 삭제·CT/신규 신호 반영). 활성 단계: nginx log_format + application.yml 인덱스 세팅 후 전/후 스냅샷 diff 로 CT kind-flip 실측(§4.3 잔여 위험).
 
 ---
 
