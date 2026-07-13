@@ -635,7 +635,7 @@ class DiscoveryJobServiceTest {
         assertThat(dormant.getReportJson()).contains("\"preflightSignal\"").contains("\"status\":\"DORMANT\"");
 
         // acrm 파서(idx=20) → acrm 읽음 → ACTIVE
-        var acrmService = new DiscoveryJobService(new LogLineParser(NORM, new ParseProperties(20)),
+        var acrmService = new DiscoveryJobService(new LogLineParser(NORM, ParseProperties.acrmOnly(20)),
                 new InventoryBuilder(new PathNormalizer(), new EndpointKindClassifier(),
                         new CardinalityNormalizer(NORM),
                         new ParamCandidateExtractor(new SensitiveKeyMatcher(SensitiveKeyProperties.defaults()), NORM),

@@ -144,7 +144,7 @@ class CombinedDiscoveryServiceTest {
         assertThat(ec.profile()).isEqualTo(ClassificationProfile.MIDDLE);
         assertThat(ec.threshold()).isEqualTo(0.70);
         assertThat(ec.weightsSource()).isEqualTo("preset");
-        assertThat(ec.weights()).hasSize(14).containsKeys("hostApiSubdomain", "corsPreflight", "staticAssetPenalty");
+        assertThat(ec.weights()).hasSize(18).containsKeys("hostApiSubdomain", "corsPreflight", "staticAssetPenalty");
         // rationale 병렬: 동일 크기·동일 분류 순서
         assertThat(v.rationale()).hasSameSizeAs(v.findings());
         assertThat(v.rationale()).extracting(EndpointRationale::classification)

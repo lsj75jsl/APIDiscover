@@ -15,9 +15,22 @@ public record DiscoveredEndpoint(
         double kindConfidence,
         boolean hadQuery,        // 관측 중 query string 존재 (ApiScorer 신호)
         boolean nonBrowserUa,    // SDK/CLI user-agent 다수 (ApiScorer 신호)
+        // --- 8.3 요청측 신호 (doc/40 §3·§6) — 모두 다수결(count*2>=hits, Acc.toEndpoint 계산)·양성 가산 ---
+        boolean acceptJson,      // Accept: application/json 다수
+        boolean xRequestedWith,  // X-Requested-With: XMLHttpRequest 다수
+        boolean originHeader,    // Origin 헤더 존재 다수
+        boolean authScheme,      // Authorization 스킴 존재 다수
         Metrics metrics,
         ParamCandidates params   // query/path 파라미터 후보 (doc/13 §2, 가산)
 ) {
+
+    /** 하위호환 11-arg — 8.3 요청 신호 4종 기본 false (dormant, 기존 호출부/테스트 무변경). */
+    public DiscoveredEndpoint(String signature, String method, String host, String pathTemplate,
+                              TemplateSource templateSource, EndpointKind endpointKind, double kindConfidence,
+                              boolean hadQuery, boolean nonBrowserUa, Metrics metrics, ParamCandidates params) {
+        this(signature, method, host, pathTemplate, templateSource, endpointKind, kindConfidence,
+                hadQuery, nonBrowserUa, false, false, false, false, metrics, params);
+    }
     /** 시그니처별 누적 트래픽 메트릭. */
     public record Metrics(
             long hits,

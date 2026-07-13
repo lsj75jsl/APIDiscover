@@ -527,6 +527,11 @@ public class DiscoveryJobService {
             rec.setStatusDistJson(toJson((m != null && m.statusDist() != null) ? m.statusDist() : Map.of()));
             rec.setHadQuery(d.hadQuery());
             rec.setNonBrowserUa(d.nonBrowserUa());
+            // 8.3 요청측 신호 다수결 스냅샷 — nonBrowserUa 동형 last-write(doc/40 §6). 미수집 시 전부 false(dormant).
+            rec.setAcceptJson(d.acceptJson());
+            rec.setXRequestedWith(d.xRequestedWith());
+            rec.setOriginHeader(d.originHeader());
+            rec.setAuthScheme(d.authScheme());
             rec.setParamsJson(toJson(d.params()));
             rec.setTemplateSource((d.templateSource() != null) ? d.templateSource().name() : null);
             rec.setEndpointKind((d.endpointKind() != null) ? d.endpointKind().name() : null);

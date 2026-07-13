@@ -151,4 +151,79 @@ class EndpointKindClassifierTest {
         KindResult r = classifier.classify("/blog/{id}", Map.of(), RefererSignal.dormant());
         assertThat(r.kind()).isEqualTo(EndpointKind.UNKNOWN);
     }
+
+    // --- 8.3 응답 Content-Type 분기 (4-arg, doc/40 §4.3) ---
+
+    private KindResult ct(String path, Map<String, Long> typeDist, Map<String, Long> ctDist) {
+        return classifier.classify(path, typeDist, RefererSignal.dormant(), ctDist);
+    }
+
+    @Test
+    void contentTypeJsonIsApiCandidateWithFractionConfidence() {
+        KindResult r = ct("/svc/data", Map.of(), Map.of("application/json", 8L, "text/html", 2L));
+        assertThat(r.kind()).isEqualTo(EndpointKind.API_CANDIDATE);
+        assertThat(r.confidence()).isEqualTo(0.8);
+    }
+
+    @Test
+    void contentTypeHtmlIsWebPageIncludingXhtml() {
+        assertThat(ct("/page", Map.of(), Map.of("text/html", 5L)).kind()).isEqualTo(EndpointKind.WEB_PAGE);
+        // xhtml+xml 은 html 검사가 xml 보다 앞 → WEB_PAGE(잘못된 API 분류 회피)
+        assertThat(ct("/page", Map.of(), Map.of("application/xhtml+xml", 5L)).kind())
+                .isEqualTo(EndpointKind.WEB_PAGE);
+    }
+
+    @Test
+    void contentTypeImageCssJsIsStatic() {
+        assertThat(ct("/render", Map.of(), Map.of("image/png", 5L)).kind()).isEqualTo(EndpointKind.STATIC);
+        assertThat(ct("/style", Map.of(), Map.of("text/css", 5L)).kind()).isEqualTo(EndpointKind.STATIC);
+        assertThat(ct("/bundle", Map.of(), Map.of("application/javascript", 5L)).kind())
+                .isEqualTo(EndpointKind.STATIC);
+    }
+
+    @Test
+    void contentTypeXmlAndPlusJsonSuffixAreApi() {
+        assertThat(ct("/soap", Map.of(), Map.of("application/xml", 5L)).kind())
+                .isEqualTo(EndpointKind.API_CANDIDATE);
+        assertThat(ct("/jsonapi", Map.of(), Map.of("application/vnd.api+json", 5L)).kind())
+                .isEqualTo(EndpointKind.API_CANDIDATE);
+    }
+
+    @Test
+    void contentTypeWinsOverType() {
+        // CT 는 $type 앞 — $type=document 여도 CT=json 이면 API_CANDIDATE(더 직접적 신호, §4.3)
+        assertThat(ct("/x", Map.of("document", 9L), Map.of("application/json", 9L)).kind())
+                .isEqualTo(EndpointKind.API_CANDIDATE);
+    }
+
+    @Test
+    void staticExtensionVetoBeatsContentType() {
+        // §4.3 ④: 확장자 정적 veto 가 CT 보다 우선 — .js 경로는 CT=json 이어도 STATIC(D55/D56 보존)
+        KindResult r = ct("/assets/app.js", Map.of(), Map.of("application/json", 9L));
+        assertThat(r.kind()).isEqualTo(EndpointKind.STATIC);
+        assertThat(r.confidence()).isEqualTo(1.0);
+    }
+
+    @Test
+    void contentTypeBelowMajorityFallsBackToType() {
+        // §4.3 ②: dominant < 0.5(혼합) → CT 분기 skip → $type 폴백
+        KindResult r = ct("/x", Map.of("document", 10L),
+                Map.of("application/json", 4L, "text/html", 3L, "application/xml", 3L)); // json 4/10=0.4
+        assertThat(r.kind()).isEqualTo(EndpointKind.WEB_PAGE); // $type=document 폴백
+    }
+
+    @Test
+    void emptyContentTypeDistFallsBackToTypeNoRegression() {
+        // §4.3 ③: 미수집(빈 dist) → 기존 $type 경로 그대로(무회귀)
+        assertThat(ct("/api/orders", Map.of("xhr", 3L), Map.of()).kind()).isEqualTo(EndpointKind.API_CANDIDATE);
+        assertThat(ct("/page", Map.of("document", 3L), Map.of()).kind()).isEqualTo(EndpointKind.WEB_PAGE);
+        assertThat(ct("/x", Map.of(), Map.of()).kind()).isEqualTo(EndpointKind.UNKNOWN);
+    }
+
+    @Test
+    void unmappedContentTypeFallsBackToType() {
+        // 미매핑 CT(text/plain 등) → null → $type 폴백
+        assertThat(ct("/x", Map.of("document", 5L), Map.of("text/plain", 5L)).kind())
+                .isEqualTo(EndpointKind.WEB_PAGE);
+    }
 }

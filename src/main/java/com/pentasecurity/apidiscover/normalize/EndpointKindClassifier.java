@@ -63,21 +63,28 @@ public class EndpointKindClassifier {
 
     public record KindResult(EndpointKind kind, double confidence) {}
 
-    /** 하위호환 2-arg: referer 신호 없음(dormant) 위임 → 기존 동작 그대로 (doc/20 §3). */
+    /** 하위호환 2-arg: referer·응답 CT 없음(dormant) 위임 → 기존 동작 그대로 (doc/20 §3). */
     public KindResult classify(String pathTemplate, Map<String, Long> typeDist) {
-        return classify(pathTemplate, typeDist, RefererSignal.dormant());
+        return classify(pathTemplate, typeDist, RefererSignal.dormant(), Map.of());
+    }
+
+    /** 하위호환 3-arg: 응답 CT 없음(dormant) 위임 → 기존 $type/referer 동작 그대로. */
+    public KindResult classify(String pathTemplate, Map<String, Long> typeDist, RefererSignal signal) {
+        return classify(pathTemplate, typeDist, signal, Map.of());
     }
 
     /**
-     * $type+확장자 우선 판정 후, 결과가 UNKNOWN 이고 referer 신호가 active 이며 PAGE_URLS 에
-     * 자식 ≥ {@value #MIN_CHILD_HITS} 면 WEB_PAGE 보조 양성(비대칭 — 부재 시 UNKNOWN 유지·무감점, doc/20 §3).
+     * 확장자 veto → 응답 CT → $type 순으로 판정 후, UNKNOWN 이고 referer active·PAGE_URLS 자식
+     * ≥ {@value #MIN_CHILD_HITS} 면 WEB_PAGE 보조 양성(비대칭 — 부재 시 UNKNOWN 유지·무감점, doc/20 §3).
      *
-     * @param pathTemplate 정규화된 경로(확장자 보조 판정용)
-     * @param typeDist     해당 시그니처에서 관찰된 $type 값 분포(비어있을 수 있음)
-     * @param signal       corpus referer 신호(dormant 면 보조 분기 skip)
+     * @param pathTemplate    정규화된 경로(확장자 보조 판정용)
+     * @param typeDist        해당 시그니처에서 관찰된 $type 값 분포(비어있을 수 있음)
+     * @param signal          corpus referer 신호(dormant 면 보조 분기 skip)
+     * @param contentTypeDist 2xx 응답 Content-Type 분포(정규화 키, 비어있으면 CT 분기 skip; doc/40 §4.3)
      */
-    public KindResult classify(String pathTemplate, Map<String, Long> typeDist, RefererSignal signal) {
-        KindResult k = classifyByType(pathTemplate, typeDist);
+    public KindResult classify(String pathTemplate, Map<String, Long> typeDist, RefererSignal signal,
+                               Map<String, Long> contentTypeDist) {
+        KindResult k = classifyByType(pathTemplate, typeDist, contentTypeDist);
         if (k.kind() == EndpointKind.UNKNOWN && signal.active()
                 && signal.pageUrls().getOrDefault(pathTemplate, 0L) >= MIN_CHILD_HITS) {
             return new KindResult(EndpointKind.WEB_PAGE, REFERER_WEB_PAGE_CONFIDENCE);
@@ -85,37 +92,91 @@ public class EndpointKindClassifier {
         return k;
     }
 
-    /** $type+확장자 기반 핵심 판정(referer 무관) — 현행 로직. */
-    private KindResult classifyByType(String pathTemplate, Map<String, Long> typeDist) {
+    /** 확장자 veto → 응답 CT → $type 기반 핵심 판정(referer 무관). */
+    private KindResult classifyByType(String pathTemplate, Map<String, Long> typeDist,
+                                      Map<String, Long> contentTypeDist) {
+        // 1) 확장자가 정적 판정의 권위 신호 — $type·CT 보다 우선(D55/D56 정적 veto 보존, doc/40 §4.3 ④).
+        //    (실데이터 검증: .js/.css 가 $type=document 로 찍히는 경우가 있어 $type 단독은 부정확)
+        if (isStaticPath(pathTemplate)) {
+            return new KindResult(EndpointKind.STATIC, 1.0);
+        }
+        // 2) 응답 Content-Type 분기 — 확장자 veto 다음·$type 앞(doc/40 §4.3). 2xx dist 는 Acc 에서 이미 필터됨.
+        //    빈 dist(미수집·401/403-only) 또는 dominant 과반 미달(<0.5) 또는 미매핑 CT → null → $type 폴백.
+        KindResult ct = classifyByContentType(contentTypeDist);
+        if (ct != null) {
+            return ct;
+        }
+        // 3) $type 보조 신호
+        Dominant d = dominantOf(typeDist);
+        if ("library".equalsIgnoreCase(d.value())) {
+            return new KindResult(EndpointKind.STATIC, d.fraction());
+        }
+        if ("document".equalsIgnoreCase(d.value())) {
+            return new KindResult(EndpointKind.WEB_PAGE, d.fraction());
+        }
+        if (d.value() != null && API_TYPES.contains(d.value().toLowerCase())) {
+            return new KindResult(EndpointKind.API_CANDIDATE, d.fraction());
+        }
+        return new KindResult(EndpointKind.UNKNOWN, 0.0);
+    }
+
+    /**
+     * 응답 CT 분포 → kind (doc/40 §4.3). 확장자 정적 veto 다음에만 도달(정적 우선 보존).
+     * json/xml/grpc→API, html→WEB_PAGE, image/css/js→STATIC. 빈 dist·dominant<0.5·미매핑 → null(폴백).
+     */
+    private static KindResult classifyByContentType(Map<String, Long> contentTypeDist) {
+        if (contentTypeDist == null || contentTypeDist.isEmpty()) {
+            return null; // 미수집(dormant)·401/403-only(2xx 없음) → $type/경로 폴백(§4.3 가드①③)
+        }
+        Dominant d = dominantOf(contentTypeDist);
+        if (d.fraction() < 0.5) {
+            return null; // 과반 미달 혼합 CT → 결정적 분기 회피(§4.3 가드②)
+        }
+        EndpointKind kind = mapContentTypeToKind(d.value());
+        return (kind == null) ? null : new KindResult(kind, d.fraction());
+    }
+
+    /** 정규화된 dominant CT(소문자·charset 제거) → kind. 매핑 없으면 null(폴백). html 을 xml 보다 먼저 검사(xhtml+xml 회피). */
+    private static EndpointKind mapContentTypeToKind(String ct) {
+        if (ct == null) {
+            return null;
+        }
+        if (ct.startsWith("image/") || ct.equals("text/css")
+                || ct.equals("application/javascript") || ct.equals("text/javascript")
+                || ct.equals("application/x-javascript")) {
+            return EndpointKind.STATIC;
+        }
+        if (ct.contains("html")) { // text/html·application/xhtml+xml → 페이지
+            return EndpointKind.WEB_PAGE;
+        }
+        if (ct.contains("json") || ct.endsWith("+json")) { // application/json·vnd.api+json·ld+json
+            return EndpointKind.API_CANDIDATE;
+        }
+        if (ct.contains("xml") || ct.endsWith("+xml")) { // application/xml·text/xml (xhtml 은 위에서 제외)
+            return EndpointKind.API_CANDIDATE;
+        }
+        if (ct.contains("grpc")) {
+            return EndpointKind.API_CANDIDATE;
+        }
+        return null;
+    }
+
+    /** 분포에서 dominant 값 + 과반 비율(round3). 빈 분포 → (null, 0). */
+    private static Dominant dominantOf(Map<String, Long> dist) {
         String dominant = null;
         long domCount = 0;
         long total = 0;
-        for (Map.Entry<String, Long> e : typeDist.entrySet()) {
+        for (Map.Entry<String, Long> e : dist.entrySet()) {
             total += e.getValue();
             if (e.getValue() > domCount) {
                 domCount = e.getValue();
                 dominant = e.getKey();
             }
         }
-        double typeFraction = (total == 0) ? 0.0 : round3((double) domCount / total);
-
-        // 1) 확장자가 정적 판정의 권위 신호 — $type 보다 우선.
-        //    (실데이터 검증: .js/.css 가 $type=document 로 찍히는 경우가 있어 $type 단독은 부정확)
-        if (isStaticPath(pathTemplate)) {
-            return new KindResult(EndpointKind.STATIC, 1.0);
-        }
-        // 2) $type 보조 신호
-        if ("library".equalsIgnoreCase(dominant)) {
-            return new KindResult(EndpointKind.STATIC, typeFraction);
-        }
-        if ("document".equalsIgnoreCase(dominant)) {
-            return new KindResult(EndpointKind.WEB_PAGE, typeFraction);
-        }
-        if (dominant != null && API_TYPES.contains(dominant.toLowerCase())) {
-            return new KindResult(EndpointKind.API_CANDIDATE, typeFraction);
-        }
-        return new KindResult(EndpointKind.UNKNOWN, 0.0);
+        return new Dominant(dominant, (total == 0) ? 0.0 : round3((double) domCount / total));
     }
+
+    private record Dominant(String value, double fraction) {}
 
     /** 정적 자원 경로(확장자 기반) 여부 — RefererSignalExtractor 가 static 요청 판정에 재사용(DRY, doc/20 §1). */
     public static boolean isStaticPath(String path) {

@@ -45,8 +45,15 @@ final class Acc {
     private HllSketch clientHll = new HllSketch(HLL_LG_K);   // distinct client IP 근사(merge 시 재할당)
     private final KllDoublesSketch respKll = KllDoublesSketch.newHeapInstance(KLL_K); // 응답시간 분위수 근사
     private final Map<String, Long> typeDist = new HashMap<>();
+    // 8.3 응답 Content-Type 분포 — 2xx 응답만·정규화 후 키 (doc/40 §4.3 가드①⑤). endpoint_kind 소스.
+    private final Map<String, Long> contentTypeDist = new HashMap<>();
     private boolean hadQuery;
     private long sdkUaCount;
+    // 8.3 요청측 신호 presence 카운트(다수결 count*2>=hits 입력, nonBrowserUa 선례, doc/40 §3·§6).
+    private long acceptJsonCount;
+    private long xhrCount;
+    private long originCount;
+    private long authSchemeCount;
     /** query param 이름 → presence count + 관측 값 길이 버킷 집합 (T2). */
     private final Map<String, ParamObs> queryObs = new LinkedHashMap<>();
 
@@ -86,6 +93,11 @@ final class Acc {
         return typeDist;
     }
 
+    /** 응답 CT 분포(2xx 만·정규화) — EndpointKindClassifier CT 분기 입력(doc/40 §4.3). 미수집 시 빈 맵 → 폴백. */
+    Map<String, Long> contentTypeDist() {
+        return contentTypeDist;
+    }
+
     Map<String, ParamObs> queryObs() {
         return queryObs;
     }
@@ -113,6 +125,26 @@ final class Acc {
         }
         if (r.acrm() != null) {
             acrmPresentCount++;
+        }
+        // 8.3 응답 CT: 2xx 응답만 분포 누적(§4.3 가드① — 에러/3xx html·인증실패 오염 차단, 401/403-only 는 빈 dist 로 폴백).
+        if (bucket == 2) {
+            String ct = normalizeContentType(r.responseContentType());
+            if (ct != null) {
+                contentTypeDist.merge(ct, 1L, Long::sum);
+            }
+        }
+        // 8.3 요청측 신호 presence(다수결 입력) — 부재(null) 시 미가산 → dormant.
+        if (isAcceptJson(r.accept())) {
+            acceptJsonCount++;
+        }
+        if (isXhr(r.xRequestedWith())) {
+            xhrCount++;
+        }
+        if (r.origin() != null) {
+            originCount++;
+        }
+        if (r.authScheme() != null) {
+            authSchemeCount++;
         }
         if (r.clientIp() != null) {
             clientHll.update(r.clientIp());
@@ -152,8 +184,13 @@ final class Acc {
         this.clientHll = union.getResult();
         respKll.merge(o.respKll); // KLL 분포 결합(ArrayList.addAll 의미의 근사)
         o.typeDist.forEach((k, v) -> typeDist.merge(k, v, Long::sum));
+        o.contentTypeDist.forEach((k, v) -> contentTypeDist.merge(k, v, Long::sum));
         hadQuery |= o.hadQuery;
         sdkUaCount += o.sdkUaCount;
+        acceptJsonCount += o.acceptJsonCount;
+        xhrCount += o.xhrCount;
+        originCount += o.originCount;
+        authSchemeCount += o.authSchemeCount;
         o.queryObs.forEach((name, obs) -> {
             ParamObs into = queryObs.computeIfAbsent(name, k -> new ParamObs());
             into.count += obs.count;
@@ -176,9 +213,38 @@ final class Acc {
 
         String signature = method + " " + host + " " + template;
         boolean nonBrowserUa = sdkUaCount * 2 >= hits; // 다수가 SDK/CLI
+        // 8.3 요청측 신호: 다수결(count*2>=hits, nonBrowserUa 선례) — 스캐너 단발 flip 차단(doc/40 §6 리뷰 P2).
+        boolean acceptJson = acceptJsonCount * 2 >= hits;
+        boolean xRequestedWith = xhrCount * 2 >= hits;
+        boolean originHeader = originCount * 2 >= hits;
+        boolean authScheme = authSchemeCount * 2 >= hits;
         return new DiscoveredEndpoint(
                 signature, method, host, template, source, kind, kindConfidence,
-                hadQuery, nonBrowserUa, metrics, params);
+                hadQuery, nonBrowserUa, acceptJson, xRequestedWith, originHeader, authScheme, metrics, params);
+    }
+
+    /** 응답 CT 정규화(doc/40 §4.3 ⑤): ';' 파라미터(charset 등) 제거·trim·소문자. 빈 값 → null. */
+    private static String normalizeContentType(String ct) {
+        if (ct == null) {
+            return null;
+        }
+        int semi = ct.indexOf(';');
+        String base = (semi >= 0 ? ct.substring(0, semi) : ct).trim().toLowerCase(Locale.ROOT);
+        return base.isEmpty() ? null : base;
+    }
+
+    /** Accept 값에 application/json 또는 +json 포함(대소문자 무시) → 발화. 와일드카드 기본값은 문자열 미포함이라 자연 미발화(doc/40 §6). */
+    private static boolean isAcceptJson(String accept) {
+        if (accept == null) {
+            return false;
+        }
+        String a = accept.toLowerCase(Locale.ROOT);
+        return a.contains("application/json") || a.contains("+json");
+    }
+
+    /** X-Requested-With: XMLHttpRequest (대소문자·주변 공백 무시). */
+    private static boolean isXhr(String xrw) {
+        return xrw != null && "xmlhttprequest".equals(xrw.trim().toLowerCase(Locale.ROOT));
     }
 
     private static boolean isSdkUserAgent(String ua) {
