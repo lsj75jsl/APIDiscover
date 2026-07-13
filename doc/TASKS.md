@@ -47,6 +47,15 @@
 > (low_confidence+warnings·Active/Zombie params·total_dropped·API 판단근거 노출 완료, Done 참조)
 - [x] **`/result` 판단근거 finding 인라인 (ⓒ)** **(구현 완료 — build green 500·커밋 보류·머지 시 Done. D55, 사용자 요청)** — 별도 top-level `rationale[]` 제거, report_json 각 finding 에 `classification`+`basis`(SHADOW=score{apiScore·threshold·signals}·Active/Zombie=spec_match) `EndpointIdentity.key`(method,host,path) 매칭 인라인. 기존 finding 필드·ETag 불변·매칭 없으면 미가산. ★응답 형태 변경(additive 아님)=중앙/매뉴얼(TW) 반영 필요. ⓑ(Active 휴리스틱 점수)=스펙 업로드 시 후속 보류.
 
+#### 분류설정 REST (10/11 문서)
+- [ ] **스코어링 정책 조회 강화 — effective 노출 + threshold 최상위 분리 + 신호 설명(ko/en), API-only** **(구현 완료 — build green 541·신규 4·커밋 보류·머지 시 Done. 설계 doc/39 / DECISIONS D78, 사용자 확정. 1.0 태그 이후 첫 작업)** — API 판단 스코어링 정책은 DB+REST 로 이미 운영·즉시적용(캐시 무효화). 전역 GET 이 저장값만 반환해 preset 시 실적용 14 weight·threshold 미노출(도메인은 이미 effective 노출·비대칭) + threshold 가 weights 안 매몰 → 조회 강화. CLI 는 서버 별도 프로세스라 즉시적용 부적합 → API-only.
+  - [x] `ClassificationDtos.EffectiveView` 재정의 — (profile·weightsSource·**threshold**·repeatMinCount·weights[14키맵]·matcher). threshold/repeatMinCount 최상위 분리, weights=weightsAsMap(14).
+  - [x] `GlobalClassificationView` 에 `effective`+`descriptions` 추가 / `DomainClassificationView` 에 `descriptions` 추가.
+  - [x] `ScoringWeightCatalog`(신설) — 14 weight+threshold+repeatMinCount 의 ko/en 설명 정적 사전(단일 진실원, 순서 보존).
+  - [x] `ClassificationController` — `toEffectiveView(EffectiveClassification)` 헬퍼 + toGlobalView/toDomainView 에 effective(resolveGlobal/resolve)·descriptions 배선(핸들러 로직·검증·캐시 무효화 불변).
+  - [x] 테스트(ClassificationControllerTest 27, 신규 4) — 전역 GET effective/threshold/14키/weightsSource/repeatMinCount/descriptions(ko/en·16키)·PUT(CUSTOM) weightsSource=custom·도메인 GET 동형. 기존 assertion `effective.weights.threshold`→`effective.threshold` 정정. 쓰기 400/404·즉시적용 무회귀 유지.
+  - [ ] 매뉴얼(TW) — api-rest-manual §2.5 classification 응답에 effective(threshold 분리)·descriptions(한글 설명) 반영. **후속.**
+
 #### 스펙 파서 / Spec Store (03 문서)
 > (현재 비어 있음 — 검출/업로드 데이터 모델 통합 + 멀티 스펙 병합 완료, Done 참조)
 > 후속(P4·선택): `/discovered`·`/spec` 원 카탈로그 list REST 중앙 노출 — 결합 뷰 `/discovery` 로 자체조회 충족, 중앙 노출은 외부연동(P4) 시.

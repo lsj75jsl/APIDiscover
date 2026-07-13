@@ -12,6 +12,7 @@ import com.pentasecurity.apidiscover.api.dto.ClassificationDtos.OverrideView;
 import com.pentasecurity.apidiscover.classify.ApiScorer;
 import com.pentasecurity.apidiscover.classify.EffectiveClassification;
 import com.pentasecurity.apidiscover.classify.EffectiveClassificationResolver;
+import com.pentasecurity.apidiscover.classify.ScoringWeightCatalog;
 import com.pentasecurity.apidiscover.domain.ClassificationConfig;
 import com.pentasecurity.apidiscover.domain.ClassificationConfigRepository;
 import com.pentasecurity.apidiscover.domain.DomainClassificationConfig;
@@ -197,12 +198,16 @@ public class ClassificationController {
     }
 
     private GlobalClassificationView toGlobalView(ClassificationConfig c) {
+        // resolveGlobal()=캐시 미사용·항상 최신 → 저장·invalidate 후 신선한 effective (D78)
+        EffectiveView effective = toEffectiveView(resolver.resolveGlobal());
         if (c == null) {
             // 전역 분류는 개념상 항상 존재(부재=MIDDLE default), 404 아님 (doc/11 §4)
-            return new GlobalClassificationView(ClassificationProfile.MIDDLE, null, null, null, null);
+            return new GlobalClassificationView(ClassificationProfile.MIDDLE, null, null, null, null,
+                    effective, ScoringWeightCatalog.ALL);
         }
         return new GlobalClassificationView(c.getProfile(), c.getThresholdOverride(),
-                readWeights(c.getCustomWeightsJson()), readMatcher(c.getMatcherJson()), c.getUpdatedAt());
+                readWeights(c.getCustomWeightsJson()), readMatcher(c.getMatcherJson()), c.getUpdatedAt(),
+                effective, ScoringWeightCatalog.ALL);
     }
 
     private DomainClassificationView toDomainView(String host) {
@@ -212,8 +217,14 @@ public class ClassificationController {
                 : new OverrideView(o.getProfile(), o.getThresholdOverride(),
                         readWeights(o.getCustomWeightsJson()), readMatcher(o.getMatcherJson()), o.getUpdatedAt());
         EffectiveClassification eff = resolver.resolve(host); // 항상 산출 가능(전역 기반 병합)
-        EffectiveView effective = new EffectiveView(eff.profile(), eff.weights(), eff.matcher());
-        return new DomainClassificationView(host, override, effective);
+        return new DomainClassificationView(host, override, toEffectiveView(eff), ScoringWeightCatalog.ALL);
+    }
+
+    /** EffectiveClassification → effective 뷰. threshold·repeatMinCount 최상위 분리, weights=14키 맵 (D78). */
+    private static EffectiveView toEffectiveView(EffectiveClassification eff) {
+        String weightsSource = (eff.profile() == ClassificationProfile.CUSTOM) ? "custom" : "preset";
+        return new EffectiveView(eff.profile(), weightsSource, eff.weights().threshold(),
+                eff.weights().repeatMinCount(), ApiScorer.weightsAsMap(eff.weights()), eff.matcher());
     }
 
     private String toJsonOrNull(Object value) {

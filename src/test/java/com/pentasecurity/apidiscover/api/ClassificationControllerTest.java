@@ -1,6 +1,7 @@
 // 분류 설정 REST API e2e (doc/11 §6) — @SpringBootTest + MockMvc, 실 resolver/H2 병합·캐시·검증
 package com.pentasecurity.apidiscover.api;
 
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -95,7 +96,7 @@ class ClassificationControllerTest {
                 .andExpect(jsonPath("$.host").value("shop.example.com"))
                 .andExpect(jsonPath("$.override.profile").value(nullValue()))   // 행 부재 → null 필드
                 .andExpect(jsonPath("$.effective.profile").value("MIDDLE"))     // 전역 default
-                .andExpect(jsonPath("$.effective.weights.threshold").value(0.7))
+                .andExpect(jsonPath("$.effective.threshold").value(0.7))
                 .andExpect(jsonPath("$.effective.matcher.includeWebForms").value(true)); // 정규화 effective
     }
 
@@ -107,7 +108,7 @@ class ClassificationControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.override.profile").value("LOW"))
                 .andExpect(jsonPath("$.effective.profile").value("LOW"))
-                .andExpect(jsonPath("$.effective.weights.threshold").value(0.5)); // 도메인 threshold override
+                .andExpect(jsonPath("$.effective.threshold").value(0.5)); // 도메인 threshold override
     }
 
     // --- effective 노출 정확성 (전역 CUSTOM + 도메인 override 병합) ---
@@ -210,14 +211,14 @@ class ClassificationControllerTest {
     void putDomainInvalidatesCacheSoGetReflectsImmediately() throws Exception {
         registerDomain("shop.example.com");
         mvc.perform(get("/api/v1/domains/shop.example.com/classification"))
-                .andExpect(jsonPath("$.effective.weights.threshold").value(0.7)); // 캐시 적재(MIDDLE 0.70)
+                .andExpect(jsonPath("$.effective.threshold").value(0.7)); // 캐시 적재(MIDDLE 0.70)
 
         mvc.perform(put("/api/v1/domains/shop.example.com/classification").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"thresholdOverride\":0.5}"))
                 .andExpect(status().isOk());
 
         mvc.perform(get("/api/v1/domains/shop.example.com/classification"))
-                .andExpect(jsonPath("$.effective.weights.threshold").value(0.5)); // 즉시 반영(무효화)
+                .andExpect(jsonPath("$.effective.threshold").value(0.5)); // 즉시 반영(무효화)
     }
 
     @Test
@@ -232,7 +233,7 @@ class ClassificationControllerTest {
 
         mvc.perform(get("/api/v1/domains/a.example.com/classification"))
                 .andExpect(jsonPath("$.effective.profile").value("HIGH"))      // 전역 변경 전 호스트 반영
-                .andExpect(jsonPath("$.effective.weights.threshold").value(0.85));
+                .andExpect(jsonPath("$.effective.threshold").value(0.85));
     }
 
     // --- A2: PATCH weights (부분 편집·profile 자동 CUSTOM·편집 안 한 키 유지, doc/35 A2) ---
@@ -276,7 +277,7 @@ class ClassificationControllerTest {
                         .contentType(MediaType.APPLICATION_JSON).content("{\"apiSegment\":0.9}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.effective.profile").value("CUSTOM"))
-                .andExpect(jsonPath("$.effective.weights.threshold").value(0.5)); // threshold 미터치(weights 만)
+                .andExpect(jsonPath("$.effective.threshold").value(0.5)); // threshold 미터치(weights 만)
     }
 
     @Test
@@ -355,5 +356,55 @@ class ClassificationControllerTest {
                 .andExpect(jsonPath("$.matcher.apiPathPrefixes[0]").value("/api"))
                 .andExpect(jsonPath("$.matcher.excludePathPrefixes[0]").value("/legacy"))
                 .andExpect(jsonPath("$.matcher.includeWebForms").value(false)); // 저장값 그대로 echo(정규화 전)
+    }
+
+    // --- D78: effective 노출 강화 (threshold 최상위 분리·weightsSource·repeatMinCount·descriptions ko/en) ---
+
+    @Test
+    void globalGetExposesEffectivePolicyValuesForPreset() throws Exception {
+        // preset(부재=MIDDLE)이라 저장 customWeights=null 이어도 effective 로 실적용 14 weight·threshold 노출
+        mvc.perform(get("/api/v1/classification"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.customWeights").value(nullValue()))         // 저장값은 여전히 null
+                .andExpect(jsonPath("$.effective.profile").value("MIDDLE"))
+                .andExpect(jsonPath("$.effective.weightsSource").value("preset"))
+                .andExpect(jsonPath("$.effective.threshold").value(0.7))            // ★최상위 분리
+                .andExpect(jsonPath("$.effective.repeatMinCount").value(3))         // ★최상위(override 불가)
+                .andExpect(jsonPath("$.effective.weights.apiSegment").value(0.55))
+                .andExpect(jsonPath("$.effective.weights.staticAssetPenalty").value(-0.6))
+                .andExpect(jsonPath("$.effective.weights.threshold").doesNotExist()); // threshold 는 weights 안에 없음
+    }
+
+    @Test
+    void globalGetCustomEffectiveShowsWeightsSourceCustom() throws Exception {
+        mvc.perform(put("/api/v1/classification").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"profile\":\"CUSTOM\",\"customWeights\":{\"apiSegment\":0.9},"
+                                + "\"thresholdOverride\":0.6}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.effective.weightsSource").value("custom"))
+                .andExpect(jsonPath("$.effective.threshold").value(0.6))            // override 반영
+                .andExpect(jsonPath("$.effective.weights.apiSegment").value(0.9));
+    }
+
+    @Test
+    void descriptionsAttachedWithKoEnAndCompleteKeys() throws Exception {
+        mvc.perform(get("/api/v1/classification"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.descriptions.*", hasSize(16)))              // 14 weight + threshold + repeatMinCount
+                .andExpect(jsonPath("$.descriptions.threshold.ko").isNotEmpty())
+                .andExpect(jsonPath("$.descriptions.threshold.en").isNotEmpty())
+                .andExpect(jsonPath("$.descriptions.graphqlSegment.ko").isNotEmpty())
+                .andExpect(jsonPath("$.descriptions.repeatMinCount.en").isNotEmpty());
+    }
+
+    @Test
+    void domainGetAttachesDescriptionsAndTopLevelThreshold() throws Exception {
+        registerDomain("shop.example.com");
+        mvc.perform(get("/api/v1/domains/shop.example.com/classification"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.effective.threshold").value(0.7))
+                .andExpect(jsonPath("$.effective.weightsSource").value("preset"))
+                .andExpect(jsonPath("$.effective.repeatMinCount").value(3))
+                .andExpect(jsonPath("$.descriptions.*", hasSize(16)));
     }
 }
