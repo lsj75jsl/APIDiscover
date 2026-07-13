@@ -48,13 +48,7 @@
 - [x] **`/result` 판단근거 finding 인라인 (ⓒ)** **(구현 완료 — build green 500·커밋 보류·머지 시 Done. D55, 사용자 요청)** — 별도 top-level `rationale[]` 제거, report_json 각 finding 에 `classification`+`basis`(SHADOW=score{apiScore·threshold·signals}·Active/Zombie=spec_match) `EndpointIdentity.key`(method,host,path) 매칭 인라인. 기존 finding 필드·ETag 불변·매칭 없으면 미가산. ★응답 형태 변경(additive 아님)=중앙/매뉴얼(TW) 반영 필요. ⓑ(Active 휴리스틱 점수)=스펙 업로드 시 후속 보류.
 
 #### 분류설정 REST (10/11 문서)
-- [ ] **스코어링 정책 조회 강화 — effective 노출 + threshold 최상위 분리 + 신호 설명(ko/en), API-only** **(구현 완료 — build green 541·신규 4·커밋 보류·머지 시 Done. 설계 doc/39 / DECISIONS D78, 사용자 확정. 1.0 태그 이후 첫 작업)** — API 판단 스코어링 정책은 DB+REST 로 이미 운영·즉시적용(캐시 무효화). 전역 GET 이 저장값만 반환해 preset 시 실적용 14 weight·threshold 미노출(도메인은 이미 effective 노출·비대칭) + threshold 가 weights 안 매몰 → 조회 강화. CLI 는 서버 별도 프로세스라 즉시적용 부적합 → API-only.
-  - [x] `ClassificationDtos.EffectiveView` 재정의 — (profile·weightsSource·**threshold**·repeatMinCount·weights[14키맵]·matcher). threshold/repeatMinCount 최상위 분리, weights=weightsAsMap(14).
-  - [x] `GlobalClassificationView` 에 `effective`+`descriptions` 추가 / `DomainClassificationView` 에 `descriptions` 추가.
-  - [x] `ScoringWeightCatalog`(신설) — 14 weight+threshold+repeatMinCount 의 ko/en 설명 정적 사전(단일 진실원, 순서 보존).
-  - [x] `ClassificationController` — `toEffectiveView(EffectiveClassification)` 헬퍼 + toGlobalView/toDomainView 에 effective(resolveGlobal/resolve)·descriptions 배선(핸들러 로직·검증·캐시 무효화 불변).
-  - [x] 테스트(ClassificationControllerTest 27, 신규 4) — 전역 GET effective/threshold/14키/weightsSource/repeatMinCount/descriptions(ko/en·16키)·PUT(CUSTOM) weightsSource=custom·도메인 GET 동형. 기존 assertion `effective.weights.threshold`→`effective.threshold` 정정. 쓰기 400/404·즉시적용 무회귀 유지.
-  - [ ] 매뉴얼(TW) — api-rest-manual §2.5 classification 응답에 effective(threshold 분리)·descriptions(한글 설명) 반영. **후속.**
+> (현재 비어 있음 — 스코어링 정책 조회 강화(D78, effective 노출·threshold 분리·descriptions·매뉴얼) 완료, Done 참조)
 
 #### 스펙 파서 / Spec Store (03 문서)
 > (현재 비어 있음 — 검출/업로드 데이터 모델 통합 + 멀티 스펙 병합 완료, Done 참조)
@@ -171,6 +165,16 @@
 ---
 
 ## Done
+
+### 스코어링 정책 조회 강화 — effective 노출·threshold 최상위 분리·신호 설명(ko/en) (2026-07-13, D78 / doc/39, PR #72 머지·1.1 태그·VM 재배포·매뉴얼 완료) — API-only
+> API 판단 스코어링 정책은 DB+REST 로 이미 운영·즉시적용(캐시 무효화). 전역 GET 이 저장값만 반환(preset 시 실적용 미노출)·threshold 가 weights 안 매몰 → 조회 강화. 파일 아님·DB 운영 유지(사용자 결정). CLI=별도 프로세스라 즉시적용 부적합 → API-only.
+- [x] `ClassificationDtos.EffectiveView` 재정의 — profile·weightsSource·**threshold**·repeatMinCount·weights[14키맵]·matcher (threshold/repeatMinCount 최상위 분리).
+- [x] `GlobalClassificationView`·`DomainClassificationView` 에 `effective`·`descriptions` 추가.
+- [x] `ScoringWeightCatalog`(신설) — 16키(14 신호+threshold+repeatMinCount) ko/en 정적 사전(순서 보존).
+- [x] `ClassificationController` — `toEffectiveView` 헬퍼 + 전역/도메인 배선(핸들러 로직·검증·캐시 무효화 불변).
+- [x] 테스트 ClassificationControllerTest 27(신규 4). **build green 541**·실패 0·skip 2(live 게이트).
+- [x] 매뉴얼(TW) `api-rest-manual §2.5` — 전역 GET effective·descriptions 추가, 도메인 GET threshold 최상위·weightsSource, 옛 "weights 안 threshold" 범례 정정. 태그 균형 검증.
+- [x] main 머지(badf882, PR #72)·**1.1 태그**·테스트 VM(192.168.8.197) 재빌드·재배포·`play kube --replace`·라이브 검증(effective threshold=0.7 최상위·descriptions ko/en 정상, health UP, 스캐너 재개). 직전 이미지 `prev-1.0` 롤백 보존.
 
 ### API 문서 업로드 샘플 3종 + Swagger 2.0 지원(D70) (2026-07-06, 사용자 요청)
 - [x] **업로드 샘플 3종**: `sample/upload_api_doc/`(openapi-sample.yaml·postman-sample.json·spec-sample.csv + README) — 배포 파서로 파싱 검증(OpenAPI 5·Postman 4·CSV 5, deprecated 플래그). README 에 감지규칙·업로드(Content-Type 헤더 필수)·분류 매핑.

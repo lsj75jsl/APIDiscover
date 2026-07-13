@@ -486,15 +486,30 @@ curl http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/spec   # → [] (200)
 
 <div class="ep">
   <div class="sig"><span class="m m-get">GET</span><code>/api/v1/classification</code> &nbsp;·&nbsp; <span class="m m-put">PUT</span><code>/api/v1/classification</code></div>
-  <p>전역 분류 기본값(profile·임계·가중치·힌트). <strong>PUT</strong> 으로 수정한다. 도메인이 따로 override 하지 않으면 이 값을 상속한다.</p>
+  <p>전역 분류 기본값(profile·임계·가중치·힌트). <strong>PUT</strong> 으로 수정한다. 도메인이 따로 override 하지 않으면 이 값을 상속한다. 응답은 <strong>저장값</strong>(profile·thresholdOverride·customWeights·matcher·updatedAt) 외에 <code>effective</code>(preset 이어도 <strong>실제 적용 중인</strong> 임계·14 가중치)와 <code>descriptions</code>(각 신호 의미 ko/en)를 함께 준다(D78).</p>
   <pre><code>curl http://&lt;host&gt;:8080/api/v1/classification</code></pre>
   <pre><code>{
   "profile":"MIDDLE",
   "thresholdOverride":null,
   "customWeights":null,
   "matcher":null,
-  "updatedAt":"2026-06-25T14:09:40.440546Z"
+  "updatedAt":"2026-06-25T14:09:40.440546Z",
+  "effective":{
+    "profile":"MIDDLE", "weightsSource":"preset", "threshold":0.7, "repeatMinCount":3,
+    "weights":{ "hostApiSubdomain":0.4, "corsPreflight":0.3, "apiSegment":0.55, "graphqlSegment":0.55,
+                "versionSegment":0.26, "pathIdSegment":0.15, "machineEndpoint":0.2, "writeMethod":0.34,
+                "query":0.12, "nonBrowserUa":0.24, "staticAssetPenalty":-0.6, "repeatBonus":0.12,
+                "pathHint":0.55, "responseTypeApi":0.25 },
+    "matcher":{ "apiPathPrefixes":[], "apiPathRegexes":[], "excludePathPrefixes":[], "excludePathRegexes":[],
+                "optionsOperationPrefixes":[], "includeWebForms":true }
+  },
+  "descriptions":{
+    "threshold":{ "ko":"API 판정 점수 임계 — 점수 ≥ 이면 API 후보(미만은 비-API)", "en":"Score cutoff for API admission — score ≥ threshold ⇒ API candidate" },
+    "repeatMinCount":{ "ko":"repeatBonus 발화 최소 반복 횟수 (override 불가)", "en":"Min repeat count to fire repeatBonus (not overridable)" },
+    "graphqlSegment":{ "ko":"경로에 graphql/rpc/jsonrpc 세그먼트", "en":"Path contains a graphql/rpc/jsonrpc segment" }
+  }
 }</code></pre>
+  <p class="legend">★<code>effective</code>(D78): 실제 적용 중인 정책. <code>threshold</code>·<code>repeatMinCount</code> 는 <strong>최상위</strong>로 분리(threshold 는 가산 신호가 아니라 판정 합격선), <code>weights</code> 는 override 가능한 <strong>14 신호 맵</strong>(PUT/PATCH body 와 동형). <code>weightsSource</code>=<code>preset</code>|<code>custom</code>. <code>descriptions</code> 는 응답 전용(입력 시 무시)·총 <strong>16키</strong>(14 신호 + threshold + repeatMinCount) 각 {ko,en} — 위는 대표 3키.</p>
 </div>
 
 <h4>설정 필드 의미 — <code>thresholdOverride</code> · <code>customWeights</code> · <code>matcher</code></h4>
@@ -516,14 +531,16 @@ curl http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/spec   # → [] (200)
   "host":"api.weble.net",
   "override":{ "profile":null, "thresholdOverride":null, "customWeights":null, "matcher":null },
   "effective":{
-    "profile":"MIDDLE",
+    "profile":"MIDDLE", "weightsSource":"preset", "threshold":0.7, "repeatMinCount":3,
     "weights":{ "hostApiSubdomain":0.4, "corsPreflight":0.3, "apiSegment":0.55, "graphqlSegment":0.55,
                 "versionSegment":0.26, "pathIdSegment":0.15, "machineEndpoint":0.2, "writeMethod":0.34,
                 "query":0.12, "nonBrowserUa":0.24, "staticAssetPenalty":-0.6, "repeatBonus":0.12,
-                "repeatMinCount":3, "pathHint":0.55, "responseTypeApi":0.25, "threshold":0.7 }
+                "pathHint":0.55, "responseTypeApi":0.25 },
+    "matcher":{ "apiPathPrefixes":[], "apiPathRegexes":[], "excludePathPrefixes":[], "excludePathRegexes":[],
+                "optionsOperationPrefixes":[], "includeWebForms":true }
   }
 }</code></pre>
-  <p class="legend"><code>override</code> 가 전부 null = 전역(없으면 MIDDLE) 상속. 병합 우선순위(도메인 → 전역 → preset)는 <em>API 판독 매뉴얼 §4.4</em> 참조. 이 <code>effective.weights</code> 에는 14 신호 가중치 외에 <code>repeatMinCount</code>·<code>threshold</code> 도 포함된다(<a href="#s2-3">§2.3</a> 의 <code>effectiveClassification.weights</code> 는 신호 14개만).</p>
+  <p class="legend"><code>override</code> 가 전부 null = 전역(없으면 MIDDLE) 상속. 병합 우선순위(도메인 → 전역 → preset)는 <em>API 판독 매뉴얼 §4.4</em> 참조. ★<code>effective</code>(D78): <code>threshold</code>·<code>repeatMinCount</code> 는 <strong>최상위</strong>로 분리되고 <code>weights</code> 는 14 신호 맵이다(<a href="#s2-3">§2.3</a> 의 <code>effectiveClassification.weights</code> 도 신호 14개). 응답에는 전역 GET 과 동일한 <code>descriptions</code>(16키 ko/en)도 포함된다(위 예시는 생략).</p>
 </div>
 
 <div class="ep">

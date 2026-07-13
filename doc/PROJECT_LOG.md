@@ -23,8 +23,10 @@
 - **1.1 태그** — main(badf882)에 annotated `1.1`(D78, PR #72) push. (1.0=7995690 유지.)
 - **테스트 VM(.197) 재배포·기동·실검증 완료** — main 에서 이미지 재빌드(멀티스테이지 bootJar, `localhost/apidiscover:test`=9ed6880) → gzip save(166MB) → scp → VM `podman load` → `podman play kube --replace`. 직전 D77 이미지(9cf1551)는 `prev-1.0` 롤백 태그 보존. health UP(~15s)·adc-app=새 이미지. **1.1 기능 라이브 검증**: `GET /api/v1/classification` → effective(threshold=0.7 **최상위 분리**·weightsSource=preset·repeatMinCount=3·weights 14키·matcher) + descriptions(ko/en 16키). 스캐너 재개(delta-skip 워터마크 점프 로그 정상). restartCount=1(브링업 중 1회 재시작 후 안정·UP).
 
+- **매뉴얼(TW) 반영 완료** — `api-rest-manual §2.5`: 전역 GET 에 effective·descriptions 추가, 도메인 GET threshold 최상위·weightsSource, 옛 "weights 안 threshold" 범례 정정(태그 균형 검증). D78 전 subitem 완료 → TASKS Done 이동.
+
 ### 다음 단계
-- 매뉴얼(TW) api-rest-manual §2.5 반영(effective threshold 분리·descriptions 한글) — 후속. 이후 보류했던 8.3 로그변수 소비 구현 재개 가능.
+- 보류했던 8.3 로그변수 소비 구현(D 미정) 재개 가능 — 사용자 지시 대기.
 
 ## 2026-07-09 세션 73 — 밀림 12h 확인 + PG CPU 포화 진단·해소(D75)
 
