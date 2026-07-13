@@ -1,7 +1,7 @@
 // 분류 설정 REST DTO 묶음 (doc/11 §1). MatcherConfig·ApiScorer.Weights record 재사용
 package com.pentasecurity.apidiscover.api.dto;
 
-import com.pentasecurity.apidiscover.classify.ApiScorer;
+import com.pentasecurity.apidiscover.classify.ScoringWeightCatalog;
 import com.pentasecurity.apidiscover.model.ClassificationProfile;
 import com.pentasecurity.apidiscover.model.MatcherConfig;
 import java.time.Instant;
@@ -20,20 +20,23 @@ public final class ClassificationDtos {
             MatcherConfig matcher                 // nullable (model record 재사용)
     ) {}
 
-    /** GET 전역 — 저장값. 행 부재 시 default(MIDDLE/null). */
+    /** GET 전역 — 저장값 + effective(실적용값) + descriptions(신호 설명 ko/en, D78). 행 부재 시 저장값=default(MIDDLE/null). */
     public record GlobalClassificationView(
             ClassificationProfile profile,
             Double thresholdOverride,
             Map<String, Double> customWeights,
             MatcherConfig matcher,
-            Instant updatedAt
+            Instant updatedAt,
+            EffectiveView effective,
+            Map<String, ScoringWeightCatalog.Description> descriptions
     ) {}
 
-    /** GET 도메인 — override(저장값) + effective(병합값). */
+    /** GET 도메인 — override(저장값) + effective(병합 실적용값) + descriptions(신호 설명 ko/en, D78). */
     public record DomainClassificationView(
             String host,
             OverrideView override,
-            EffectiveView effective
+            EffectiveView effective,
+            Map<String, ScoringWeightCatalog.Description> descriptions
     ) {}
 
     /** 도메인 override 저장값 (행 부재 시 모든 필드 null). */
@@ -46,12 +49,16 @@ public final class ClassificationDtos {
     ) {}
 
     /**
-     * effective(병합) 노출 — 런타임 객체(scorer/hints)는 제외.
-     * weights 에 threshold·repeatMinCount 포함, matcher.includeWebForms()=정규화된 effective 플래그.
+     * effective(병합) 노출 — 런타임 객체(scorer/hints)는 제외. threshold·repeatMinCount 는 최상위로 분리(D78):
+     * threshold=판정 합격선(가산 신호 아님), repeatMinCount=override 불가 상수. weights=override 가능한 14키 맵
+     * (PUT/PATCH 바디와 동형). weightsSource=preset|custom(CUSTOM). matcher.includeWebForms()=정규화된 effective 플래그.
      */
     public record EffectiveView(
             ClassificationProfile profile,
-            ApiScorer.Weights weights,
+            String weightsSource,
+            double threshold,
+            int repeatMinCount,
+            Map<String, Double> weights,
             MatcherConfig matcher
     ) {}
 }

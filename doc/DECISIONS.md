@@ -670,6 +670,12 @@ gap-free 크롤은 활성 수요(~22.6k 윈도우/h) vs 예산 용량(D65 후 ~7
 - **소스 상태**: adc.yaml 은 shm 마운트 제거로 롤백(HEAD=배포본 일치). 이미지 9cf1551(@Index 포함)은 배포 유지.
 - **잔여 처리(완료)**: 282MB bloat 인덱스 `ukktr…` 를 `SET max_parallel_maintenance_workers=0; REINDEX INDEX CONCURRENTLY`(비병렬·무락·23.6초, /dev/shm 불요)로 회수 — **283MB→205MB(78MB↓)**, 테이블 총 1031→956MB. 인덱스 valid·unique 유지, invalid 잔여 0, 서비스 UP. shm 확대 없이 목적 달성.
 
+### D78. 스코어링 정책 조회 강화 — effective 노출 + threshold 최상위 분리 + 신호 설명(ko/en), API-only (2026-07-13, 사용자 확정)
+- **배경**: API 판단 스코어링 정책(profile·14 weight·threshold·matcher)은 DB(`classification_config`/`domain_classification_config`) + REST(PUT/PATCH) 로 이미 운영·즉시적용(캐시 무효화)된다. 그러나 (1) 전역 GET(`GET /classification`)이 저장값만 반환 → preset(MIDDLE·customWeights=null)일 때 **실제 적용 중인 14 weight·threshold 값이 안 보임**(도메인 GET 은 이미 effective 노출·비대칭), (2) threshold 가 effective 의 `weights` 레코드 안에 매몰 — 쓰기는 최상위 `thresholdOverride` 인데 읽기는 매몰(비대칭). threshold 는 가산 신호가 아니라 판정 합격선(score≥threshold→API 후보)이라 성격이 다르고 전 엔드포인트 경계를 좌우하는 최대 영향 노브.
+- **결정**: ① 전역 GET 에 `effective` 블록 추가(도메인과 동형). ② threshold·repeatMinCount 를 effective **최상위로 분리**(전역·도메인 동일), `weights` 는 override 가능한 14키 맵(PUT/PATCH 바디와 대칭). ③ `descriptions`(ko/en) 조회 응답에 첨부 — 신호 의미를 한글·영어로(값 맵은 순수 숫자 유지, 설명은 별도 블록). 매뉴얼에는 한글 설명. ④ **CLI 미구현(API-only)** — 분류설정용 CLI 없고, CLI 는 서버와 별도 원샷 프로세스라 실행 중 서버 캐시(즉시적용) 접근 불가 → 부적합(사용자 확정).
+- **무회귀**: 스코어링/분류 로직·쓰기 계약(PUT/PATCH·검증 400·404·즉시적용) 불변. 조회 노출 형태만 변경. 도메인 GET `effective` 형태 변경(threshold 최상위·14키 맵)은 정보성 블록·쓰기 미영향(매뉴얼 갱신). `/discovery` 별도 `EffectiveClassificationView` 는 미터치.
+- 설계 상세·API 입출력 = doc/39. 조회는 있으나 "실적용 값" 미노출이던 공백 해소가 핵심. 파일=DB 유지(사용자 결정 — 도메인별 설정도 있어 파일화보다 DB 운영이 적합).
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.

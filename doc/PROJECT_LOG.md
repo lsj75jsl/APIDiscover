@@ -5,6 +5,25 @@
 
 ---
 
+## 2026-07-13 세션 74 — 1.0 태그 + 스코어링 정책 조회 강화(D78, doc/39)
+
+### 한 일
+- **1.0 태그** — 현재 main(7995690)을 annotated 태그 `1.0`(API Discovery Worker 안정화 기준선, D77까지)으로 찍고 origin push.
+- **스코어링 정책 조회 강화(D78, 설계 doc/39)** — 사용자가 "로그변수 소비(8.3)"보다 **API 판단 스코어링 정책 조회/수정 + 즉시적용**을 먼저 요청. 조사 결과 조회/수정은 이미 REST(전역·도메인 GET·PUT·PATCH + 캐시 무효화=즉시적용)로 대부분 존재 → **파일 아님, DB 운영 유지**(도메인별 설정 존재하여 사용자가 DB 운영 확정). 공백 2개만 보완:
+  - ① 전역 GET(`GET /classification`)에 `effective` 블록 추가 — preset(MIDDLE) 시 저장 customWeights=null 이라 실적용 14 weight·threshold 가 안 보이던 문제 해소(도메인 GET 은 이미 effective 노출·비대칭 해소).
+  - ② **threshold·repeatMinCount 를 effective 최상위로 분리**(전역·도메인 동일). threshold 는 가산 신호 아닌 판정 합격선·최대 영향 노브라 매몰 부적절 + 쓰기(thresholdOverride 최상위)와 읽기 대칭. `weights` 는 override 가능한 14키 맵(PUT/PATCH 바디와 동형).
+  - ③ `descriptions`(ko/en) 조회 응답 첨부 — 신호 의미 한/영. 매뉴얼은 한글. 값 맵은 순수 숫자 유지(쓰기 호환), 설명은 별도 블록. 신설 `ScoringWeightCatalog`(16키 정적 사전, 순서 보존).
+  - ④ **CLI 미구현(API-only)** — 분류설정 CLI 없고 CLI=별도 원샷 프로세스라 실행 중 서버 캐시(즉시적용) 접근 불가 → 부적합(사용자 확정).
+- 사용자와 **구현 전 API 입출력 형태 합의**(effective 추가·threshold 최상위·descriptions ko/en) 후 착수. 설계서(doc/39)·DECISIONS(D78)·TASKS 서브아이템 반영 후 구현.
+
+### 결과
+- 변경: `ClassificationDtos`(EffectiveView 재정의·Global/Domain view 에 effective·descriptions)·`ClassificationController`(toEffectiveView 헬퍼·배선)·신설 `ScoringWeightCatalog`. 스코어링/분류 로직·쓰기 계약 불변(조회 노출만).
+- 테스트: `ClassificationControllerTest` 27(신규 4 — 전역 effective/threshold/weightsSource/repeatMinCount·descriptions 16키 ko/en·CUSTOM·도메인 동형), 기존 `effective.weights.threshold`→`effective.threshold` 정정. **build green 541·실패 0·skip 2(live 게이트).**
+- 브랜치 `feat/scoring-config-effective-exposure`. 커밋·PR·머지는 사용자 확인 대기.
+
+### 다음 단계
+- (사용자 확인 후) 커밋·PR·머지. 머지 후 매뉴얼(TW) api-rest-manual §2.5 반영(effective threshold 분리·descriptions 한글). 이후 보류했던 8.3 로그변수 소비 구현 재개 가능.
+
 ## 2026-07-09 세션 73 — 밀림 12h 확인 + PG CPU 포화 진단·해소(D75)
 
 ### 한 일
