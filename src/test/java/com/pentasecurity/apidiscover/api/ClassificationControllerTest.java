@@ -390,7 +390,7 @@ class ClassificationControllerTest {
     void descriptionsAttachedWithKoEnAndCompleteKeys() throws Exception {
         mvc.perform(get("/api/v1/classification"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.descriptions.*", hasSize(16)))              // 14 weight + threshold + repeatMinCount
+                .andExpect(jsonPath("$.descriptions.*", hasSize(20)))              // 18 weight + threshold + repeatMinCount
                 .andExpect(jsonPath("$.descriptions.threshold.ko").isNotEmpty())
                 .andExpect(jsonPath("$.descriptions.threshold.en").isNotEmpty())
                 .andExpect(jsonPath("$.descriptions.graphqlSegment.ko").isNotEmpty())
@@ -405,6 +405,6 @@ class ClassificationControllerTest {
                 .andExpect(jsonPath("$.effective.threshold").value(0.7))
                 .andExpect(jsonPath("$.effective.weightsSource").value("preset"))
                 .andExpect(jsonPath("$.effective.repeatMinCount").value(3))
-                .andExpect(jsonPath("$.descriptions.*", hasSize(16)));
+                .andExpect(jsonPath("$.descriptions.*", hasSize(20)));
     }
 }

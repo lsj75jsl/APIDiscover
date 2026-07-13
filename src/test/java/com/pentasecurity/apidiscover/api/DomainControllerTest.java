@@ -245,7 +245,7 @@ class DomainControllerTest {
         assertThat(view.spec().endpointCount()).isEqualTo(18);
         assertThat(view.effectiveClassification().profile()).isEqualTo(ClassificationProfile.MIDDLE);
         assertThat(view.effectiveClassification().weightsSource()).isEqualTo("preset");
-        assertThat(view.effectiveClassification().weights()).hasSize(14);
+        assertThat(view.effectiveClassification().weights()).hasSize(18);
     }
 
     @Test

@@ -5,6 +5,44 @@
 
 ---
 
+## 2026-07-13 세션 76 — 8.3 §6 로그변수 소비 구현(응답 CT + 요청측 4신호)
+
+### 한 일
+- §5 시뮬 확정값(가중치 accept 0.20·xhr 0.28·origin 0.15·auth 0.28·발화 다수결) 반영해 doc/40 §6 구현. 커밋 `9a17350`.
+- 코어: ParseProperties 5 신규 인덱스(기본 -1 DORMANT). ★record `@ConfigurationProperties` 는 **생성자 1개 전제** — 편의 생성자 추가 시 "No default constructor" 로 컨텍스트 실패 → 단일 canonical + `acrmOnly`/`defaults` 정적 팩터리로 정정. LogLineParser `readOptional`(ACRM 동형 nullable). ParsedRequest 5 필드(+14-arg 하위호환). Acc: 응답 CT 2xx-only 누적·정규화(;charset 제거·소문자)·요청 4신호 presence→다수결(count*2>=hits, nonBrowserUa 선례). DiscoveredEndpoint 4 불리언(+11-arg 하위호환). Record 4 컬럼(ddl-auto ADD, `boolean not null default false` — 기존 2.9M 행 NULL 회피). upsert 쓰기·serve-time 복원.
+- 소비처: EndpointKindClassifier 4-arg classify — 확장자 정적 veto 우선(§4.3 ④)·CT 분기(2xx dist·dominant<0.5 skip·빈 dist 폴백·html 검사 xml 앞[xhtml 회피]·+json/+xml suffix). ApiScorer 4 양성 가중치·WEIGHT_KEYS 14→18·weightsAsMap·applyOverrides·프리셋 3종. ScoringWeightCatalog 4 설명(ko/en).
+
+### 결과
+- **빌드 그린: 559 tests, 0 fail, 2 skip(라이브 통합). 실 PG 통합 36건 통과** — 신규 컬럼 `default false` ddl-auto ADD 를 실 Postgres 로 검증.
+- 무회귀: 인덱스 -1 → 전 신규 신호 부재 → 점수·kind 불변(기존 스냅샷·부재0 테스트로 고정). 격하 0 = 양성 가산 단조.
+- 신규 테스트: 파서 nullable·CT 오도(4xx/3xx html 미오염·401/403 dist 빈·과반 미달 폴백·정적 veto 우선)·scorer 4 발화/부재0/override/프리셋·Acc 다수결.
+
+### QA 리뷰 반영 (PR #73, 커밋 7697f1e)
+- **P2(코드)**: EndpointKindClassifier CT 과반 가드가 `fraction<0.5` 만 skip → 50/50 tie(fraction==0.5)는 통과 → dominantOf 가 Map 반복순(JVM salt 랜덤)으로 임의 CT dominant 선택 = 비결정 분류. `<0.5`→`<=0.5`(엄격 과반, tie skip·폴백). 경계 테스트 추가 + fix 원복 RED 확인(판별력 증명). doc/40 §4.3 ② 문구 동기.
+- **P3(문서)**: doc/40 상태 헤더·발화조건 결정포인트·§8 순서를 구현 완료로 갱신. 빌드 그린 560 tests.
+
+### 다음 단계
+- PR #73 머지. 후속(TW): 매뉴얼 §7(server_protocol·upstream_addr 삭제·CT/신규 신호 반영). 활성 단계: nginx log_format + application.yml 인덱스 세팅 후 전/후 스냅샷 diff 로 CT kind-flip 실측(§4.3 잔여 위험).
+
+---
+
+## 2026-07-13 세션 75 — 8.3 §5 로그신호 소비 시뮬레이션(과승격 상한 정량화)
+
+### 한 일
+- doc/40 §5 시뮬레이션 실행(1단계 — 구현 전 가중치·발화조건 확정용). `sample/log_signal_promotion_sim.py` 작성: ApiScorer(MIDDLE)+게이트를 파이썬 정확 포팅(13신호, pathHint만 NONE=0 미재현), `discovered_endpoint` 전수를 운영 PG(192.168.8.197) **read-only COPY|gzip 단일 seq scan** 으로 재계산(부하 작게, 반복 조회 없음). 자체검증 9케이스 통과.
+- 재현 조건 확인: profile=MIDDLE·threshold 0.70·weight override 없음·정적 토큰=기본·oversize 0·**API_CANDIDATE 0건**(responseTypeApi 현재 전 미발화). corsPreflight=모든 OPTIONS (host,path) self-join(ACRM DORMANT).
+
+### 결과
+- 게이트 분포(non-OPT 2,950,010): ADMIT 33,527(1.14%)·DROP_LOW_SCORE 1,776,621(60.2%)·DROP_WEB_FORM 102,217·DROP_STATIC 1,037,645·OVERSIZE 0.
+- **격하 0건 재확인**(양성 가산·단조 — 현행 ADMIT 전건 score≥0.70 유지).
+- **과승격 상한**: 단일신호 최대(0.28) ≤ **31,391(전체 1.06%·LOW 1.77%)** — 이 밴드의 **89.5%가 API 구조 신호 보유(옳은 승격)**, 최다=apiSegment 단독 17,296(score 0.55). 2신호 최대 ≤422,180(14.3%)·전신호=LOW 전체(60.2%).
+- **권고**: §3 가중치 4종 유지(잘 조정됨) · 발화조건 **다수결(`count*2≥hits`) 확정**(presence>0 은 스캐너 단발로 +0.91 flip 가능 — 살포 위험). doc/40 §5.1·TASKS 반영.
+
+### 다음 단계
+- 팀장 확정 후 2단계 = §6 구현(코어→소비처→테스트, DORMANT 무회귀). 활성은 별도(nginx log_format + 인덱스 세팅 후 전/후 스냅샷 diff 실측).
+
+---
+
 ## 2026-07-13 세션 74 (이어서) — 8.3 로그변수 소비 개발 계획 수립(D79, doc/40)
 
 ### 한 일

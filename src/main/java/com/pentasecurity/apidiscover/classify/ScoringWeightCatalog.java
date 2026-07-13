@@ -70,6 +70,18 @@ public final class ScoringWeightCatalog {
         m.put("responseTypeApi", new Description(
                 "API성 $type 신호(xhr/fetch/json)",
                 "API-like $type signal (xhr/fetch/json)"));
+        m.put("acceptJson", new Description(
+                "요청 Accept 가 application/json 다수(8.3)",
+                "Request Accept is application/json (majority, 8.3)"));
+        m.put("xRequestedWith", new Description(
+                "X-Requested-With: XMLHttpRequest 다수(8.3, AJAX/XHR)",
+                "X-Requested-With: XMLHttpRequest (majority, 8.3, AJAX/XHR)"));
+        m.put("originHeader", new Description(
+                "요청 Origin 헤더 존재 다수(8.3, cross-origin)",
+                "Request Origin header present (majority, 8.3, cross-origin)"));
+        m.put("authScheme", new Description(
+                "Authorization 스킴(bearer/basic 등) 존재 다수(8.3)",
+                "Authorization scheme (bearer/basic, …) present (majority, 8.3)"));
         return Collections.unmodifiableMap(m); // LinkedHashMap 순서 보존(threshold·repeatMinCount 먼저)
     }
 }

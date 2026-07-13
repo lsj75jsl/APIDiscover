@@ -25,6 +25,13 @@ class AccTest {
                 "ua", Instant.EPOCH, ms, 100, true, null, null, null);
     }
 
+    /** 8.3 신호 세팅용 — status/응답CT/accept/xrw/origin/auth (doc/40 §6). */
+    private static ParsedRequest req83(int status, String ct, String accept, String xrw,
+                                       String origin, String auth) {
+        return new ParsedRequest("GET", "/x", List.of(), status, "h", "1.1.1.1", "ua",
+                Instant.EPOCH, 5, 100, true, null, null, null, null, ct, accept, xrw, origin, auth);
+    }
+
     /** i → 고유 IP(10.0.y.z), i<65536 에서 distinct. */
     private static String ip(int i) {
         return "10.0." + ((i >> 8) & 255) + "." + (i & 255);
@@ -87,6 +94,40 @@ class AccTest {
         assertThat(m.distinctClients()).isZero();
         assertThat(m.p50RespMs()).isZero();
         assertThat(m.p95RespMs()).isZero();
+    }
+
+    // --- 8.3 응답 CT 분포 + 요청측 신호 다수결 (doc/40 §4.3·§6) ---
+
+    @Test
+    void contentTypeDistAccumulatesOnly2xxAndNormalizes() {
+        Acc a = acc();
+        a.add(req83(200, "application/json", null, null, null, null));
+        a.add(req83(200, "application/JSON; charset=utf-8", null, null, null, null)); // 정규화 → application/json
+        a.add(req83(404, "text/html", null, null, null, null)); // 4xx → 미누적(가드①)
+        a.add(req83(302, "text/html", null, null, null, null)); // 3xx → 미누적
+        assertThat(a.contentTypeDist()).hasSize(1).containsEntry("application/json", 2L);
+    }
+
+    @Test
+    void authFailureHtmlDoesNotPolluteContentTypeDist() {
+        // 401/403-only(2xx 없음) → dist 빈 → 폴백(doc/19 보존, §4.3 가드①)
+        Acc a = acc();
+        a.add(req83(401, "text/html", null, null, null, null));
+        a.add(req83(403, "text/html", null, null, null, null));
+        assertThat(a.contentTypeDist()).isEmpty();
+    }
+
+    @Test
+    void requestSignalsFireOnlyOnMajority() {
+        Acc a = acc();
+        a.add(req83(200, null, "application/json", "XMLHttpRequest", "https://x", "bearer"));
+        a.add(req83(200, null, "application/json", null, null, null));
+        a.add(req83(200, null, null, null, null, null)); // 3 hits: accept 2/3, 나머지 1/3
+        var d = a.toEndpoint(EndpointKind.UNKNOWN, 0.0, ParamCandidates.EMPTY);
+        assertThat(d.acceptJson()).isTrue();       // 2*2=4 >= 3
+        assertThat(d.xRequestedWith()).isFalse();  // 1*2=2 < 3
+        assertThat(d.originHeader()).isFalse();     // 1/3
+        assertThat(d.authScheme()).isFalse();       // 1/3
     }
 
     @Test

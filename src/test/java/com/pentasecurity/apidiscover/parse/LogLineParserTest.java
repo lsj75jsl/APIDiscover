@@ -61,12 +61,35 @@ class LogLineParserTest {
         assertThat(r.referer()).isNull();
         assertThat(r.requestId()).isNull();
         assertThat(r.acrm()).isNull(); // 기본 parse.acrm-field-index=-1 → 미사용 (doc/23 §9.2)
+        // 8.3 신규 신호도 기본 -1 → null (dormant, 무회귀, doc/40 §6)
+        assertThat(r.responseContentType()).isNull();
+        assertThat(r.accept()).isNull();
+        assertThat(r.xRequestedWith()).isNull();
+        assertThat(r.origin()).isNull();
+        assertThat(r.authScheme()).isNull();
+    }
+
+    @Test
+    void reads83SignalsAtConfiguredIndexElseNull() {
+        // doc/40 §6: acrm 동형 "있으면 읽는". idx20~24 로 응답CT/accept/xrw/origin/auth 매핑.
+        var p = new LogLineParser(NormalizationProperties.defaults(),
+                new ParseProperties(-1, 20, 21, 22, 23, 24));
+        String line = SAMPLE + "^|^application/json^|^application/json^|^XMLHttpRequest^|^https://shop.com^|^bearer";
+        ParsedRequest r = p.parse(line).orElseThrow();
+        assertThat(r.responseContentType()).isEqualTo("application/json");
+        assertThat(r.accept()).isEqualTo("application/json");
+        assertThat(r.xRequestedWith()).isEqualTo("XMLHttpRequest");
+        assertThat(r.origin()).isEqualTo("https://shop.com");
+        assertThat(r.authScheme()).isEqualTo("bearer");
+        // "-" → null, 필드 부재(20필드) → null
+        assertThat(p.parse(SAMPLE + "^|^-^|^-^|^-^|^-^|^-").orElseThrow().accept()).isNull();
+        assertThat(p.parse(SAMPLE).orElseThrow().responseContentType()).isNull();
     }
 
     @Test
     void readsAcrmAtConfiguredIndexWhenPresentElseNull() {
         // doc/23 M3: "있으면 읽는" — 설정 인덱스에 필드 존재 시 읽고, "-"/부재면 null
-        var p = new LogLineParser(NormalizationProperties.defaults(), new ParseProperties(20));
+        var p = new LogLineParser(NormalizationProperties.defaults(), ParseProperties.acrmOnly(20));
         assertThat(p.parse(SAMPLE + "^|^GET").orElseThrow().acrm()).isEqualTo("GET"); // idx20 존재
         assertThat(p.parse(SAMPLE + "^|^-").orElseThrow().acrm()).isNull();            // "-" → null
         assertThat(p.parse(SAMPLE).orElseThrow().acrm()).isNull();                     // idx20 부재(20필드) → null

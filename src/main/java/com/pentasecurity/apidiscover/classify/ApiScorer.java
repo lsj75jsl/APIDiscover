@@ -36,20 +36,28 @@ public class ApiScorer {
      */
     public static final int MAX_PATH_TEMPLATE_CHARS = 2048;
 
-    /** 신호별 가중치 + 임계값 (doc/08 §4 보정값, doc/09 §6 pathHint 추가, doc/17 §3 responseTypeApi 추가). */
+    /**
+     * 신호별 가중치 + 임계값 (doc/08 §4 보정값, doc/09 §6 pathHint, doc/17 §3 responseTypeApi,
+     * doc/40 §3 8.3 요청측 4신호[acceptJson·xRequestedWith·originHeader·authScheme] 추가 — 전부 양성 가산).
+     */
     public record Weights(
             double hostApiSubdomain, double corsPreflight, double apiSegment, double graphqlSegment,
             double versionSegment, double pathIdSegment, double machineEndpoint, double writeMethod,
             double query, double nonBrowserUa, double staticAssetPenalty, double repeatBonus,
-            int repeatMinCount, double pathHint, double responseTypeApi, double threshold) {}
+            int repeatMinCount, double pathHint, double responseTypeApi,
+            double acceptJson, double xRequestedWith, double originHeader, double authScheme,
+            double threshold) {}
 
-    // responseTypeApi(pathHint 뒤·threshold 앞): API성 $type 신호 1차값, 실데이터 보정 전 임의값(doc/17 §4·§9).
+    // 8.3 요청측 4신호(responseTypeApi 뒤·threshold 앞): §5 시뮬 확정값(과승격 상한 검증 — 단일신호 승격 89.5% API 구조 보유).
     private static final Weights MIDDLE = new Weights(
-            0.40, 0.30, 0.55, 0.55, 0.26, 0.15, 0.20, 0.34, 0.12, 0.24, -0.60, 0.12, 3, 0.55, 0.25, 0.70);
+            0.40, 0.30, 0.55, 0.55, 0.26, 0.15, 0.20, 0.34, 0.12, 0.24, -0.60, 0.12, 3, 0.55, 0.25,
+            0.20, 0.28, 0.15, 0.28, 0.70);
     private static final Weights HIGH = new Weights(
-            0.35, 0.25, 0.50, 0.50, 0.20, 0.10, 0.12, 0.30, 0.06, 0.18, -0.70, 0.08, 5, 0.50, 0.18, 0.85);
+            0.35, 0.25, 0.50, 0.50, 0.20, 0.10, 0.12, 0.30, 0.06, 0.18, -0.70, 0.08, 5, 0.50, 0.18,
+            0.15, 0.22, 0.10, 0.22, 0.85);
     private static final Weights LOW = new Weights(
-            0.45, 0.35, 0.65, 0.65, 0.34, 0.22, 0.28, 0.42, 0.18, 0.30, -0.50, 0.18, 2, 0.65, 0.32, 0.55);
+            0.45, 0.35, 0.65, 0.65, 0.34, 0.22, 0.28, 0.42, 0.18, 0.30, -0.50, 0.18, 2, 0.65, 0.32,
+            0.28, 0.34, 0.20, 0.34, 0.55);
 
     private static final Pattern API_HOST = Pattern.compile("^(api|apis|[a-z0-9-]*-api|api-[a-z0-9-]*)\\.");
     private static final Pattern VERSION_SEG = Pattern.compile("^v\\d+$");
@@ -58,11 +66,12 @@ public class ApiScorer {
     private static final Set<String> WRITE = Set.of("POST", "PUT", "PATCH", "DELETE");
     private static final Set<String> ID_TOKENS = Set.of("{id}", "{uuid}", "{token}", "{date}", "{var}");
 
-    /** override 가능한 14 Weights 필드명(단일 명명원, doc/10 §2). threshold/repeatMinCount 는 제외. */
+    /** override 가능한 18 Weights 필드명(단일 명명원, doc/10 §2, doc/40 §6 8.3 4신호 추가). threshold/repeatMinCount 는 제외. */
     public static final Set<String> WEIGHT_KEYS = Set.of(
             "hostApiSubdomain", "corsPreflight", "apiSegment", "graphqlSegment", "versionSegment",
             "pathIdSegment", "machineEndpoint", "writeMethod", "query", "nonBrowserUa",
-            "staticAssetPenalty", "repeatBonus", "pathHint", "responseTypeApi");
+            "staticAssetPenalty", "repeatBonus", "pathHint", "responseTypeApi",
+            "acceptJson", "xRequestedWith", "originHeader", "authScheme");
 
     private final Weights w;
 
@@ -99,7 +108,7 @@ public class ApiScorer {
 
     /**
      * base 가중치에 override 를 적용해 새 Weights 를 만든다(doc/10 §4).
-     * 13 double 은 override map(key=Weights 필드명)에 있으면 교체, 없으면 base. threshold 는 thresholdOverride(nullable)
+     * 18 double 은 override map(key=Weights 필드명)에 있으면 교체, 없으면 base. threshold 는 thresholdOverride(nullable)
      * 가 있으면 그 값, 없으면 base. repeatMinCount 는 base 유지(v1 override 범위 밖, doc/10 §2).
      */
     public static Weights applyOverrides(Weights base, Map<String, Double> overrides, Double thresholdOverride) {
@@ -121,6 +130,10 @@ public class ApiScorer {
                 base.repeatMinCount(),
                 ov(overrides, "pathHint", base.pathHint()),
                 ov(overrides, "responseTypeApi", base.responseTypeApi()),
+                ov(overrides, "acceptJson", base.acceptJson()),
+                ov(overrides, "xRequestedWith", base.xRequestedWith()),
+                ov(overrides, "originHeader", base.originHeader()),
+                ov(overrides, "authScheme", base.authScheme()),
                 thresholdOverride != null ? thresholdOverride : base.threshold());
     }
 
@@ -254,6 +267,11 @@ public class ApiScorer {
         // 응답타입 API 신호(doc/17 §2): dominant $type ∈ {xhr,fetch,json,api,ajax} → API_CANDIDATE 만 양성 가산.
         // WEB_PAGE/UNKNOWN/$type 부재 무가산·무감점, STATIC 과 상호배타(kind 단일값 → 동시 발화 불가).
         sigs.add(sig("responseTypeApi", w.responseTypeApi(), d.endpointKind() == EndpointKind.API_CANDIDATE));
+        // 8.3 요청측 4신호(doc/40 §3·§6): 다수결 발화(Acc.toEndpoint count*2>=hits)·양성 가산만(부재 감점 없음 → 무회귀).
+        sigs.add(sig("acceptJson", w.acceptJson(), d.acceptJson()));
+        sigs.add(sig("xRequestedWith", w.xRequestedWith(), d.xRequestedWith()));
+        sigs.add(sig("originHeader", w.originHeader(), d.originHeader()));
+        sigs.add(sig("authScheme", w.authScheme(), d.authScheme()));
 
         double raw = 0.0;
         for (SignalContribution s : sigs) {
@@ -268,7 +286,7 @@ public class ApiScorer {
         return new SignalContribution(key, weight, fired, fired ? weight : 0.0);
     }
 
-    /** effective 가중치 14신호(§4.3) 를 key→value 맵으로 (doc/34 §2 effectiveClassification.weights). 키=WEIGHT_KEYS 명. */
+    /** effective 가중치 18신호 를 key→value 맵으로 (doc/34 §2 effectiveClassification.weights). 키=WEIGHT_KEYS 명. */
     public static Map<String, Double> weightsAsMap(Weights w) {
         Map<String, Double> m = new LinkedHashMap<>();
         m.put("hostApiSubdomain", w.hostApiSubdomain());
@@ -285,6 +303,10 @@ public class ApiScorer {
         m.put("repeatBonus", w.repeatBonus());
         m.put("pathHint", w.pathHint());
         m.put("responseTypeApi", w.responseTypeApi());
+        m.put("acceptJson", w.acceptJson());
+        m.put("xRequestedWith", w.xRequestedWith());
+        m.put("originHeader", w.originHeader());
+        m.put("authScheme", w.authScheme());
         return m;
     }
 

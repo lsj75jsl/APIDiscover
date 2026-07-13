@@ -22,10 +22,21 @@ public class LogLineParser {
 
     private final int[] valueLenBucketBounds;
     private final int acrmFieldIndex; // -1=미사용(acrm 안 읽음 → preflight 게이트 DORMANT, doc/23 §9.2)
+    // 8.3 append 신규 인덱스 (doc/40 §6) — 각 -1=미사용 → 부재 신호 → 점수/kind DORMANT(무회귀).
+    private final int responseContentTypeFieldIndex;
+    private final int acceptFieldIndex;
+    private final int xRequestedWithFieldIndex;
+    private final int originFieldIndex;
+    private final int authSchemeFieldIndex;
 
     public LogLineParser(NormalizationProperties props, ParseProperties parseProps) {
         this.valueLenBucketBounds = props.valueLenBucketBounds();
         this.acrmFieldIndex = parseProps.acrmFieldIndex();
+        this.responseContentTypeFieldIndex = parseProps.responseContentTypeFieldIndex();
+        this.acceptFieldIndex = parseProps.acceptFieldIndex();
+        this.xRequestedWithFieldIndex = parseProps.xRequestedWithFieldIndex();
+        this.originFieldIndex = parseProps.originFieldIndex();
+        this.authSchemeFieldIndex = parseProps.authSchemeFieldIndex();
     }
 
     /** 로그 필드 구분자. doc/02 §1.1 — 도메인 디스커버리 LogQL pattern 과 공유(단일 근거, 드리프트 차단). */
@@ -90,12 +101,18 @@ public class LogLineParser {
             String type = (f.length > F_TYPE) ? nullIfDash(f[F_TYPE]) : null;
             String requestId = (f.length > F_REQUEST_ID) ? nullIfDash(f[F_REQUEST_ID]) : null;
             // acrm: 설정 인덱스로 "있으면 읽는"(기본 -1=미사용). 부재 → null → preflight 게이트 DORMANT (doc/23 §9.2)
-            String acrm = (acrmFieldIndex >= 0 && f.length > acrmFieldIndex)
-                    ? nullIfDash(f[acrmFieldIndex]) : null;
+            String acrm = readOptional(f, acrmFieldIndex);
+            // 8.3 append 신규 신호 — 동형 nullable read(인덱스 -1 또는 필드 부족 시 null → dormant, doc/40 §6)
+            String responseContentType = readOptional(f, responseContentTypeFieldIndex);
+            String accept = readOptional(f, acceptFieldIndex);
+            String xRequestedWith = readOptional(f, xRequestedWithFieldIndex);
+            String origin = readOptional(f, originFieldIndex);
+            String authScheme = readOptional(f, authSchemeFieldIndex);
 
             return Optional.of(new ParsedRequest(
                     method, rawPath, queryParams, status, host, clientIp, userAgent,
-                    ts, respTimeMs, bodyBytes, https, referer, type, requestId, acrm));
+                    ts, respTimeMs, bodyBytes, https, referer, type, requestId, acrm,
+                    responseContentType, accept, xRequestedWith, origin, authScheme));
         } catch (RuntimeException e) {
             // 숫자/시간 파싱 실패 등 — 손상된 라인은 폐기 (doc/02 §2)
             return Optional.empty();
@@ -169,6 +186,11 @@ public class LogLineParser {
         List<QueryParamObs> out = new ArrayList<>(byName.size());
         byName.forEach((name, bucket) -> out.add(new QueryParamObs(name, bucket)));
         return out;
+    }
+
+    /** 설정 인덱스로 선택적 필드 읽기 — 인덱스 -1(미사용) 또는 필드 부족 시 null(acrm/8.3 동형, doc/40 §6). */
+    private static String readOptional(String[] f, int idx) {
+        return (idx >= 0 && f.length > idx) ? nullIfDash(f[idx]) : null;
     }
 
     private static String nullIfDash(String v) {

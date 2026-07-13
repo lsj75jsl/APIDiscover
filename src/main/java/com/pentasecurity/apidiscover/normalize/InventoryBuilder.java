@@ -97,7 +97,7 @@ public class InventoryBuilder {
             ParamCandidateExtractor.Result pr = paramExtractor.extract(acc);
             droppedParams += pr.droppedParams();
             EndpointKindClassifier.KindResult kind =
-                    kindClassifier.classify(acc.template(), acc.typeDist(), refererSignal);
+                    kindClassifier.classify(acc.template(), acc.typeDist(), refererSignal, acc.contentTypeDist());
             result.add(acc.toEndpoint(kind.kind(), kind.confidence(), pr.candidates()));
         }
         DroppedByLimit dropped = new DroppedByLimit(norm.droppedTemplates(), droppedParams);

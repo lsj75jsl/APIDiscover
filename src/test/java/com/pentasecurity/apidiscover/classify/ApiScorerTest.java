@@ -39,6 +39,15 @@ class ApiScorerTest {
                 TemplateSource.INFERRED, kind, 0.0, query, sdk, m, ParamCandidates.EMPTY);
     }
 
+    /** 8.3 요청측 4신호 세팅 DiscoveredEndpoint (host=비-API, GET, hits 100 → repeat 발화). */
+    private static DiscoveredEndpoint de83(String tmpl, boolean accept, boolean xrw,
+                                           boolean origin, boolean auth) {
+        var m = new DiscoveredEndpoint.Metrics(100, Instant.EPOCH, Instant.EPOCH, Map.of("2xx", 100L), 5, 10, 50);
+        return new DiscoveredEndpoint("GET www.example.com " + tmpl, "GET", "www.example.com", tmpl,
+                TemplateSource.INFERRED, EndpointKind.UNKNOWN, 0.0, false, false,
+                accept, xrw, origin, auth, m, ParamCandidates.EMPTY);
+    }
+
     @Test
     void apiSubdomainWithCorsIsCandidate() {
         // api.weble.net /users/{id} 케이스: host_api + cors + id + repeat
@@ -378,6 +387,62 @@ class ApiScorerTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> ApiScorer.applyOverrides(base, Map.of(), 2.0))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    // --- 8.3 요청측 4신호 (doc/40 §3·§6) — 양성 가산·부재 0·override·프리셋 ---
+
+    @Test
+    void newRequestSignalsArePositiveAdditive() {
+        // base(pathId 0.15 + repeat 0.12 = 0.27) 에 각 신호가 정확히 가중치만큼 가산(MIDDLE).
+        assertThat(middle.score(de83("/users/{id}", false, false, false, false), false)).isEqualTo(0.27);
+        assertThat(middle.score(de83("/users/{id}", true, false, false, false), false)).isEqualTo(0.47);  // +accept .20
+        assertThat(middle.score(de83("/users/{id}", false, true, false, false), false)).isEqualTo(0.55);  // +xhr .28
+        assertThat(middle.score(de83("/users/{id}", false, false, true, false), false)).isEqualTo(0.42);  // +origin .15
+        assertThat(middle.score(de83("/users/{id}", false, false, false, true), false)).isEqualTo(0.55);  // +auth .28
+        // 전 4신호: 0.27 + 0.91 = 1.18 → clamp 1.0
+        assertThat(middle.score(de83("/users/{id}", true, true, true, true), false)).isEqualTo(1.0);
+    }
+
+    @Test
+    void newRequestSignalsAbsentContributeZero() {
+        // 부재(전부 false) = 8.3 미설정 엔드포인트(11-arg 생성자)와 동일 점수(무회귀 핵심).
+        var no83 = de("www.example.com", "GET", "/users/{id}", EndpointKind.UNKNOWN, 100, false, false);
+        assertThat(middle.score(de83("/users/{id}", false, false, false, false), false))
+                .isEqualTo(middle.score(no83, false));
+    }
+
+    @Test
+    void newSignalPromotesApiStructuredBoundaryToAdmit() {
+        // §5 시뮬 핵심: 이미 API 구조(apiSegment 0.55 + repeat 0.12 = 0.67) 경계가 auth(0.28) 로 0.70 넘어 ADMIT.
+        var boundary = de83("/api/orders", false, false, false, true);
+        assertThat(middle.score(boundary, false)).isGreaterThanOrEqualTo(0.70);
+        assertThat(middle.isApiCandidate(boundary, false)).isTrue();
+    }
+
+    @Test
+    void newSignalWeightsInPresetsAndKeys() {
+        assertThat(ApiScorer.WEIGHT_KEYS).hasSize(18)
+                .contains("acceptJson", "xRequestedWith", "originHeader", "authScheme");
+        var mid = ApiScorer.presetWeights(ApiScorer.Profile.MIDDLE);
+        assertThat(mid.acceptJson()).isEqualTo(0.20);
+        assertThat(mid.xRequestedWith()).isEqualTo(0.28);
+        assertThat(mid.originHeader()).isEqualTo(0.15);
+        assertThat(mid.authScheme()).isEqualTo(0.28);
+        var high = ApiScorer.presetWeights(ApiScorer.Profile.HIGH);
+        assertThat(high.xRequestedWith()).isEqualTo(0.22);
+        var low = ApiScorer.presetWeights(ApiScorer.Profile.LOW);
+        assertThat(low.authScheme()).isEqualTo(0.34);
+        assertThat(ApiScorer.weightsAsMap(mid))
+                .containsKeys("acceptJson", "xRequestedWith", "originHeader", "authScheme");
+    }
+
+    @Test
+    void applyOverridesAcceptsNewSignalKeys() {
+        var base = ApiScorer.presetWeights(ApiScorer.Profile.MIDDLE);
+        var out = ApiScorer.applyOverrides(base, Map.of("authScheme", 0.5, "acceptJson", 0.05), null);
+        assertThat(out.authScheme()).isEqualTo(0.5);
+        assertThat(out.acceptJson()).isEqualTo(0.05);
+        assertThat(out.xRequestedWith()).isEqualTo(base.xRequestedWith()); // 미지정 유지
     }
 
     // --- scoreExplain 판단 근거 노출 (doc/34 §3) ---

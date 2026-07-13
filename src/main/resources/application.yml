@@ -33,6 +33,14 @@ apidiscover:
     page-limit: 5000               # query_range limit (유한값, 1e8 금지. D74: 2000→5000 — 26% 쿼리가 페이지네이션(최대 93p)해 페이지=예산 낭비, 상향 시 페이지수↓·truncation여유↑)
     max-concurrent-queries: 2      # Loki 동시 쿼리 상한
     min-query-interval: "200ms"    # 쿼리 간 최소 간격(스로틀)
+  parse:                           # 8.3 로그 신호 필드 인덱스 (doc/40 §6). 미설정=-1=미사용(DORMANT·무회귀).
+    # ★활성화 = nginx log_format 에 8.3 append 필드 추가 + 코어 배포·무회귀 확인 뒤에만 세팅(doc/40 §8).
+    # acrm-field-index: 28                    # $http_access_control_request_method (CORS preflight, M3)
+    # response-content-type-field-index: 24   # $sent_http_content_type → endpoint_kind (★요청측 $content_type[25] 아님)
+    # accept-field-index: 26                  # $http_accept → acceptJson
+    # x-requested-with-field-index: 27        # $http_x_requested_with → xRequestedWith
+    # origin-field-index: 29                  # $http_origin → originHeader
+    # auth-scheme-field-index: 30             # $auth_scheme → authScheme
   schedule:
     default-interval: "PT1H"       # 도메인별 override 없으면 적용
     ingest-lag: "PT10M"

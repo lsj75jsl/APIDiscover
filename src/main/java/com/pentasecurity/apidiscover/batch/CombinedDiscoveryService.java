@@ -120,7 +120,8 @@ public class CombinedDiscoveryService {
                 ? EndpointKind.valueOf(r.getEndpointKind()) : EndpointKind.UNKNOWN;
         return new DiscoveredEndpoint(
                 r.getMethod() + " " + r.getHost() + " " + r.getPathTemplate(), r.getMethod(), r.getHost(), r.getPathTemplate(),
-                ts, kind, r.getKindConfidence(), r.isHadQuery(), r.isNonBrowserUa(), metrics, params);
+                ts, kind, r.getKindConfidence(), r.isHadQuery(), r.isNonBrowserUa(),
+                r.isAcceptJson(), r.isXRequestedWith(), r.isOriginHeader(), r.isAuthScheme(), metrics, params);
     }
 
     private Map<String, Long> parseStatusDist(String json) {

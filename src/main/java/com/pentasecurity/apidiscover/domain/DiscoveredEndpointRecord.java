@@ -56,6 +56,15 @@ public class DiscoveredEndpointRecord {
     /** ApiScorer 신호 + ParamCandidates(doc/13) 스냅샷. */
     private boolean hadQuery;
     private boolean nonBrowserUa;
+    // 8.3 요청측 신호(doc/40 §6) — 다수결 발화 스냅샷. ddl-auto ADD: 기존 행은 default false(NULL→primitive boolean 회피).
+    @Column(columnDefinition = "boolean not null default false")
+    private boolean acceptJson;
+    @Column(columnDefinition = "boolean not null default false")
+    private boolean xRequestedWith;
+    @Column(columnDefinition = "boolean not null default false")
+    private boolean originHeader;
+    @Column(columnDefinition = "boolean not null default false")
+    private boolean authScheme;
     @Column(columnDefinition = "text") // PG text 매핑(@Lob String→oid 회피, doc/28 D40/D37)
     private String paramsJson;
 
@@ -174,6 +183,38 @@ public class DiscoveredEndpointRecord {
 
     public void setNonBrowserUa(boolean nonBrowserUa) {
         this.nonBrowserUa = nonBrowserUa;
+    }
+
+    public boolean isAcceptJson() {
+        return acceptJson;
+    }
+
+    public void setAcceptJson(boolean acceptJson) {
+        this.acceptJson = acceptJson;
+    }
+
+    public boolean isXRequestedWith() {
+        return xRequestedWith;
+    }
+
+    public void setXRequestedWith(boolean xRequestedWith) {
+        this.xRequestedWith = xRequestedWith;
+    }
+
+    public boolean isOriginHeader() {
+        return originHeader;
+    }
+
+    public void setOriginHeader(boolean originHeader) {
+        this.originHeader = originHeader;
+    }
+
+    public boolean isAuthScheme() {
+        return authScheme;
+    }
+
+    public void setAuthScheme(boolean authScheme) {
+        this.authScheme = authScheme;
     }
 
     public String getParamsJson() {
