@@ -42,6 +42,12 @@
 > (초장문 path_template 가드 — D68 로 구현 완료, Done 참조)
 > (Swagger 2.0 업로드 지원 — D70 구현 완료, Done 참조)
 - [x] **정적 파일 API 오탐 수정 — 하드 veto + 정적 리소스 파일명 감점** **(구현 완료 — build green 504·실 PG OK·RED-확인·커밋 보류·머지 시 Done. D56, 사용자 요청)** — ① 정적 확장자(.css/.js/.png/.webp… isStaticPath 또는 $type=library=STATIC) → `Gate.DROP_STATIC` 하드 veto(점수·api키워드 무관 비-API). `DroppedNonApi` +staticFile. ② 정적 리소스 파일명 토큰(img/image/thumb/resize/css/download… `hasStaticResourceName`) → `staticAssetPenalty`(-0.6) 발화 → img.php(WEB_PAGE) 오탐 탈락. ★.php 는 정적 확장자 미포함(veto 아님·감점만, 실 API 보존)·모호 토큰 제외. 매뉴얼(TW)=후속.
+- [ ] **8.3 로그변수 소비 — 응답 Content-Type + 요청측 API 신호(accept/xhr/origin/auth)** **(설계·범위·가중치 확정, 구현 미착수 — 계획 doc/40 / DECISIONS D79, 사용자 확정. 다음 세션 이어서)** — nginx 로그 8.3 append 필드 소비. `$server_protocol`·`$upstream_addr` 제외. ACRM 은 이미 구현(설정만). 신규 인덱스 기본 -1 DORMANT·양성 가산 → 무회귀. 현행 API 격하 0%(구조 증명). **착수 순서: ①시뮬레이션(과승격 상한·가중치 확정) → ②구현 → ③매뉴얼.** 상세=doc/40.
+  - [ ] §5 시뮬레이션 — `discovered_endpoint`(2.9M) 피처로 현행 점수 재계산·층화샘플 → DROP 중 `[threshold−Σw, threshold)` 카운트(과승격 상한). 가중치(§3 acceptJson 0.20·xRequestedWith 0.28·originHeader 0.15·authScheme 0.28) 확정/조정.
+  - [ ] §6 코어 — ParseProperties(신규 인덱스 -1)·application.yml·LogLineParser(nullable read)·ParsedRequest·Acc·DiscoveredEndpoint(+Record 컬럼)·InventoryBuilder.
+  - [ ] §6 소비처 — EndpointKindClassifier(sent_ct 상위 분기·부재 폴백)·ApiScorer(신규 4 양성 가중치·WEIGHT_KEYS 14→18·weightsAsMap·프리셋 3종).
+  - [ ] 테스트 — 파서 nullable·kind 폴백·scorer 발화/부재0/override·DORMANT(-1) 무회귀 스냅샷.
+  - [ ] 매뉴얼(TW) — api-discovery-manual §8.3 에서 server_protocol·upstream_addr 2줄 삭제·§8.2 현행화·신규 신호 가중치표. **후속.**
 
 #### 리포트/출력 (01/12/14 문서)
 > (low_confidence+warnings·Active/Zombie params·total_dropped·API 판단근거 노출 완료, Done 참조)

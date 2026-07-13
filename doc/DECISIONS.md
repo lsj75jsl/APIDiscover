@@ -676,6 +676,13 @@ gap-free 크롤은 활성 수요(~22.6k 윈도우/h) vs 예산 용량(D65 후 ~7
 - **무회귀**: 스코어링/분류 로직·쓰기 계약(PUT/PATCH·검증 400·404·즉시적용) 불변. 조회 노출 형태만 변경. 도메인 GET `effective` 형태 변경(threshold 최상위·14키 맵)은 정보성 블록·쓰기 미영향(매뉴얼 갱신). `/discovery` 별도 `EffectiveClassificationView` 는 미터치.
 - 설계 상세·API 입출력 = doc/39. 조회는 있으나 "실적용 값" 미노출이던 공백 해소가 핵심. 파일=DB 유지(사용자 결정 — 도메인별 설정도 있어 파일화보다 DB 운영이 적합).
 
+### D79. 8.3 로그변수 소비 범위·가중치·시뮬레이션 방침 (2026-07-13, 사용자 확정 — 구현 계획 doc/40, 구현 미착수)
+- **범위**: 8.3 append 필드 중 **`$server_protocol`·`$upstream_addr` 제외**(효과 ★ 미미, 사용자). 매뉴얼 §8.3 log_format 예시에서도 두 줄 삭제. 소비 = `$sent_http_content_type`(→endpoint_kind, manual 8.2)·`$http_accept`·`$http_x_requested_with`·`$http_origin`·`$auth_scheme`(→ApiScorer 양성 신호). ACRM 은 이미 구현(M3)·설정만. 요청 `$content_type` 는 로깅만·미소비(예약).
+- **가중치(신규 4)**: 현재 로그에 없는 항목이라 실데이터 보정 불가 → **a-priori 기반 기본값**, 현행 판정 크게 안 흔드는 modest 값(MIDDLE): acceptJson 0.20·xRequestedWith 0.28·originHeader 0.15·authScheme 0.28(HIGH/LOW 는 doc/40 §3). 양성 가산만(부재 감점 금지).
+- **안전(사용자 질문 답)**: "현재 스캔된 API 가 api 아닐 확률 = **0%**." ① DORMANT(인덱스 -1)→로그·설정 전 무영향. ② 양성 가산→단조 비감소→현행 API(score≥threshold) 격하 불가(가중치 무관). 유일 변화=경계 비-API 의 상향 승격(과승격 상한은 시뮬레이션으로 측정).
+- **시뮬레이션 우선**: 점수 미영속(report_json 엔 basis/score 없음 — serve-time 계산) → `discovered_endpoint`(2.9M) 피처로 재계산·층화샘플 → 현행 DROP 중 `[threshold−Σw, threshold)` 카운트로 과승격 상한 측정 후 가중치 확정. 구현 전 실행(doc/40 §5).
+- **구현 방식**: ACRM(M3) 선례 — 신규 인덱스 기본 -1 DORMANT·양성 가산·kind 는 부재 시 폴백. 무회귀 보장. 상세·파일·테스트 = doc/40. **다음 세션 이어서 진행**(이번 세션은 계획 문서화까지).
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.

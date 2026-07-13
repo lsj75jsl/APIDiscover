@@ -5,6 +5,21 @@
 
 ---
 
+## 2026-07-13 세션 74 (이어서) — 8.3 로그변수 소비 개발 계획 수립(D79, doc/40)
+
+### 한 일
+- 8.3 로그변수 소비 **범위·가중치·시뮬레이션 방침 확정**(사용자와 대화). `$server_protocol`·`$upstream_addr` 제외. 소비 = 응답 Content-Type(→endpoint_kind) + 요청측 4신호(accept/xhr/origin/auth→ApiScorer 양성) + ACRM(기 구현·설정만). 요청 content_type 는 로깅만.
+- 신규 4신호는 **현재 로그 미수집** → 실데이터 보정 불가 → a-priori modest 기본값 제안(MIDDLE acceptJson 0.20·xRequestedWith 0.28·originHeader 0.15·authScheme 0.28). 양성 가산만.
+- **안전성 구조 증명**: 현행 API 격하 확률 0%(DORMANT + 양성 단조). 유일 변화=경계 비-API 상향. 과승격 상한은 시뮬레이션으로 측정.
+- 시뮬레이션 데이터 조사: 점수 미영속(report_json 엔 basis/score 없음·serve-time 계산) → `discovered_endpoint`(2,937,136행) 피처로 재계산 필요(가용 컬럼 확인). 층화샘플 방법 문서화.
+- **개발 계획 문서 `doc/40` 작성**(사용자 요청 — 다음 세션 이어서). 범위·가중치표(현행+신규)·안전 증명·시뮬레이션 방법·구현 파이프라인(파일·소비처·테스트)·매뉴얼 변경·착수 순서 수록. DECISIONS D79·TASKS 서브아이템(P1 분류) 반영.
+
+### 결과
+- **구현 미착수** — 계획/설계까지. 코드 변경 없음. 다음 세션이 doc/40 §8 순서(시뮬레이션→구현→매뉴얼)로 진행.
+
+### 다음 단계
+- doc/40 §5 시뮬레이션 실행(가중치 확정) → §6 구현(DORMANT 무회귀) → §7 매뉴얼. 활성화(nginx log_format 변경 + application.yml 인덱스)는 코드 배포·무회귀 확인 후 별도.
+
 ## 2026-07-13 세션 74 — 1.0 태그 + 스코어링 정책 조회 강화(D78, doc/39)
 
 ### 한 일
