@@ -5,6 +5,23 @@
 
 ---
 
+## 2026-07-13 세션 75 — 8.3 §5 로그신호 소비 시뮬레이션(과승격 상한 정량화)
+
+### 한 일
+- doc/40 §5 시뮬레이션 실행(1단계 — 구현 전 가중치·발화조건 확정용). `sample/log_signal_promotion_sim.py` 작성: ApiScorer(MIDDLE)+게이트를 파이썬 정확 포팅(13신호, pathHint만 NONE=0 미재현), `discovered_endpoint` 전수를 운영 PG(192.168.8.197) **read-only COPY|gzip 단일 seq scan** 으로 재계산(부하 작게, 반복 조회 없음). 자체검증 9케이스 통과.
+- 재현 조건 확인: profile=MIDDLE·threshold 0.70·weight override 없음·정적 토큰=기본·oversize 0·**API_CANDIDATE 0건**(responseTypeApi 현재 전 미발화). corsPreflight=모든 OPTIONS (host,path) self-join(ACRM DORMANT).
+
+### 결과
+- 게이트 분포(non-OPT 2,950,010): ADMIT 33,527(1.14%)·DROP_LOW_SCORE 1,776,621(60.2%)·DROP_WEB_FORM 102,217·DROP_STATIC 1,037,645·OVERSIZE 0.
+- **격하 0건 재확인**(양성 가산·단조 — 현행 ADMIT 전건 score≥0.70 유지).
+- **과승격 상한**: 단일신호 최대(0.28) ≤ **31,391(전체 1.06%·LOW 1.77%)** — 이 밴드의 **89.5%가 API 구조 신호 보유(옳은 승격)**, 최다=apiSegment 단독 17,296(score 0.55). 2신호 최대 ≤422,180(14.3%)·전신호=LOW 전체(60.2%).
+- **권고**: §3 가중치 4종 유지(잘 조정됨) · 발화조건 **다수결(`count*2≥hits`) 확정**(presence>0 은 스캐너 단발로 +0.91 flip 가능 — 살포 위험). doc/40 §5.1·TASKS 반영.
+
+### 다음 단계
+- 팀장 확정 후 2단계 = §6 구현(코어→소비처→테스트, DORMANT 무회귀). 활성은 별도(nginx log_format + 인덱스 세팅 후 전/후 스냅샷 diff 실측).
+
+---
+
 ## 2026-07-13 세션 74 (이어서) — 8.3 로그변수 소비 개발 계획 수립(D79, doc/40)
 
 ### 한 일
