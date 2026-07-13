@@ -101,7 +101,7 @@ public class EndpointKindClassifier {
             return new KindResult(EndpointKind.STATIC, 1.0);
         }
         // 2) 응답 Content-Type 분기 — 확장자 veto 다음·$type 앞(doc/40 §4.3). 2xx dist 는 Acc 에서 이미 필터됨.
-        //    빈 dist(미수집·401/403-only) 또는 dominant 과반 미달(<0.5) 또는 미매핑 CT → null → $type 폴백.
+        //    빈 dist(미수집·401/403-only) 또는 dominant 엄격 과반 미달(≤0.5, tie 포함) 또는 미매핑 CT → null → $type 폴백.
         KindResult ct = classifyByContentType(contentTypeDist);
         if (ct != null) {
             return ct;
@@ -122,15 +122,17 @@ public class EndpointKindClassifier {
 
     /**
      * 응답 CT 분포 → kind (doc/40 §4.3). 확장자 정적 veto 다음에만 도달(정적 우선 보존).
-     * json/xml/grpc→API, html→WEB_PAGE, image/css/js→STATIC. 빈 dist·dominant<0.5·미매핑 → null(폴백).
+     * json/xml/grpc→API, html→WEB_PAGE, image/css/js→STATIC. 빈 dist·dominant≤0.5(비-엄격과반)·미매핑 → null(폴백).
      */
     private static KindResult classifyByContentType(Map<String, Long> contentTypeDist) {
         if (contentTypeDist == null || contentTypeDist.isEmpty()) {
             return null; // 미수집(dormant)·401/403-only(2xx 없음) → $type/경로 폴백(§4.3 가드①③)
         }
         Dominant d = dominantOf(contentTypeDist);
-        if (d.fraction() < 0.5) {
-            return null; // 과반 미달 혼합 CT → 결정적 분기 회피(§4.3 가드②)
+        if (d.fraction() <= 0.5) {
+            // 엄격 과반(>0.5) 미달 → CT 분기 skip·폴백. ★50/50 tie(fraction==0.5) 포함 —
+            // tie 면 dominantOf 가 Map 반복순(비결정)으로 임의 kind 를 고르므로 반드시 skip(§4.3 가드②).
+            return null;
         }
         EndpointKind kind = mapContentTypeToKind(d.value());
         return (kind == null) ? null : new KindResult(kind, d.fraction());

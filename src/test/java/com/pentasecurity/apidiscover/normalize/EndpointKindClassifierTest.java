@@ -213,6 +213,16 @@ class EndpointKindClassifierTest {
     }
 
     @Test
+    void contentTypeExactHalfTieFallsBackDeterministically() {
+        // ★P2: 50/50 tie(fraction==0.5) 는 엄격 과반(>0.5) 미달 → CT 분기 skip → $type 폴백.
+        //   $type=library(STATIC)로 폴백 확인 — CT 분기가 탔다면 json→API 또는 html→WEB_PAGE(never STATIC)라
+        //   STATIC 단언이 비결정 분기를 판별(Map.of 반복순은 JVM 런마다 salt 랜덤 → tie skip 안 하면 flaky).
+        KindResult r = ct("/svc", Map.of("library", 5L),
+                Map.of("application/json", 3L, "text/html", 3L)); // 3/6 = 0.5
+        assertThat(r.kind()).isEqualTo(EndpointKind.STATIC);
+    }
+
+    @Test
     void emptyContentTypeDistFallsBackToTypeNoRegression() {
         // §4.3 ③: 미수집(빈 dist) → 기존 $type 경로 그대로(무회귀)
         assertThat(ct("/api/orders", Map.of("xhr", 3L), Map.of()).kind()).isEqualTo(EndpointKind.API_CANDIDATE);

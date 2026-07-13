@@ -1,7 +1,7 @@
 # 40. 8.3 로그변수 소비 — 응답 Content-Type + 요청측 API 신호 (개발 계획·핸드오프)
 
-> 상태: **설계·범위·가중치 확정, 구현 미착수.** 다음 세션이 이 문서 + TASKS 서브아이템으로 이어서 구현한다.
-> 리뷰 반영(2026-07-13 review): §4 무회귀 증명 스코핑(점수 신호 한정)·응답 CT 오도 완화 가드(§4.3)·§5 재계산 가능 신호 정정·§6 발화 조건 결정 포인트.
+> 상태: **설계·시뮬·구현·테스트 완료(PR #73, 코어+소비처+테스트 머지 대기).** 가중치·발화조건 확정(§5.1). 남은 것 = 매뉴얼(TW)·활성 단계 실측(§8-5)뿐. 이력은 TASKS·PROJECT_LOG.
+> 리뷰 반영: §4 무회귀 증명 스코핑(점수 신호 한정)·응답 CT 오도 완화 가드(§4.3)·§5 재계산 가능 신호 정정. §6 발화 조건=**다수결 확정**(§5.1). QA P2(§4.3 ② 과반 가드 tie 버그) 반영 = 엄격 과반(>0.5).
 > 관련: doc/02(로그 파싱)·doc/08(점수·프로파일)·doc/17(response_type_api)·doc/23(ACRM/M3)·api-discovery-manual §8. 결정 = DECISIONS **D79**.
 > 안전 선례 = ACRM(M3/D50): 설정 인덱스 기본 -1 → DORMANT → 현행 100% 무회귀.
 
@@ -60,7 +60,7 @@ accept/xhr/origin/auth/sent_ct 는 **현재 nginx 로그에 없다.** nginx log_
 | **originHeader** (`Origin` 존재) | 0.15 | 0.10 | 0.20 | cross-origin 맥락(API 보강)이나 폼 POST 에도 붙음 → 약~중. `pathIdSegment`(0.15)·`query`(0.12) 티어 |
 | **authScheme** (`Authorization` 스킴 존재: bearer/basic…) | 0.28 | 0.22 | 0.34 | 토큰 인증 = 강한 API 신호(특히 bearer). `corsPreflight` 급 |
 
-**설계 의도** — 4개 모두 **양성 가산·현재 부재(0 기여)**. 단일 신호만으로 명백한 비-API 를 API 로 넘기지 않도록 threshold(0.70) 대비 modest. 다신호 동시 발화 시에만 경계 근처를 밀어 올림. 발화 조건(presence vs 다수결)은 §6 ApiScorer 항의 결정 포인트 참조(리뷰 P2 — 다수결 권장).
+**설계 의도** — 4개 모두 **양성 가산·현재 부재(0 기여)**. 단일 신호만으로 명백한 비-API 를 API 로 넘기지 않도록 threshold(0.70) 대비 modest. 다신호 동시 발화 시에만 경계 근처를 밀어 올림. 발화 조건 = **다수결(`count*2 ≥ hits`) 확정·구현됨**(Acc.toEndpoint, nonBrowserUa 선례; §5.1·리뷰 P2).
 
 ## 4. 안전성 — 무회귀 증명의 범위와 완화 설계 (사용자 핵심 질문 답, 리뷰 반영)
 
@@ -83,7 +83,7 @@ accept/xhr/origin/auth/sent_ct 는 **현재 nginx 로그에 없다.** nginx log_
 | # | 가드 | 효과 |
 |---|---|---|
 | ① | **2xx 응답만 CT dist 누적** — `Acc.add()` 에서 `status/100 == 2` 일 때만 sent_ct 를 분포에 반영 | 에러페이지·인증실패 html·3xx redirect CT 오염 원천 차단. 401/403-only 엔드포인트는 CT dist 가 비어 **자연 폴백** → doc/19 보존 유지 |
-| ② | **dominant 과반 가드** — dominant fraction < 0.5 면 CT 분기 skip → 폴백 | 혼합 CT(부분 오설정·부분 오염) 시 결정적 분기 회피 |
+| ② | **dominant 엄격 과반 가드** — dominant fraction 이 **과반(>0.5) 미만이면**(즉 `≤0.5`, **50/50 tie 포함**) CT 분기 skip → 폴백 | 혼합 CT(부분 오설정·부분 오염) 시 결정적 분기 회피. ★tie 는 dominant 가 비결정(Map 반복순)이라 반드시 skip(QA P2) |
 | ③ | 빈 dist → skip → 기존 $type/경로 폴백 (원안 유지) | CT 미수집(DORMANT)·미발화 안전 |
 | ④ | **확장자 정적 veto(D55/D56)는 CT 보다 우선 유지** — CT 분기 위치 = `isStaticPath` 다음·$type 분기 앞 | .env/.pem 등 시크릿 수확 오탐 차단 정책 보존(CT 가 json 이어도 정적 확장자면 STATIC) |
 | ⑤ | **CT 정규화** — `;` 파라미터(charset 등) 제거·소문자·`+json`/`+xml` suffix 포함(application/vnd.api+json 등) | 매칭 누락 방지 |
@@ -144,9 +144,9 @@ ACRM(M3) 선례 그대로. 모든 신규 인덱스 **기본 -1(DORMANT)**.
 - `normalize/InventoryBuilder` — kind classify 에 contentTypeDist 전달·toEndpoint 배선.
 
 **소비처**:
-- `normalize/EndpointKindClassifier` — `classify(...)` 에 `contentTypeDist` 분기 추가. **분기 위치 = `isStaticPath`(확장자 veto) 다음·$type 분기 앞**(§4.3 ④ — "최상위 prepend" 아님, D55/D56 정적 veto 우선 보존). 빈 dist 또는 dominant fraction < 0.5 → skip → 기존 $type/경로 폴백(§4.3 ②③). json/xml/grpc(+`+json`/`+xml` suffix)→API_CANDIDATE, text/html→WEB_PAGE, image·css·js→STATIC.
+- `normalize/EndpointKindClassifier` — `classify(...)` 에 `contentTypeDist` 분기 추가. **분기 위치 = `isStaticPath`(확장자 veto) 다음·$type 분기 앞**(§4.3 ④ — "최상위 prepend" 아님, D55/D56 정적 veto 우선 보존). 빈 dist 또는 dominant fraction ≤ 0.5(비-엄격과반, tie 포함) → skip → 기존 $type/경로 폴백(§4.3 ②③). json/xml/grpc(+`+json`/`+xml` suffix)→API_CANDIDATE, text/html→WEB_PAGE, image·css·js→STATIC.
 - `classify/ApiScorer` — `Weights` 에 4필드(acceptJson·xRequestedWith·originHeader·authScheme) 추가 + `WEIGHT_KEYS`(14→18)·`weightsAsMap`·`applyOverrides`·프리셋 3종에 §3 값. **양성 가산만**(부재 감점 금지 — 무회귀 핵심).
-  - ★발화 조건 결정 포인트(리뷰 P2): 원안 `presence>0` 은 4신호 모두 **클라이언트 제어 요청 헤더**라 스캐너/크롤러의 단발 요청(Accept:json+XRW+Origin+Auth 동시 송신)만으로 임의 엔드포인트에 +0.91 을 영구 발화시킬 수 있음. **다수결 권장**(`count*2 ≥ hits`, `nonBrowserUa` 의 `sdkUaCount*2 >= hits` 선례) — §5 시뮬레이션·구현 세션에서 확정.
+  - ★발화 조건 = **다수결 확정·구현됨**(리뷰 P2): `presence>0` 은 4신호 모두 **클라이언트 제어 요청 헤더**라 스캐너/크롤러 단발 요청(Accept:json+XRW+Origin+Auth 동시 송신)만으로 임의 엔드포인트에 +0.91 을 영구 발화시킬 수 있어 채택 안 함. **다수결**(`count*2 ≥ hits`, `nonBrowserUa` 의 `sdkUaCount*2 >= hits` 선례)로 Acc.toEndpoint 에서 계산 → 발화를 엔드포인트 지배 트래픽에 묶어 단발 flip 차단.
   - acceptJson 매칭 규칙: `Accept` 값에 `application/json` 또는 `+json` 포함(대소문자 무시) 시 발화. `*/*` 는 미발화(브라우저·범용 클라이언트 기본값).
 - `classify/Classifier` — 변경 최소(요청 content_type web-form 정밀화는 이번 범위 밖).
 
@@ -158,9 +158,8 @@ ACRM(M3) 선례 그대로. 모든 신규 인덱스 **기본 -1(DORMANT)**.
 - `api-discovery-manual §8.3` log_format 예시에서 **`$server_protocol`·`$upstream_addr` 2줄 삭제**. §8.1 표에서도 두 항목 제외 또는 "미채택" 표기. **§8.4 한계별 매핑 표의 "인벤토리 그룹핑(보조)" 행**(두 변수 참조)도 동일 처리(리뷰 — 원안 누락).
 - §8.2 endpoint_kind 개선(응답 CT) 현행화. 신규 스코어링 신호 4종 §s8 표/판독 매뉴얼 §4.3 가중치표 반영.
 
-## 8. 다음 세션 착수 순서
-1. 이 문서 + TASKS 서브아이템 확인.
-2. §5 시뮬레이션 먼저 실행(가중치 확정·과승격 상한 확인) → 필요 시 §3 값 조정.
-3. §6 구현(코어→소비처→테스트), DORMANT 무회귀 빌드 그린 확인.
-4. 매뉴얼(§7)·DECISIONS(D79 갱신)·PROJECT_LOG.
-5. (운영자) nginx log_format 변경 + application.yml 인덱스 세팅은 **활성화 단계**(별도, 코드 배포 후 무회귀 확인 뒤). 활성 직후 **전/후 스냅샷 diff 로 kind 재분류·격하 실측**(§4.3 잔여 위험 검증 — CT kind-flip 은 사전 시뮬 불가).
+## 8. 진행 상태 / 남은 순서
+1. ~~시뮬레이션(§5)~~ **완료** — 가중치 확정(§3 유지)·과승격 상한 측정(§5.1).
+2. ~~§6 구현(코어→소비처→테스트)~~ **완료** — DORMANT 무회귀·빌드 그린(559 tests, 실 PG 36 포함), PR #73. QA P2(과반 가드 tie)·P3(문서) 반영.
+3. **남음 — 매뉴얼(§7, TW)**·DECISIONS(D79 상태 갱신).
+4. **남음 — (운영자) 활성화 단계**: nginx log_format 변경 + application.yml 인덱스 세팅(별도, 코드 배포·무회귀 확인 뒤). 활성 직후 **전/후 스냅샷 diff 로 kind 재분류·격하 실측**(§4.3 잔여 위험 검증 — CT kind-flip 은 사전 시뮬 불가).
