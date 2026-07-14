@@ -676,12 +676,19 @@ gap-free 크롤은 활성 수요(~22.6k 윈도우/h) vs 예산 용량(D65 후 ~7
 - **무회귀**: 스코어링/분류 로직·쓰기 계약(PUT/PATCH·검증 400·404·즉시적용) 불변. 조회 노출 형태만 변경. 도메인 GET `effective` 형태 변경(threshold 최상위·14키 맵)은 정보성 블록·쓰기 미영향(매뉴얼 갱신). `/discovery` 별도 `EffectiveClassificationView` 는 미터치.
 - 설계 상세·API 입출력 = doc/39. 조회는 있으나 "실적용 값" 미노출이던 공백 해소가 핵심. 파일=DB 유지(사용자 결정 — 도메인별 설정도 있어 파일화보다 DB 운영이 적합).
 
-### D79. 8.3 로그변수 소비 범위·가중치·시뮬레이션 방침 (2026-07-13, 사용자 확정 — 구현 계획 doc/40, 구현 미착수)
+### D79. 8.3 로그변수 소비 범위·가중치·시뮬레이션 방침 (2026-07-13 확정 → 2026-07-14 **구현·시뮬·재배포 완료**, doc/40, PR #73)
 - **범위**: 8.3 append 필드 중 **`$server_protocol`·`$upstream_addr` 제외**(효과 ★ 미미, 사용자). 매뉴얼 §8.3 log_format 예시에서도 두 줄 삭제. 소비 = `$sent_http_content_type`(→endpoint_kind, manual 8.2)·`$http_accept`·`$http_x_requested_with`·`$http_origin`·`$auth_scheme`(→ApiScorer 양성 신호). ACRM 은 이미 구현(M3)·설정만. 요청 `$content_type` 는 로깅만·미소비(예약).
 - **가중치(신규 4)**: 현재 로그에 없는 항목이라 실데이터 보정 불가 → **a-priori 기반 기본값**, 현행 판정 크게 안 흔드는 modest 값(MIDDLE): acceptJson 0.20·xRequestedWith 0.28·originHeader 0.15·authScheme 0.28(HIGH/LOW 는 doc/40 §3). 양성 가산만(부재 감점 금지).
 - **안전(사용자 질문 답)**: "현재 스캔된 API 가 api 아닐 확률 = **0%**." ① DORMANT(인덱스 -1)→로그·설정 전 무영향. ② 양성 가산→단조 비감소→현행 API(score≥threshold) 격하 불가(가중치 무관). 유일 변화=경계 비-API 의 상향 승격(과승격 상한은 시뮬레이션으로 측정).
 - **시뮬레이션 우선**: 점수 미영속(report_json 엔 basis/score 없음 — serve-time 계산) → `discovered_endpoint`(2.9M) 피처로 재계산·층화샘플 → 현행 DROP 중 `[threshold−Σw, threshold)` 카운트로 과승격 상한 측정 후 가중치 확정. 구현 전 실행(doc/40 §5).
-- **구현 방식**: ACRM(M3) 선례 — 신규 인덱스 기본 -1 DORMANT·양성 가산·kind 는 부재 시 폴백. 무회귀 보장. 상세·파일·테스트 = doc/40. **다음 세션 이어서 진행**(이번 세션은 계획 문서화까지).
+- **구현 방식**: ACRM(M3) 선례 — 신규 인덱스 기본 -1 DORMANT·양성 가산·kind 는 부재 시 폴백. 무회귀 보장. 상세·파일·테스트 = doc/40.
+- **완료(2026-07-14)**: §5 시뮬(과승격 상한 단일신호 ≤31,391 = 전체 1.06%·89.5% API 구조 보유)·§6 구현(4신호 다수결 `count*2>=hits`·CT 2xx-only)·QA P2/P3·재배포(DORMANT, ddl-auto 신규 4컬럼 3.05M행 마이그레이션 검증)까지 완료. 남은 것 = 매뉴얼(TW)·활성화(운영 log_format 선행, **D80**).
+
+### D80. 8.3 활성화 전제 = 엣지 nginx log_format 표준화 (2026-07-14, 실측 발견 — 규약 doc/41)
+- **발견**: 활성화 사실 확인(운영 Loki 소량 샘플) 결과 ① 8.3 필드(sent_content_type/accept/x_requested_with/origin/auth_scheme)는 **현재 어느 엣지 로그에도 없음** ② 엣지별 코어 log_format 이 **이질적**(24필드 리치 `$type@19·request_id@23` / 19필드 린 `$type` 없음·`request_id@18` / 18필드 모니터링, 엣지 AAJ14/PAK21/PARV2/PLDI1).
+- **결정**: 파서는 **전역 단일 절대 인덱스**만 지원(엣지별 인덱스 미지원) → "끝에 append" 는 이질 포맷에서 다른 인덱스를 만들어 단일 설정 소비 불가. 따라서 **활성화 선행 = 8.3 대상 엣지를 24필드 코어로 통일한 뒤 8.3(24~30) append**. 통일 안 되는 엣지는 8.3 대상 제외(현행 DORMANT 무영향). 운영팀 전달용 규약 = **`doc/41-nginx-log-format-spec.md`**(C안).
+- **무회귀**: 인덱스를 로그 변경 전 미리 세팅해도 `LogLineParser` 의 `f.length > idx` 가드로 null 처리 → 신호 부재 → 현행 불변. 위험은 '필드가 틀린 위치에 오는' 경우뿐(→ §41 규약으로 방지).
+- **활성화 자체는 매니저/운영 지시로 후속**(이번 세션은 규약 문서화까지).
 
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
