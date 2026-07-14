@@ -5,6 +5,41 @@
 
 ---
 
+## 2026-07-14 세션 종합 (인계) — 8.3 로그변수 소비 완결 + 스캔 due/워터마크 발산 대응
+
+> 이번 세션(2026-07-14) 두 축의 인계용 롤업. 축별·에이전트별 상세는 아래 세션 77/78 항목 참조.
+
+### 한 일
+
+**[1] 8.3 로그변수 소비 — 시뮬→구현→매뉴얼→배포→운영 규약까지 완결**
+- **§5 시뮬레이션**: 과승격 상한 전체 1.06%(단일신호 최대 31,391건·그중 89.5% 이미 API 구조 보유=정당 교정)·발화조건 **다수결(`count*2≥hits`) 확정**.
+- **§6 구현 PR #73 (`05c17aa`) 머지** — 응답 CT→`endpoint_kind` 최우선 분기 + 요청측 4신호(accept/xhr/origin/auth) ApiScorer 양성 가중치(WEIGHT_KEYS 14→18). 오도 CT 완화 가드(2xx누적·엄격 과반>0.5·확장자 veto 우선·CT 정규화).
+- **매뉴얼 §8 실구현 재작성**(TW) — 소비 6신호·미채택 2(server_protocol/upstream_addr)·예약 1(요청 content_type)·4신호 가중치표·완화 가드·무회귀.
+- **.197 재배포** — DORMANT 무회귀(신규 인덱스 -1 → 현행 판정 100% 동일), 신규 4컬럼 **3M행 마이그레이션**(ddl-auto ADD default false) 무손실.
+- **doc/41 nginx `log_format` 운영 규약 (D80)** — 코어 24필드 + 8.3 append(24~30) 표준.
+- **엣지 필드수 전수조사** → 매뉴얼 **§8.5** — 대상 213엣지 중 **24필드 158 즉시후보**·나머지 55 통일/제외.
+- ★**활성화(nginx 24필드 통일 + application.yml 인덱스 세팅)는 운영 후속** — 코드는 대기(DORMANT).
+
+**[2] 스캔 due/워터마크 발산 — 진단·대응(유령 도메인)**
+- **증상**: 유령(enabled·endpoint 0) 도메인 **39.6k 가 due 66% 잠식**·밀림 p50 4.4일·워터마크 near-now 6.7%(발산).
+- **원인**: 봇/스푸핑 Host 가 캐치올 엣지 통해 **status 무관 자동등록** + 봇 재방문이 P3D 무접속 게이트를 **진동**시켜 sticky.
+- 설계 **doc/42** · 결정 **DECISIONS D81**.
+- **A+C 구현**: A=NEW-PAJ* 엣지 제외(설정) · C=discovery 등록 **status 신뢰 필터**(`discovery.probe-statuses` 기본 [404,470]).
+- **QA 반영**: P2=`domain_classification_config`(사용자 설정) 보호 · P3=hard DELETE 채택.
+- **머지 PR #76 (`f089a40`)** · **재배포 `a171edf`** — 기준선 ghost 39,620·due 53,256·near-now 7.1%.
+- B/B-2/D **hard DELETE runbook** 작성(`sample/ghost_domain_cleanup.sql`, **미실행**).
+- ★**삭제는 관찰 1~2일 후 사용자 최종승인 하 진행**(사용자 결정).
+
+### 결과
+- **[1]** 8.3 코드 경로 완결·배포 완료(DORMANT 무회귀). 활성화만 운영 대기.
+- **[2]** A+C 배포로 신규 유령 유입 억제 시작·기준선 확보(메모리 `ghost-suppression-ac-deploy-baseline`: ghost 39,620·due 53,256·near-now 7.1%). 기존 유령 정리(B/B-2/D)는 runbook 대기(미실행).
+
+### 다음 단계
+- **[2] C 효과 관찰** — 신규 유령 유입/일 감소 여부를 baseline 과 대조(메모리 대조점) → **blocklist(제외 엣지·probe-statuses) 조정 판단**(TASKS) → 관찰 후 **사용자 승인 시 유령 삭제 실행**(B/B-2/D runbook).
+- **[1]** 운영 조율 시 nginx 24필드 통일 + 인덱스 세팅 → 활성 전/후 스냅샷 diff 로 kind 재분류·격하 실측(doc/40 §4.3 잔여 위험).
+
+---
+
 ## 2026-07-14 세션 78 (architect) — 스캔 due/워터마크 발산 대응 설계(doc/42, 유령 도메인)
 
 ### 한 일
