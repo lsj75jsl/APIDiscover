@@ -31,10 +31,11 @@ WHERE dc.enabled
   AND dc.interval_override IS NULL AND dc.base_path_strip IS NULL   -- (d) 사용자 설정 흔적 없음
   AND NOT EXISTS (SELECT 1 FROM discovered_endpoint de WHERE de.host = dc.host)  -- endpoint 0
   AND NOT EXISTS (SELECT 1 FROM spec_record      sr WHERE sr.host = dc.host)     -- (d) 스펙 업로드 도메인 절대 제외
-  AND NOT EXISTS (SELECT 1 FROM documented_api   da WHERE da.host = dc.host);    -- (d) 문서 API 보유 도메인 제외
+  AND NOT EXISTS (SELECT 1 FROM documented_api   da WHERE da.host = dc.host)     -- (d) 문서 API 보유 도메인 제외
+  AND NOT EXISTS (SELECT 1 FROM domain_classification_config dcc WHERE dcc.host = dc.host);  -- (d) 도메인별 분류정책=운영자 흔적 보호
 
 -- excluded-only 버킷(B-2): hostnames 가 존재하며 전부 제외 엣지(AAJ 23 + P* + NEW-PAJ*)인 도메인 = 스캔불가.
---   ghost 와 중복(510)은 NOT IN 으로 1회만. (d) 보호는 동일 적용.
+--   ghost 와 중복(510)은 NOT EXISTS 로 1회만. (d) 보호(분류정책 포함)는 동일 적용.
 INSERT INTO ghost_cleanup_bak_domain_config
 SELECT dc.*, now(), 'excluded-only'
 FROM domain_config dc
@@ -43,6 +44,7 @@ WHERE dc.enabled
   AND dc.interval_override IS NULL AND dc.base_path_strip IS NULL
   AND NOT EXISTS (SELECT 1 FROM spec_record    sr WHERE sr.host = dc.host)
   AND NOT EXISTS (SELECT 1 FROM documented_api da WHERE da.host = dc.host)
+  AND NOT EXISTS (SELECT 1 FROM domain_classification_config dcc WHERE dcc.host = dc.host)  -- (d) 분류정책=운영자 흔적 보호
   AND EXISTS (SELECT 1 FROM domain_hostnames dh WHERE dh.host = dc.host)         -- hostnames 존재(무-엣지 도메인 제외)
   AND NOT EXISTS (                                                               -- 비제외 엣지가 하나도 없음 = 전부 제외
         SELECT 1 FROM domain_hostnames dh
