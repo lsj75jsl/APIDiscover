@@ -5,6 +5,19 @@
 
 ---
 
+## 2026-07-14 세션 78 (architect) — 스캔 due/워터마크 발산 대응 설계(doc/42, 유령 도메인)
+
+### 한 일
+- 발산 근본원인 정리·대응 설계 **`doc/42-ghost-domain-divergence-response.md`** 작성. 운영 DB read-only 재실측으로 근거 보강: 유령(enabled & endpoint 0) **39,526 전건 스캔이력 있음**·≥7일 지속 **28,712**·최근 3일 lastSeenAt 갱신 8,898(봇 재방문이 P3D 게이트 **진동**)·사용자 설정 보유 0건·`NEW-PAJ*` 실측 5종(21/31/41/51/61) 접두 정확 일치·유령 유입 엣지는 광범위(AHJ11 5,511 등 — NEW-PAJ\* 는 일부)·제외엣지 전용 3,109(유령 510)·last_access_log_at NULL & endpoint 有 3,464(전건 백필 가능).
+- 대응 4종 설계: **A** NEW-PAJ\* 제외(설정 1행, EdgeExclusions 재사용) · **B** 유령 대량 `enabled=false` soft 비활성(삭제 기각 — upsert 가 enabled 미터치라 재유입 sticky 차단·가역·D62 백업 선례) + **B-2** 제외엣지 전용 매핑 정리(D62 플레이북) · **C(근본)** discovery 등록 status 신뢰 필터(`probe-statuses` 기본 [404,470]·빈=off 무회귀, buildPattern `<status>`+라벨 필터 — Host 헤더는 위조 가능하므로 status="실서빙 여부"를 신뢰 프록시로) · **D** last_access_log_at 백필 SQL 1문(**touch 로직 정상** — NULL 은 D56 이전 이력+delta-skip 잔재, 버그 아님).
+- endpoint 0 **4경로 오탐 분석**(① 진짜 유령 ② foreign-host 정규화 엣지케이스 ③ 제외엣지 전용=스캔불가 별도버킷 ④ 일시 실패)과 **정리 안전기준**(스캔이력+7일 지속+사용자 흔적/스펙 보호 술어, 'endpoint 0' 단독 금지) 반영. C 결합 **오분류 자기치유**(비활성 후 lastSeenAt 재관측=신뢰 트래픽=복구 후보 쿼리) 설계.
+
+### 결과
+- 코드 무변경(설계만). 실행 순서 확정: **A+C 한 PR/배포 → 1~2일 관찰 → B+D 는 사용자 승인 후 ops 창 1회**(runbook 스케치 doc/42 §7). 효과 추정 enabled 67k→~35.9k, due 잠식 66% 해소.
+
+### 다음 단계
+- 매니저: TASKS 반영(doc/42 §8 dev 항목 5건)·리뷰·사용자 승인 게이트. dev: A+C PR → runbook 스크립트화.
+
 ## 2026-07-14 세션 77 (이어서) — §8.5 신설: 활성화 전 수정 사항(엣지 필드 수 이질)
 
 ### 한 일
