@@ -27,6 +27,23 @@
 
 ---
 
+## 2026-07-14 세션 77 — 8.3 재배포(DORMANT) + 활성화 사실확인 + 운영 log_format 규약(doc/41, C안)
+
+### 한 일
+- **재배포**: main(13706bb, 8.3 머지) 이미지 .198 빌드(fbe3a9c) → save/gzip/scp → .197 load → `podman play kube --replace`. 직전 이미지(9ed6880) `prev-pre-d79` 롤백 태그 보존.
+- **활성화 사실 확인**: 운영 Loki 소량 샘플(3분 창·40~60라인)로 필드 구조 조사(부하 최소). 임시 스크립트 scratchpad(미커밋).
+- **규약 문서 작성(C안)**: `doc/41-nginx-log-format-spec.md` — 운영팀 전달용. 코어 24필드 인덱스↔nginx 변수 매핑(LogLineParser 기준)·필드수 통일 요구(엣지 이질성 근거)·8.3 append 규약(24~30)·log_format 지시문 예시(+`$auth_scheme` map)·활성화 절차.
+- doc/40 §8.1(활성화 전제 제약)·DECISIONS **D80** 신설·D79 완료 갱신.
+
+### 결과
+- **재배포 검증**: Health UP. ddl-auto 신규 4컬럼(`accept_json`·`x_requested_with`·`origin_header`·`auth_scheme`, `boolean default false`) ADD 성공 — **기존 3,046,006행 전부 false(NULL 0)** 실 PG 마이그레이션 검증. 인덱스 -1 DORMANT·스캐너 정상 재개 = 무회귀. (초기 1회 DB-recovery 레이스 재시작 자가치유, 8.3 무관.)
+- **활성화 확인**: 8.3 필드 5종 **현재 로그에 전무** → nginx log_format 변경(운영) 선행 필수. **엣지 log_format 이질**(24/19/18필드·`$type` 유무 상이, 엣지 AAJ14/PAK21/PARV2/PLDI1) → 파서 전역 단일 인덱스라 대상 엣지 24필드 통일 필요(D80). 인덱스 미리 세팅해도 `f.length` 가드로 무회귀.
+
+### 다음 단계
+- 활성화(운영 log_format 표준화 → 인덱스 24~30 세팅 → 전/후 스냅샷 diff 실측)는 매니저/운영 지시로 후속. 매뉴얼(§7, TW) 후속.
+
+---
+
 ## 2026-07-13 세션 76 — 8.3 §6 로그변수 소비 구현(응답 CT + 요청측 4신호)
 
 ### 한 일
