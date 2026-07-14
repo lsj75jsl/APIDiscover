@@ -1009,7 +1009,7 @@ base <span class="op">=</span> 0.5 · <span class="hl">log₁₀(hits+1)/3</span
     <tr><td><code>$http_access_control_request_method</code></td><td><strong>기존 preflight 게이트</strong>(<code>corsPreflight</code> 신호는 이미 존재) — M3/D50 으로 이미 구현. 로그 필드·인덱스 설정만 하면 활성.</td><td><span class="pill pill-drop">아니오</span> 기존 신호·게이트 재사용</td></tr>
     <tr><td><code>$http_accept</code> · <code>$http_x_requested_with</code> · <code>$http_origin</code> · <code>$auth_scheme</code></td><td><code>ApiScorer</code> 양성 가중치 신호(아래 표)</td><td><span class="pill pill-admit">예 — 4개</span></td></tr>
     <tr><td><code>$content_type</code>(요청)</td><td><strong>미소비</strong>(예약) — 향후 web-form 정밀화용, 현재 판정에 미반영</td><td><span class="pill pill-drop">아니오</span></td></tr>
-    <tr><td><code>$server_protocol</code> · <code>$upstream_addr</code></td><td><strong>제외</strong> — 판별력 미미(사용자 결정). §8.1·§8.5 참조</td><td><span class="pill pill-drop">미채택</span></td></tr>
+    <tr><td><code>$server_protocol</code> · <code>$upstream_addr</code></td><td><strong>제외</strong> — 판별력 미미(사용자 결정). §8.1·§8.6 참조</td><td><span class="pill pill-drop">미채택</span></td></tr>
   </tbody>
 </table>
 
@@ -1127,7 +1127,38 @@ access_log /var/log/nginx/access.log api_discovery;</code></pre>
   </ul>
 </div>
 
-<h3 id="s8-5">8.5 정리 — 한계별 권장 추가 항목</h3>
+<h3 id="s8-5">8.5 활성화 전 수정 사항 — 엣지 로그 파라미터(필드) 수 이질</h3>
+
+<div class="callout danger">
+  <span class="ct">활성화 블로커 — 파서는 전역 단일 인덱스다</span>
+  8.3 활성화는 <strong>대상 엣지의 <code>log_format</code> 이 코어 24필드로 통일</strong>돼 있어야 성립한다(doc/41 §3). APIDiscover 파서는 <code>accept-field-index=26</code> 같은 <strong>전역 단일 인덱스</strong>로 필드를 읽으므로, 8.3 을 "끝에 append" 해도 <strong>코어 필드 수가 다른 엣지는 8.3 필드의 절대 인덱스가 어긋난다</strong>(예: 코어가 23필드인 엣지에 append 하면 <code>$sent_http_content_type</code> 가 24 가 아니라 23 에 놓임 → <code>response-content-type-field-index=24</code> 로 못 읽음). 엣지별 다른 인덱스는 지원하지 않는다 — 따라서 <strong>① 대상 엣지를 24필드 코어로 통일</strong>하거나 <strong>② 이미 24필드인 엣지만 대상으로 한정</strong>해야 한다(doc/41 §3).
+</div>
+
+<p>dev 전수조사(2026-07-14, 운영 Loki)로 <strong>대상 213 엣지의 필드 수가 제각각</strong>임을 확정했다(제외 227 = AAJ 정확 + P* 접두). 코어 24필드와 일치하는 <strong>158개(74%)만 8.3 을 즉시 적용</strong>할 수 있고, 나머지 55개는 <strong>24필드로 통일하거나 8.3 대상에서 제외</strong>해야 한다(제외 시 그 엣지는 현행 DORMANT 그대로 무영향).</p>
+
+<table>
+  <thead><tr><th>필드 수</th><th>엣지 수</th><th>상태</th><th>엣지명 (전수 — 결과 파일 그대로)</th></tr></thead>
+  <tbody>
+    <tr><td>18</td><td>5</td><td><span class="pill pill-drop">통일/제외</span></td><td>NEW-PAJ21, NEW-PAJ31, NEW-PAJ41, NEW-PAJ51, new-PAJ11</td></tr>
+    <tr><td>23</td><td>46</td><td><span class="pill pill-drop">통일/제외</span></td><td>AAAC1, AAAK1, AABS1, AAI11, AAI12, AAI13, AAI14, AAI21, AAI22, AAI23, AAI31, AAI33, AAI41, AAI43, AAI51, AAI53, AAN11, AAN21, AAP21, AASE1, AAT11, AAT21, ADOS1, ALC11, ALDA1, ALI61, ALIA1, ALIG1, ALIH1, ALII1, ALIL1, ALIX1, ALN41, ALND1, ALRT1, ALS11, ALSV1, ALTE1, ALW31, AOR11, AOR21, ASEO1, ATNG1_tsukaeru, AVSB1, AVSB2, MLNC1</td></tr>
+    <tr><td><strong>24</strong></td><td><strong>158</strong></td><td><span class="pill pill-admit">즉시 후보</span></td><td><details><summary>158개 — 펼치기 (코어 24필드 일치, doc/41 §2)</summary>AAC11, AAC21, AAC31, AAC41, AADD1, AAG11, AAG21, AAI15, AAI24, AAI25, AAI35, AAIL1, AAIL2, AAIP1, AAIP2, AAIP3, AAIP4, AAIP5, AAIP6, AAIP7, AAIP8, AAK11, AAK21, AARV1, AARV2, AAWM1, AERC1, AEVL1, AFDK1, AFDK2, AHF11, AHFB1, AHJ01, AHJ11, AHJ21, ALAT1, ALD31, ALD51, ALD71, ALD81, ALD91, ALDB1, ALDC1, ALDH1, ALDI1, ALG21, ALG31, ALGD1, ALI11, ALI21, ALI31, ALI41, ALIB1, ALIM1, ALIP1, ALIR1, ALIT1, ALIU1, ALIW1, ALL11, ALM21, ALNC1, ALO11, ALPR1, ALS21, ALSG1, ALT21, ALTR1, ALW51, ALW61, ALW71, ALW81, ANFD1, AOAM-ICN-2501M0, AOAM-ICN-2501S1, AOAM-NRT-2502M0, AOAM-NRT-2502S1, AOAT1, AOAT2, AOBE-NRT-2602M0, AOBE-NRT-2602S1, AOC1-ICN-2505M0, AOC1-ICN-2505S1, AOC1-NRT-2503M0, AOC1-NRT-2503S1, AOC1-NRT-2504M0, AOC1-NRT-2504S1, AOC1-NRT-2506M0, AOC1-NRT-2506S1, AOC1-NRT-260DM0, AOC1-NRT-260DS1, AOC1-NRT-260EM0, AOC2-NRT-2501M0, AOC2-NRT-2501S1, AOC2-NRT-2602M0, AOC2-NRT-2602S1, AOC2-NRT-2602S2, AOC2-NRT-2604M0, AOC2-NRT-2604S1, AOC2-NRT-2605M0, AOC2-NRT-2605S1, AOC2-NRT-2606M0, AOC2-NRT-2606S1, AOC3-ICN-2501M0, AOC3-ICN-2501S1, AOC3-NRT-2502M0, AOC3-NRT-2502S1, AOC3-NRT-2504M0, AOC3-NRT-2504S1, AOC4-NRT-2502M0, AOC4-NRT-2502S1, AOC4-NRT-2503M0, AOC4-NRT-2503S1, AODK1, AODK2, AODN1, AODN2, AOE11, AOE12, AOFO1, AOFO2, AOHD1, AOI11, AOI12, AOKB1, AOKB2, AOKC1, AOKC2, AOKD1, AOKD2, AOKR-ICN-2602M0, AOKR-ICN-2602S1, AOKR-SIN-2501M0, AOKR-SIN-2501S3, AOLH1, AOMF1, AOMF2, AOOC-ICN-2600M0, AOOC-ICN-2600S2, AORV1, AORV2, AOSE1, AOSE2, AOSJ1, AOSJ2, AOTK1, AOTK2, AOTK3, AOW11, AOY11, AOY21, APAV1, APAV2, ASWO1, ASWO2, ATJK1, AVCB1, AYJ11</details></td></tr>
+    <tr><td>25</td><td>1</td><td><span class="pill pill-drop">통일/제외</span></td><td>ALTK1</td></tr>
+    <tr><td>27</td><td>2</td><td><span class="pill pill-drop">통일/제외</span></td><td>AAS11, AAS21</td></tr>
+    <tr><td>(라인 없음)</td><td>1</td><td><span class="pill pill-drop">통일/제외</span></td><td>NEW-PAJ61</td></tr>
+  </tbody>
+</table>
+<p class="legend">요약: 18필드=5 · 23필드=46 · <strong>24필드=158(즉시 적용 후보)</strong> · 25필드=1 · 27필드=2 · 라인없음=1 → 합계 213(제외 227 별도). 24 미만인 엣지는 린 포맷(<code>$type</code>·geo·예약·<code>$request_id</code> 자리 누락, doc/41 §3)이다. 필드 수가 24 가 아니면(미만·초과 무관) 코어와 다르므로 8.3 을 그대로 append 하면 인덱스가 어긋난다 — 24 통일 또는 대상 제외가 필요하다.</p>
+
+<div class="callout note">
+  <span class="ct">조사 방법과 한계</span>
+  <ul style="margin:6px 0 0; padding-left:18px;">
+    <li>엣지당 <strong>최근 1줄만 표본</strong> — 운영 Loki 부하 극소(엣지별 <code>count_over_time</code> 아닌 마지막 1라인 필드 수만 계수).</li>
+    <li>동일 엣지 내 <strong>vhost별 포맷 혼재는 미탐지</strong> — 1줄 표본이라 한 엣지가 여러 <code>log_format</code> 을 쓰면 놓칠 수 있다(활성 전 대상 엣지는 개별 확인 권장).</li>
+    <li>재현: <code>sample/edge_field_count_survey.py</code> · 결과 원본 <code>sample/edge_field_count_result.txt</code>(main <code>ca53868</code>).</li>
+  </ul>
+</div>
+
+<h3 id="s8-6">8.6 정리 — 한계별 권장 추가 항목</h3>
 <table>
   <thead><tr><th>한계(7장)</th><th>추가하면 효과적인 nginx 항목</th><th>상태</th></tr></thead>
   <tbody>
@@ -1141,7 +1172,7 @@ access_log /var/log/nginx/access.log api_discovery;</code></pre>
 </table>
 <p class="legend">스키마·파라미터 타입·PII(7.1 의 본질)와 deprecation/버전(Zombie 정밀화)은 access log 항목 추가로는 해결되지 않는다 — 이는 본문/문서 메타가 필요해 로그 범위 밖이다.</p>
 
-<h3 id="s8-6">8.6 그래도 남는 한계 — 본문(body) 미수집</h3>
+<h3 id="s8-7">8.7 그래도 남는 한계 — 본문(body) 미수집</h3>
 <p>8장의 항목들은 모두 <strong>헤더·메타데이터</strong>다. 즉 "이 호출이 API 인가"라는 <em>판정(분류)</em>은 크게 개선하지만, 요청/응답 <strong>본문(body)을 로그에 남기지 않는다</strong>는 근본 전제는 그대로다. 따라서 항목을 모두 추가하더라도 아래는 여전히 불가능하다.</p>
 
 <div class="callout danger">
