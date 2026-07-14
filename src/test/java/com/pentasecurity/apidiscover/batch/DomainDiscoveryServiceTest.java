@@ -242,7 +242,30 @@ class DomainDiscoveryServiceTest {
         assertThat(ql).doesNotContain("domain");
     }
 
+    // --- C(doc/42 §4.4): 프로브 status 신뢰 필터 = 프로브 Host 등록 배제 ---
+
+    @Test
+    void buildLogQLAppendsProbeStatusFilterWhenConfigured() {
+        String ql = serviceWithProbeStatuses(List.of(404, 470)).buildLogQL(Duration.ofMinutes(12));
+        // pattern 이 추출한 <status> 를 전체앵커 부등호(!~)로 제외 → 404/470-only Host 미등록
+        assertThat(ql).contains("<status>");
+        assertThat(ql).contains("| status !~ \"404|470\"");
+        // 필터는 pattern 뒤·range([720s]) 앞
+        assertThat(ql).containsPattern("\\| pattern .*\\| status !~ \"404\\|470\" \\[720s\\]");
+    }
+
+    @Test
+    void buildLogQLOmitsProbeStatusFilterWhenEmpty() {
+        // 빈 리스트 = 필터 없음 = 현행 무회귀
+        String ql = serviceWithProbeStatuses(List.of()).buildLogQL(Duration.ofMinutes(12));
+        assertThat(ql).doesNotContain("status !~");
+    }
+
     // --- helpers ---
+
+    private DomainDiscoveryService serviceWithProbeStatuses(List<Integer> probeStatuses) {
+        return new DomainDiscoveryService(loki, repo, new DomainUpserter(repo), props(200, List.of(), probeStatuses));
+    }
 
     private DomainDiscoveryService service() {
         return new DomainDiscoveryService(loki, repo, new DomainUpserter(repo), props(200));
@@ -291,6 +314,10 @@ class DomainDiscoveryServiceTest {
     }
 
     private static ApiDiscoverProperties props(int maxDomains, List<String> excludedHostnames) {
+        return props(maxDomains, excludedHostnames, List.of());
+    }
+
+    private static ApiDiscoverProperties props(int maxDomains, List<String> excludedHostnames, List<Integer> probeStatuses) {
         return new ApiDiscoverProperties(
                 new ApiDiscoverProperties.Loki("http://loki.local:3200", "access_log",
                         Duration.ofSeconds(30), Duration.ofMinutes(10), 2000, 2, Duration.ofMillis(1)),
@@ -298,7 +325,7 @@ class DomainDiscoveryServiceTest {
                         Duration.ofDays(7), "01:00-06:00"),
                 new ApiDiscoverProperties.Central("https://central.internal"),
                 new ApiDiscoverProperties.Discovery(true, Duration.ofMinutes(10), Duration.ofMinutes(12),
-                        Duration.ofHours(1), Duration.ofMinutes(2), maxDomains, FQDN, excludedHostnames),
+                        Duration.ofHours(1), Duration.ofMinutes(2), maxDomains, FQDN, excludedHostnames, probeStatuses),
                 new ApiDiscoverProperties.Scan(Duration.ofMinutes(5), 100, Duration.ZERO, 0, 0L, true, Duration.ZERO, 0, false, Duration.ofMinutes(30), Duration.ofHours(2), Duration.ofHours(6), Duration.ofHours(24), 500, Duration.ofHours(24), "", Duration.ofDays(14), Duration.ofDays(1), Duration.ZERO, 0, false, Duration.ZERO));
     }
 }

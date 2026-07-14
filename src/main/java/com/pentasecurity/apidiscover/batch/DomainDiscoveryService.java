@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -141,14 +142,31 @@ public class DomainDiscoveryService {
         return "sum by (host, real_host, hostname) (count_over_time("
                 + "{job=\"" + props.loki().jobLabel() + "\"}"
                 + " | pattern \"" + buildPattern() + "\""
+                + probeStatusFilter()
                 + " [" + window.toSeconds() + "s]))";
     }
 
-    /** pattern: 인덱스 0..F_HOST-1 skip(<_>^|^) → <host>^|^<real_host>^|^<_>. 포지션=LogLineParser 상수(doc/02 §1.1). */
+    /**
+     * C(doc/42 §4.4): 프로브 status(기본 404·470) 만 관측된 Host 를 등록에서 배제하는 라벨 필터.
+     * pattern 이 추출한 {@code <status>} 를 전체앵커 부등호 매칭(!~)으로 제외 — 스푸핑/프로브 Host 억제·재유입 종식.
+     * 빈/미설정 = 필터 없음 = 현행 무회귀. 광역 |= 이 아니라 라벨 필터라 Loki 부하 안전(pattern 파싱은 이미 수행 중).
+     */
+    private String probeStatusFilter() {
+        List<Integer> statuses = props.discovery().probeStatuses();
+        if (statuses == null || statuses.isEmpty()) {
+            return "";
+        }
+        return " | status !~ \"" + statuses.stream().map(String::valueOf).collect(Collectors.joining("|")) + "\"";
+    }
+
+    /**
+     * pattern: 인덱스 0..F_HOST-1 skip(<_>^|^, 단 F_STATUS 는 status 필터용 <status> 명명) → <host>^|^<real_host>^|^<_>.
+     * 포지션=LogLineParser 상수(doc/02 §1.1) — 드리프트 차단.
+     */
     static String buildPattern() {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < LogLineParser.F_HOST; i++) {
-            sb.append("<_>").append(LogLineParser.DELIM);
+            sb.append(i == LogLineParser.F_STATUS ? "<status>" : "<_>").append(LogLineParser.DELIM);
         }
         sb.append("<host>").append(LogLineParser.DELIM)
                 .append("<real_host>").append(LogLineParser.DELIM).append("<_>");

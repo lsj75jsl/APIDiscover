@@ -41,7 +41,10 @@ public record ApiDiscoverProperties(Loki loki, Schedule schedule, Central centra
             String hostPattern,        // FQDN 검증 정규식
             // D62: 작업 대상 제외 엣지(hostname 라벨) — 디스커버리 등록·lastSeen 갱신·스캔 조회 모두 제외.
             // null/빈=제외 없음(무회귀). 정확 일치 매칭.
-            List<String> excludedHostnames
+            List<String> excludedHostnames,
+            // C(doc/42 §4.4): 프로브/스푸핑 Host 억제 — 이 status 만 관측된 도메인은 등록·lastSeen 갱신 안 함.
+            // 서버측 LogQL 라벨 필터(| status !~ ...)로 구현. null/빈=필터 없음(현행 무회귀). 기본 [404, 470].
+            List<Integer> probeStatuses
     ) {}
 
     /** 엔드포인트 스캔 부하 운영정책 — B 틱당 예산·A 윈도우 상한·E 전역 레이트 가드 (doc/33 §8/§14, PR1·PR1.1) + C/D/F 티어링(§4–6, PR2/PR3 D48). */
