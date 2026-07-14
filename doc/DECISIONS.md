@@ -690,6 +690,17 @@ gap-free 크롤은 활성 수요(~22.6k 윈도우/h) vs 예산 용량(D65 후 ~7
 - **무회귀**: 인덱스를 로그 변경 전 미리 세팅해도 `LogLineParser` 의 `f.length > idx` 가드로 null 처리 → 신호 부재 → 현행 불변. 위험은 '필드가 틀린 위치에 오는' 경우뿐(→ §41 규약으로 방지).
 - **활성화 자체는 매니저/운영 지시로 후속**(이번 세션은 규약 문서화까지).
 
+### D81. 스캔 due/워터마크 발산 대응 — 유령 도메인 억제(A+C) + 하드 정리(B/B-2/D) (2026-07-14, 설계 doc/42, PR #76)
+- **배경**: 봇/스캐너/스푸핑 Host 헤더가 캐치올 엣지로 무검증 자동등록 → endpoint 0 유령 ~39.5k 가 due 큐 66% 잠식 → 밀림 p50 4.4일/max 14일 발산.
+- **A(즉효)**: `NEW-PAJ*` 엣지 제외(설정 1행, EdgeExclusions 접두 매처). **C(근본)**: discovery 등록 status 신뢰 필터 — 404(미존재 vhost)·470(WAAP 차단)만 관측된 Host 는 등록·lastSeen 갱신 배제(`discovery.probe-statuses`, 기본 [404,470], 빈=무회귀). 서버측 LogQL 라벨 필터(광역 |= 아님·부하 안전).
+- **B/B-2/D(파괴적 정리) 방식 = hard DELETE 채택(사용자 결정)** — soft(enabled=false) 아님.
+  - 근거: `DomainUpserter` 는 재관측 시 재-INSERT(enabled=true 기본) 하므로 원래 soft 가 재유입 sticky 차단 명분이었으나, **C 가 프로브 재유입을 원천 차단**하면 재등록되는 것은 실 트래픽뿐 = **자기치유**. 즉 C 도입으로 soft 의 명분이 대체됨. 사용자는 완전 정리(행 제거) 선호.
+  - **트레이드오프(명시)**: hard DELETE 는 재트래픽으로 재등록 시 `discovered_at`/firstSeen **리셋 = 이력 손실**(7일 지속성 기준 재누적). soft 는 이력 보존이나 재활성 수동. → **백업 테이블로 가역성 확보**(롤백=재INSERT, `sample/ghost_domain_cleanup.sql`).
+- **안전기준(§3, 'endpoint 0' 단독 판정 금지)**: (a)스캔이력 + (b)7일 지속 + (d)사용자/운영자 흔적 없음(`interval_override`·`base_path_strip`·`spec_record`·`documented_api`·**`domain_classification_config`**) + endpoint 0(ghost) / hostnames 전부 제외엣지(excluded-only).
+- **FK 실측**(운영 PG information_schema): 앱 FK 는 `domain_hostnames.host→domain_config.host` 단 1개 → 삭제 순서 자식(domain_hostnames) 먼저 → 부모(domain_config) 마지막. watermark/scan_result/discovered_endpoint 는 FK 없음(정합 purge).
+- **D48-F 경계**: "삭제·비활성 없음"은 **자동 스케줄러 정책** 결정 — 이번은 **운영자 승인 1회 정리**라 상충 아님.
+- **실행 순서**: A+C(PR #76) 리뷰·머지·재배포 → 1~2일 관찰 → **사용자 승인 하** runbook 실행.
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.
