@@ -11,21 +11,24 @@ class DomainDiscoveryFieldLayoutTest {
     @Test
     void parserConstantsMatchDoc02Layout() {
         assertThat(LogLineParser.DELIM).isEqualTo("^|^");
+        assertThat(LogLineParser.F_STATUS).isEqualTo(9);   // C(doc/42 §4.4) status 필터 위치
         assertThat(LogLineParser.F_HOST).isEqualTo(15);
         assertThat(LogLineParser.F_REAL_HOST).isEqualTo(16);
         assertThat(LogLineParser.F_REAL_HOST).isEqualTo(LogLineParser.F_HOST + 1); // host 바로 뒤 real_host
     }
 
     @Test
-    void logqlPatternPlacesHostAndRealHostAtParserIndices() {
+    void logqlPatternPlacesHostRealHostAndStatusAtParserIndices() {
         String pattern = DomainDiscoveryService.buildPattern();
-        // 인덱스 0..F_HOST-1 은 skip(<_>), F_HOST=<host>, F_HOST+1=<real_host>
+        // 인덱스 0..F_HOST-1 은 skip(<_>), 단 F_STATUS=<status>(C 필터용), F_HOST=<host>, F_HOST+1=<real_host>
         String[] fields = pattern.split(java.util.regex.Pattern.quote(LogLineParser.DELIM), -1);
         assertThat(fields[LogLineParser.F_HOST]).isEqualTo("<host>");
         assertThat(fields[LogLineParser.F_REAL_HOST]).isEqualTo("<real_host>");
-        // host 앞은 정확히 F_HOST 개의 skip 필드
+        assertThat(fields[LogLineParser.F_STATUS]).isEqualTo("<status>"); // status 필터가 참조
+        // host 앞은 F_STATUS 만 <status>, 나머지는 skip
         for (int i = 0; i < LogLineParser.F_HOST; i++) {
-            assertThat(fields[i]).as("field %d skip", i).isEqualTo("<_>");
+            String expected = (i == LogLineParser.F_STATUS) ? "<status>" : "<_>";
+            assertThat(fields[i]).as("field %d", i).isEqualTo(expected);
         }
     }
 }

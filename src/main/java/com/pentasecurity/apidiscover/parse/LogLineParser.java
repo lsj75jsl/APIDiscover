@@ -53,7 +53,7 @@ public class LogLineParser {
     private static final int F_REQUEST = 5;
     private static final int F_RESPONSE_TIME = 7;
     private static final int F_REQUEST_URI = 8;
-    private static final int F_STATUS = 9;
+    public static final int F_STATUS = 9;   // status (디스커버리 status 신뢰필터가 공유, doc/42 §4.4)
     private static final int F_BODY_BYTES = 10;
     private static final int F_HTTPS = 12;
     private static final int F_REFERER = 13;
