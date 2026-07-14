@@ -5,6 +5,28 @@
 
 ---
 
+## 2026-07-14 세션 77 — 8.3 매뉴얼(TW) 실제 구현 기준 반영(§8 재작성)
+
+### 한 일
+- PR #73(05c17aa, D79) 머지된 **실제 구현 기준**으로 `api-discovery-manual.html §8` 재작성. 소스(`ParseProperties` 인덱스·`ApiScorer` 프리셋/WEIGHT_KEYS 18·`EndpointKindClassifier` 가드·`Acc` 다수결·`application.yml`)를 직접 대조해 파라미터·인덱스·가중치·발화조건 전건 검증 후 반영(추측 없음).
+- **§8 재프레이밍**: 제목 '한계 개선 제안'→'한계 개선(소비 구현 완료·활성 대기)'. 도입부를 "추후 확장 전제"→"소비 코드 이미 머지·DORMANT". **무회귀 콜아웃** 추가(인덱스 기본 -1 → log_format 미변경 시 현행 100% 동일, 활성화=별도 운영단계).
+- **§8.1 표**: '우선(★)' 열 → **'소비/구현' 열**로 교체. 실제 소비 6신호(sent_ct[24]·accept[26]·xhr[27]·ACRM[28]·origin[29]·auth[30]) `소비` pill + 인덱스·가중치, `$content_type`=`예약`(미소비), `$server_protocol`·`$upstream_addr`·`$request_length`=`미채택`.
+- **신규 §8.2 '왜 스코어링 가중치는 4개뿐인가'**(headline): 소비 경로표(sent_ct→endpoint_kind 별개 경로·ACRM→기존 게이트·content_type→미소비·server_protocol/upstream_addr→제외) + **4신호 가중치표**(acceptJson 0.20/xhr 0.28/origin 0.15/auth 0.28, MIDDLE/HIGH/LOW 소스값 일치) + 다수결(`count*2≥hits`) 콜아웃 + 양성가산 격하0 콜아웃(시뮬 31,391건·89.5% API구조).
+- **§8.3**(구 8.2) endpoint_kind + **오도 CT 완화 가드표**(§4.3: 2xx-only 누적·엄격 과반>0.5[tie 포함 skip]·확장자 veto 우선·CT 정규화) + CT→kind 격하 경로 실측 콜아웃.
+- **§8.4**(구 8.3) log_format: `$server_protocol`·`$upstream_addr` 2줄 삭제, 각 필드에 인덱스 24~30 주석, `application.yml apidiscover.parse.*` 설정키 콜아웃.
+- **§8.5**(구 8.4) 매핑표: '상태' 열 추가, server_protocol/upstream_addr `미채택`·content_type `예약`. **§8.6**(구 8.5)=본문 미수집(번호만).
+- 기존 8.2~8.5 → 8.3~8.6 재번호(TOC 는 `#s8`만 링크·하위 앵커 교차참조 0 확인 → 무영향).
+- nit: doc/40 §8 항목2 '559 tests'→'560' 정정.
+
+### 결과
+- **코드(src) 무변경** — 문서만(doc/40·매뉴얼). 테스트 대상 아님.
+- HTML 정합성 검증: div/table/thead/tbody/tr/pre 태그 균형 전부 OK, 앵커 s8-1~s8-6 heading 번호와 일치, server_protocol/upstream_addr 잔존은 전부 의도된 '미채택' 표기.
+
+### 다음 단계
+- 8.3 부모의 잔여 subitem = **활성 단계 검증(운영자)** — nginx log_format + application.yml 인덱스 세팅 후 전/후 스냅샷 diff 로 CT kind-flip 실측(doc/40 §4.3 잔여 위험). 매뉴얼(TW) 완료.
+
+---
+
 ## 2026-07-13 세션 76 — 8.3 §6 로그변수 소비 구현(응답 CT + 요청측 4신호)
 
 ### 한 일

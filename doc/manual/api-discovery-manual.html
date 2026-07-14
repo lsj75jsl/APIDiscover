@@ -966,39 +966,75 @@ base <span class="op">=</span> 0.5 · <span class="hl">log₁₀(hits+1)/3</span
 </div>
 
 <!-- ============================================================= -->
-<h2 id="s8">8. 한계 개선 제안 — nginx access log 추가 항목</h2>
+<h2 id="s8">8. 한계 개선 — nginx access log 추가 항목 (소비 구현 완료·활성 대기)</h2>
 
-<p>7장 한계의 상당수는 "<strong>로그에 담긴 신호가 부족</strong>"하기 때문이다. nginx 는 <code>log_format</code> 에 다양한 내장 변수를 추가로 남길 수 있으므로, 아래 항목들을 access log 에 추가하면 — 수집(Loki)·파서·점수 모델을 추후 그에 맞게 확장한다는 전제 하에 — 자동 판정의 정확도를 크게 끌어올릴 수 있다.</p>
+<p>7장 한계의 상당수는 "<strong>로그에 담긴 신호가 부족</strong>"하기 때문이다. nginx 는 <code>log_format</code> 에 다양한 내장 변수를 추가로 남길 수 있다. 아래 항목 중 판별력이 확인된 것들의 <strong>소비 로직은 이미 구현·머지되어 있고</strong>(PR #73 / <code>05c17aa</code>, D79 — 파서·<code>EndpointKindClassifier</code>·<code>ApiScorer</code>), 지금은 <strong>DORMANT(휴면)</strong> 상태로 대기한다. 운영자가 nginx <code>log_format</code> 에 필드를 추가하고 해당 인덱스를 설정하면(§8.4) 판정기가 그 신호를 소비하기 시작한다.</p>
 
-<div class="callout note">
-  <span class="ct">전제</span>
-  본 장은 "<strong>nginx 가 스펙상 남길 수 있는 변수</strong>" 중 도움이 되는 것을 제안한다. 현재 파서가 읽는 필드 목록과 무관하게 선정했으며, 로그에 항목이 추가되면 Loki 수집·<code>LogLineParser</code>·<code>EndpointKindClassifier</code>/<code>ApiScorer</code> 가 그 신호를 소비하도록 후속 수정한다.
+<div class="callout ok">
+  <span class="ct">무회귀 — 지금은 현행 판정 100% 동일</span>
+  모든 신규 필드 인덱스의 기본값은 <code>-1</code>(미사용)이다. 즉 파서가 해당 필드를 <strong>읽지 않으므로</strong> 전 신규 신호가 부재(0 기여)이고, 점수·<code>endpoint_kind</code> 판정은 <strong>기존과 완전히 동일하다.</strong> 신규 코드가 배포돼 있어도 <code>log_format</code> 을 바꾸지 않는 한 아무 것도 달라지지 않는다(ACRM 과 동일한 "있으면 읽는" 안전 설계). <strong>활성화(nginx <code>log_format</code> 변경 + 인덱스 설정)는 별도의 운영 단계다</strong>(§8.4).
 </div>
 
 <div class="callout ok">
   <span class="ct">최우선 단 한 항목 — 응답 Content-Type</span>
-  <code>$sent_http_content_type</code>(응답 <code>Content-Type</code> 헤더) 하나만 추가해도 한계 <strong>7.2($type 신호 부재)</strong> 와 <strong>7.3(동일출처 www JSON API 분리)</strong> 가 거의 해소된다. 응답이 <code>application/json</code>·<code>application/xml</code>·<code>application/grpc</code> 면 — api 서브도메인이나 CORS 가 없어도 — <strong>결정적으로 API</strong> 이고, <code>text/html</code> 이면 웹페이지, <code>image/*</code>·<code>text/css</code>·<code>application/javascript</code> 면 정적이다. 현재 의존하는 nginx <code>$type</code>(document/library, 실데이터에서 API 값 거의 0건)을 <strong>실제 응답 타입</strong>으로 대체한다.
+  <code>$sent_http_content_type</code>(응답 <code>Content-Type</code> 헤더) 하나만 추가해도 한계 <strong>7.2($type 신호 부재)</strong> 와 <strong>7.3(동일출처 www JSON API 분리)</strong> 가 거의 해소된다. 응답이 <code>application/json</code>·<code>application/xml</code>·<code>application/grpc</code> 면 — api 서브도메인이나 CORS 가 없어도 — <strong>결정적으로 API</strong> 이고, <code>text/html</code> 이면 웹페이지, <code>image/*</code>·<code>text/css</code>·<code>application/javascript</code> 면 정적이다. 현재 의존하는 nginx <code>$type</code>(document/library, 실데이터에서 API 값 거의 0건)을 <strong>실제 응답 타입</strong>으로 대체한다. 단, 응답 CT 는 오도될 수 있어(에러 html·WAF·3xx) <strong>완화 가드</strong>와 함께 소비한다(§8.3).
 </div>
 
-<h3 id="s8-1">8.1 추가 권장 항목 (nginx 변수 → 개선 한계)</h3>
+<h3 id="s8-1">8.1 추가 항목과 실제 소비 (구현 확정 기준)</h3>
+<p>아래 표의 <strong>소비/구현</strong> 열이 실제 코드가 무엇을 소비하는지의 단일 기준이다. <span class="pill pill-admit">소비</span> = 구현되어 활성화 시 소비, <span class="pill pill-drop">미채택</span> = 판별력 미미로 제외. 인덱스는 §8.4 log_format append 순서(24~30)와 <code>ParseProperties</code> 설정 키에 정합한다.</p>
 <table>
-  <thead><tr><th>nginx 변수</th><th>캡처 내용</th><th>검출 개선 효과</th><th>관련 한계</th><th>우선</th></tr></thead>
+  <thead><tr><th>nginx 변수</th><th>캡처 내용</th><th>검출 개선 효과</th><th>관련 한계</th><th>소비/구현</th></tr></thead>
   <tbody>
-    <tr><td><code>$sent_http_content_type</code></td><td>응답 Content-Type</td><td>json/xml/grpc → API, text/html → 웹페이지, image·css·js → 정적. endpoint_kind 결정적 판정</td><td>7.2 · 7.3 · 6장</td><td>★★★</td></tr>
-    <tr><td><code>$content_type</code><br/>(=<code>$http_content_type</code>)</td><td>요청 본문 Content-Type</td><td><code>application/json</code> 본문 → API, <code>x-www-form-urlencoded</code>/<code>multipart/form-data</code> → 웹폼. web-form 억제(DROP_WEB_FORM) 정밀화</td><td>7.5 · 7.1(부분)</td><td>★★★</td></tr>
-    <tr><td><code>$http_access_control_request_method</code></td><td>CORS preflight 요청 메서드(ACRM)</td><td>값이 있으면 <strong>확정적 preflight</strong> → 진짜 OPTIONS 와 구분(Unused 오판 제거)</td><td>7.5</td><td>★★★</td></tr>
-    <tr><td><code>$http_accept</code></td><td>요청 Accept 헤더</td><td>클라이언트가 <code>application/json</code> 기대 → API 호출 의도</td><td>7.3</td><td>★★</td></tr>
-    <tr><td><code>$http_x_requested_with</code></td><td>XHR 표식</td><td><code>XMLHttpRequest</code> → AJAX/SPA 의 API 호출 신호</td><td>7.3</td><td>★★</td></tr>
-    <tr><td><code>$http_origin</code></td><td>CORS Origin 헤더</td><td>cross-origin 호출 → API 컨텍스트(ACRM 보강)</td><td>7.5 · 7.3</td><td>★★</td></tr>
-    <tr><td><code>$auth_scheme</code><br/>(<code>$http_authorization</code>에서 map 추출)</td><td>인증 스킴(bearer/basic 등) <strong>존재 여부만</strong></td><td>토큰 기반 인증 사용 → API 신호. ⚠️ 토큰 값은 절대 로깅 금지</td><td>7.1(부분)</td><td>★★</td></tr>
-    <tr><td><code>$server_protocol</code></td><td>HTTP 버전</td><td>HTTP/2 + <code>application/grpc</code> → gRPC API 식별 보조</td><td>보조</td><td>★</td></tr>
-    <tr><td><code>$upstream_addr</code></td><td>요청을 처리한 백엔드</td><td>API 를 백엔드 서비스 단위로 군집/오너십 부여(인벤토리 그룹핑)</td><td>보조</td><td>★</td></tr>
-    <tr><td><code>$request_length</code></td><td>요청 전체 길이</td><td>큰 본문 = 업로드/쓰기 API 보조 신호</td><td>보조</td><td>★</td></tr>
-    <tr><td><code>$request_body</code> <span class="pill pill-drop">비권장</span></td><td>요청 본문 원문</td><td>스키마 추론은 가능하나 <strong>PII/보안 위험</strong>으로 프로젝트 범위 밖. 추가하지 말 것</td><td>—</td><td>✕</td></tr>
+    <tr><td><code>$sent_http_content_type</code></td><td>응답 Content-Type</td><td>json/xml/grpc → API, text/html → 웹페이지, image·css·js → 정적. endpoint_kind 결정적 판정</td><td>7.2 · 7.3 · 6장</td><td><span class="pill pill-admit">소비</span> idx 24 · <code>endpoint_kind</code> 결정(별개 경로)</td></tr>
+    <tr><td><code>$content_type</code><br/>(=<code>$http_content_type</code>)</td><td>요청 본문 Content-Type</td><td>향후 web-form 억제(DROP_WEB_FORM) 정밀화용 — <strong>현재 판정에 미반영</strong></td><td>7.5 · 7.1(부분)</td><td><span class="pill pill-drop">예약</span> idx 25 · 로깅만·미소비(파서 인덱스 미부여)</td></tr>
+    <tr><td><code>$http_access_control_request_method</code></td><td>CORS preflight 요청 메서드(ACRM)</td><td>값이 있으면 <strong>확정적 preflight</strong> → 진짜 OPTIONS 와 구분(Unused 오판 제거)</td><td>7.5</td><td><span class="pill pill-admit">소비</span> idx 28 · 기구현(M3/D50, 기존 게이트)</td></tr>
+    <tr><td><code>$http_accept</code></td><td>요청 Accept 헤더</td><td>클라이언트가 <code>application/json</code> 기대 → API 호출 의도</td><td>7.3</td><td><span class="pill pill-admit">소비</span> idx 26 · <code>acceptJson</code>(가중치 0.20)</td></tr>
+    <tr><td><code>$http_x_requested_with</code></td><td>XHR 표식</td><td><code>XMLHttpRequest</code> → AJAX/SPA 의 API 호출 신호</td><td>7.3</td><td><span class="pill pill-admit">소비</span> idx 27 · <code>xRequestedWith</code>(0.28)</td></tr>
+    <tr><td><code>$http_origin</code></td><td>CORS Origin 헤더</td><td>cross-origin 호출 → API 컨텍스트(ACRM 보강)</td><td>7.5 · 7.3</td><td><span class="pill pill-admit">소비</span> idx 29 · <code>originHeader</code>(0.15)</td></tr>
+    <tr><td><code>$auth_scheme</code><br/>(<code>$http_authorization</code>에서 map 추출)</td><td>인증 스킴(bearer/basic 등) <strong>존재 여부만</strong></td><td>토큰 기반 인증 사용 → API 신호. ⚠️ 토큰 값은 절대 로깅 금지</td><td>7.1(부분)</td><td><span class="pill pill-admit">소비</span> idx 30 · <code>authScheme</code>(0.28)</td></tr>
+    <tr><td><code>$server_protocol</code></td><td>HTTP 버전</td><td>HTTP/2 + <code>application/grpc</code> → gRPC 식별 보조 — 응답 CT(grpc)로 이미 판정 가능해 추가 판별력 미미</td><td>—</td><td><span class="pill pill-drop">미채택</span> 판별력 미미(사용자 결정)</td></tr>
+    <tr><td><code>$upstream_addr</code></td><td>요청을 처리한 백엔드</td><td>백엔드 단위 군집(인벤토리 그룹핑 보조) — 판정 정확도엔 무관</td><td>—</td><td><span class="pill pill-drop">미채택</span> 판별력 미미(사용자 결정)</td></tr>
+    <tr><td><code>$request_length</code></td><td>요청 전체 길이</td><td>큰 본문 = 업로드/쓰기 API 보조 신호(약함)</td><td>—</td><td><span class="pill pill-drop">미채택</span> 범위 밖</td></tr>
+    <tr><td><code>$request_body</code> <span class="pill pill-drop">비권장</span></td><td>요청 본문 원문</td><td>스키마 추론은 가능하나 <strong>PII/보안 위험</strong>으로 프로젝트 범위 밖. 추가하지 말 것</td><td>—</td><td><span class="pill pill-drop">비권장</span> PII·보안 위험</td></tr>
   </tbody>
 </table>
 
-<h3 id="s8-2">8.2 endpoint_kind 판정이 어떻게 좋아지는가</h3>
+<h3 id="s8-2">8.2 왜 '스코어링 가중치'로 추가된 것은 4개뿐인가</h3>
+<p>활성화 시 소비되는 신호는 6개(sent_ct·accept·xhr·origin·auth·ACRM)이지만, <strong>새로 늘어난 스코어링 가중치(스칼라 신호)는 4개뿐</strong>이다(<code>acceptJson</code>·<code>xRequestedWith</code>·<code>originHeader</code>·<code>authScheme</code>). 나머지는 <em>가중치가 아닌 다른 경로</em>로 소비되기 때문이다.</p>
+
+<table>
+  <thead><tr><th>소비 신호</th><th>소비 경로</th><th>새 가중치?</th></tr></thead>
+  <tbody>
+    <tr><td><code>$sent_http_content_type</code></td><td><code>endpoint_kind</code> <strong>최우선 결정</strong>(§8.3) — 응답 CT 로 API/WEB_PAGE/STATIC 을 직접 분기. 기존 <code>responseTypeApi</code> 신호의 더 정확한 소스로도 기능한다.</td><td><span class="pill pill-drop">아니오</span> 스칼라 가중치가 아니라 kind 분기</td></tr>
+    <tr><td><code>$http_access_control_request_method</code></td><td><strong>기존 preflight 게이트</strong>(<code>corsPreflight</code> 신호는 이미 존재) — M3/D50 으로 이미 구현. 로그 필드·인덱스 설정만 하면 활성.</td><td><span class="pill pill-drop">아니오</span> 기존 신호·게이트 재사용</td></tr>
+    <tr><td><code>$http_accept</code> · <code>$http_x_requested_with</code> · <code>$http_origin</code> · <code>$auth_scheme</code></td><td><code>ApiScorer</code> 양성 가중치 신호(아래 표)</td><td><span class="pill pill-admit">예 — 4개</span></td></tr>
+    <tr><td><code>$content_type</code>(요청)</td><td><strong>미소비</strong>(예약) — 향후 web-form 정밀화용, 현재 판정에 미반영</td><td><span class="pill pill-drop">아니오</span></td></tr>
+    <tr><td><code>$server_protocol</code> · <code>$upstream_addr</code></td><td><strong>제외</strong> — 판별력 미미(사용자 결정). §8.1·§8.5 참조</td><td><span class="pill pill-drop">미채택</span></td></tr>
+  </tbody>
+</table>
+
+<p><strong>신규 4신호 가중치(양성 가산만)</strong> — 프로파일별. HIGH=엄격(낮음) &lt; MIDDLE(기본) &lt; LOW=느슨(높음). 점수 = 발화 신호 가중치 합, <code>score ≥ threshold</code>(MIDDLE 0.70) → API 후보.</p>
+<table>
+  <thead><tr><th>신호</th><th>발화 조건(다수결)</th><th>MIDDLE</th><th>HIGH</th><th>LOW</th><th>근거(a-priori)</th></tr></thead>
+  <tbody>
+    <tr><td><code>acceptJson</code></td><td><code>Accept</code> 에 <code>application/json</code> 또는 <code>+json</code> 포함(<code>*/*</code> 는 미발화)</td><td>0.20</td><td>0.15</td><td>0.28</td><td>클라이언트가 JSON 기대 = API 의도. 브라우저도 종종 섞어 보냄 → 중간(<code>responseTypeApi</code> 0.25 유사 티어)</td></tr>
+    <tr><td><code>xRequestedWith</code></td><td><code>X-Requested-With: XMLHttpRequest</code></td><td>0.28</td><td>0.22</td><td>0.34</td><td>명확한 AJAX/XHR = SPA API 호출(<code>corsPreflight</code> 0.30 급 강신호)</td></tr>
+    <tr><td><code>originHeader</code></td><td><code>Origin</code> 헤더 존재</td><td>0.15</td><td>0.10</td><td>0.20</td><td>cross-origin 맥락(API 보강)이나 폼 POST 에도 붙음 → 약~중</td></tr>
+    <tr><td><code>authScheme</code></td><td><code>Authorization</code> 스킴 존재(bearer/basic…)</td><td>0.28</td><td>0.22</td><td>0.34</td><td>토큰 인증 = 강한 API 신호(특히 bearer)</td></tr>
+  </tbody>
+</table>
+
+<div class="callout note">
+  <span class="ct">발화 조건 = 다수결 (<code>count*2 ≥ hits</code>)</span>
+  4신호 모두 <strong>클라이언트가 제어하는 요청 헤더</strong>다. "한 번이라도 보였으면 발화(presence&gt;0)"로 하면 스캐너/크롤러가 단발 요청 하나(<code>Accept: json</code>+XRW+Origin+Auth 동시 송신)만으로 임의 엔드포인트에 최대 <code>+0.91</code> 을 영구 발화시킬 수 있다(살포 위험). 그래서 <strong>해당 엔드포인트 트래픽의 과반(<code>count*2 ≥ hits</code>)</strong>일 때만 발화한다(<code>nonBrowserUa</code> 의 <code>sdkUaCount*2 ≥ hits</code> 선례). 단발 flip 이 차단되고 발화가 엔드포인트 지배 트래픽에 묶인다.
+</div>
+
+<div class="callout ok">
+  <span class="ct">양성 가산만 → 점수 경로 격하 0%</span>
+  4신호는 모두 <strong>기여 ≥ 0</strong>(발화 시 가산, 부재 시 0). 점수는 이 신호들에 대해 단조 비감소이므로, 이미 <code>score ≥ threshold</code> 인 현행 API 는 활성화 후에도 여전히 통과한다 — <strong>API→비-API 격하는 점수 경로에서 발생하지 않는다.</strong> 유일한 변화 방향은 경계 아래(&lt;0.70)의 <em>진짜 API 신호를 가진</em> 케이스가 상향(비-API→API)되는 것이다. 시뮬레이션(운영 PG 전수 재계산): 단일신호 최대 승격 상한 31,391건(전체 1.06%)이고 그 89.5%가 이미 API 구조 신호(host=api·<code>/api/</code>·graphql·version·cors)를 보유 = 정당한 교정(doc/40 §5.1). <span class="legend">(단, 응답 CT→kind 경로는 별개 — §8.3 참조.)</span>
+</div>
+
+<h3 id="s8-3">8.3 endpoint_kind 판정 개선과 오도 CT 완화 가드</h3>
 <p>현재(6장)는 nginx <code>$type</code> 에 의존해 API 값(xhr/fetch/…)이 거의 안 잡힌다. 응답 <code>Content-Type</code> 을 1순위 신호로 쓰면 판정이 결정적으로 바뀐다.</p>
 
 <div class="grid2">
@@ -1021,13 +1057,30 @@ flowchart TD
   B2 -- "application/json·xml·grpc" --> AC2["API_CANDIDATE (결정적)"]
   B2 -- "text/html" --> W2["WEB_PAGE"]
   B2 -- "image/·text/css·/javascript" --> S2["STATIC"]
-  B2 -- "없음" --> FB["기존 $type·경로 휴리스틱 폴백"]
+  B2 -- "없음·과반미달·미매핑" --> FB["기존 $type·경로 휴리스틱 폴백"]
     </div>
   </div>
 </div>
 
-<h3 id="s8-3">8.3 nginx log_format 예시 (기존 포맷에 항목 추가)</h3>
-<p>기존 <code>^|^</code> 구분자 포맷의 <strong>끝에 새 필드를 덧붙이면</strong> 기존 필드 위치가 보존되어 수집·파서 호환성을 유지한 채 점진 도입할 수 있다.</p>
+<p>단, 응답 CT 는 항상 신뢰할 수 있는 게 아니다 — 실제 API 가 에러·인증실패 시 <code>text/html</code> 에러페이지를 반환하거나, WAF 차단·nginx 기본 에러페이지·3xx redirect 본문이 <code>text/html</code> 로 찍힌다. 이런 <strong>오도 CT</strong> 로 진짜 API 가 WEB_PAGE/STATIC 으로 오분류(격하)되지 않도록 다음 <strong>완화 가드</strong>와 함께 소비한다(구현 반영).</p>
+
+<table>
+  <thead><tr><th>가드</th><th>동작</th><th>효과</th></tr></thead>
+  <tbody>
+    <tr><td><strong>2xx 응답만 누적</strong></td><td><code>Acc.add()</code> 에서 <code>status/100 == 2</code> 일 때만 CT 를 분포에 반영</td><td>에러·인증실패 html·3xx redirect CT 오염 원천 차단. <strong>401/403-only 엔드포인트는 CT 분포가 비어 자연 폴백</strong> → 실재성 필터(doc/19) 보존</td></tr>
+    <tr><td><strong>엄격 과반(&gt;0.5)</strong></td><td>dominant CT 비율이 과반 미만이면(<code>≤ 0.5</code>, <strong>50/50 tie 포함</strong>) CT 분기 skip → 폴백</td><td>혼합 CT(부분 오설정·오염) 시 비결정 분기 회피. tie 는 dominant 가 Map 반복순으로 임의 선택되므로 반드시 skip</td></tr>
+    <tr><td><strong>확장자 정적 veto 우선</strong></td><td>CT 분기 위치 = <code>isStaticPath</code>(확장자 veto) <em>다음</em>·<code>$type</code> 분기 <em>앞</em></td><td>CT 가 json 이어도 <code>.env</code>·<code>.pem</code> 등 정적 확장자면 STATIC 유지(D55/D56 시크릿 수확 오탐 차단 정책 보존)</td></tr>
+    <tr><td><strong>CT 정규화</strong></td><td><code>;charset=…</code> 등 파라미터 제거·소문자화·<code>+json</code>/<code>+xml</code> suffix 포함(<code>application/vnd.api+json</code> 등)</td><td>매칭 누락 방지. html 을 xml 보다 먼저 검사(<code>application/xhtml+xml</code> 오분류 회피)</td></tr>
+  </tbody>
+</table>
+
+<div class="callout note">
+  <span class="ct">CT→kind 는 격하 경로가 있다 — 활성 단계 실측 대상</span>
+  §8.2 의 "격하 0%"는 <strong>점수 신호(4종)에 한정</strong>된다. 응답 CT 를 kind 분기로 쓰면 격하 경로가 생긴다(예: API_CANDIDATE→WEB_PAGE 로 바뀌면 <code>responseTypeApi</code> 0.25 상실). 위 가드로 오도 CT 오탐은 막지만, 2xx 로 <code>text/html</code> 과반을 반환하는 진짜 API(HTML-fragment XHR 등)는 WEB_PAGE 재분류될 수 있다 — kind 관점에선 타당한 교정이고, 같은 로그 변경으로 켜지는 <code>xRequestedWith</code>(0.28)가 상실분을 상회 보상하는 경향이다(보장은 아님). CT 데이터가 아직 없어 사전 시뮬레이션이 불가하므로, <strong>활성 직후 전/후 스냅샷 diff 로 kind 재분류·격하를 실측</strong>한 뒤 확정한다(doc/40 §4.3·§8-5).
+</div>
+
+<h3 id="s8-4">8.4 nginx log_format 예시 (append 인덱스 24~30)</h3>
+<p>기존 <code>^|^</code> 구분자 포맷의 <strong>끝(인덱스 24부터)에 새 필드를 덧붙이면</strong> 기존 필드 위치(0~23)가 보존되어 수집·파서 호환성을 유지한 채 점진 도입할 수 있다. 아래 append 순서는 <code>ParseProperties</code> 인덱스와 정확히 정합한다 — <strong>순서가 곧 인덱스</strong>이므로 임의로 바꾸지 말 것. <code>$server_protocol</code>·<code>$upstream_addr</code> 은 <strong>미채택</strong>(§8.1)이라 넣지 않는다.</p>
 
 <pre><code># 1) Authorization 에서 '스킴'만 추출 — 토큰 값은 로그에 남기지 않는다(보안)
 map $http_authorization $auth_scheme {
@@ -1039,20 +1092,31 @@ map $http_authorization $auth_scheme {
 }
 
 log_format api_discovery
-    '... 기존 24개 필드 (client_ip ~ request_id) ...'
-    '^|^$sent_http_content_type'               # [추가] 응답 Content-Type   ← 최우선
-    '^|^$content_type'                         # [추가] 요청 본문 Content-Type
-    '^|^$http_accept'                          # [추가] 요청 Accept
-    '^|^$http_x_requested_with'                # [추가] XHR 여부
-    '^|^$http_access_control_request_method'   # [추가] CORS preflight 메서드(ACRM)
-    '^|^$http_origin'                          # [추가] CORS Origin
-    '^|^$auth_scheme'                          # [추가] 인증 스킴(토큰 제외)
-    '^|^$server_protocol'                      # [추가] HTTP 버전
-    '^|^$upstream_addr';                       # [추가] 처리 백엔드
+    '... 기존 24개 필드 0~23 (client_ip ~ request_id) ...'
+    '^|^$sent_http_content_type'               # [24] 응답 Content-Type      ← 최우선(endpoint_kind)
+    '^|^$content_type'                         # [25] 요청 본문 CT           (예약·미소비 — 슬롯 정렬용)
+    '^|^$http_accept'                          # [26] 요청 Accept            → acceptJson
+    '^|^$http_x_requested_with'                # [27] XHR 여부               → xRequestedWith
+    '^|^$http_access_control_request_method'   # [28] CORS preflight (ACRM)
+    '^|^$http_origin'                          # [29] CORS Origin            → originHeader
+    '^|^$auth_scheme';                         # [30] 인증 스킴(토큰 제외)   → authScheme
 
 access_log /var/log/nginx/access.log api_discovery;</code></pre>
 
-<p class="legend">위 변수는 모두 nginx 기본/표준 모듈이 제공한다. <code>$sent_http_<em>name</em></code> 은 임의 응답 헤더, <code>$http_<em>name</em></code> 은 임의 요청 헤더를 가리키며 헤더명의 <code>-</code> 는 <code>_</code> 로, 대문자는 소문자로 바뀐다(예: <code>Access-Control-Request-Method</code> → <code>$http_access_control_request_method</code>).</p>
+<p class="legend">위 변수는 모두 nginx 기본/표준 모듈이 제공한다. <code>$sent_http_<em>name</em></code> 은 임의 응답 헤더, <code>$http_<em>name</em></code> 은 임의 요청 헤더를 가리키며 헤더명의 <code>-</code> 는 <code>_</code> 로, 대문자는 소문자로 바뀐다(예: <code>Access-Control-Request-Method</code> → <code>$http_access_control_request_method</code>). <code>$content_type</code>(25)은 현재 소비하지 않지만, <strong>빼면 뒤 필드 인덱스가 한 칸씩 밀리므로</strong> 슬롯 정렬을 위해 그대로 둔다(파서는 25 에 인덱스를 부여하지 않아 무시).</p>
+
+<div class="callout note">
+  <span class="ct">활성화 — 코드 배포 후 별도 운영 단계</span>
+  위 <code>log_format</code> 을 적용해도, 판정기가 소비하려면 배포 설정(<code>adc.yaml</code> 또는 <code>application.yml</code>)의 <code>apidiscover.parse.*</code> 인덱스를 함께 세팅해야 한다. 미설정 = <code>-1</code> = DORMANT(무회귀).
+  <pre style="margin:8px 0 0;"><code>apidiscover:
+  parse:
+    response-content-type-field-index: 24   # $sent_http_content_type (★요청측 $content_type[25] 아님)
+    accept-field-index: 26                   # $http_accept → acceptJson
+    x-requested-with-field-index: 27         # $http_x_requested_with → xRequestedWith
+    acrm-field-index: 28                     # $http_access_control_request_method (ACRM)
+    origin-field-index: 29                   # $http_origin → originHeader
+    auth-scheme-field-index: 30              # $auth_scheme → authScheme</code></pre>
+</div>
 
 <div class="callout danger">
   <span class="ct">보안·프라이버시 주의</span>
@@ -1063,21 +1127,21 @@ access_log /var/log/nginx/access.log api_discovery;</code></pre>
   </ul>
 </div>
 
-<h3 id="s8-4">8.4 정리 — 한계별 권장 추가 항목</h3>
+<h3 id="s8-5">8.5 정리 — 한계별 권장 추가 항목</h3>
 <table>
-  <thead><tr><th>한계(7장)</th><th>추가하면 효과적인 nginx 항목</th></tr></thead>
+  <thead><tr><th>한계(7장)</th><th>추가하면 효과적인 nginx 항목</th><th>상태</th></tr></thead>
   <tbody>
-    <tr><td>7.2 <code>$type</code> API 신호 부재</td><td><code>$sent_http_content_type</code> (응답 타입으로 대체)</td></tr>
-    <tr><td>7.3 동일출처 www JSON API 분리</td><td><code>$sent_http_content_type</code> · <code>$http_accept</code> · <code>$http_x_requested_with</code></td></tr>
-    <tr><td>7.5 preflight vs 진짜 OPTIONS</td><td><code>$http_access_control_request_method</code> · <code>$http_origin</code></td></tr>
-    <tr><td>7.5 web-form(POST) 억제 정밀화</td><td><code>$content_type</code> (요청 본문 타입)</td></tr>
-    <tr><td>7.1 인증 방식 부재(부분)</td><td><code>$auth_scheme</code> (스킴만, 토큰 금지)</td></tr>
-    <tr><td>인벤토리 그룹핑(보조)</td><td><code>$upstream_addr</code> · <code>$server_protocol</code></td></tr>
+    <tr><td>7.2 <code>$type</code> API 신호 부재</td><td><code>$sent_http_content_type</code> (응답 타입으로 대체)</td><td><span class="pill pill-admit">소비</span></td></tr>
+    <tr><td>7.3 동일출처 www JSON API 분리</td><td><code>$sent_http_content_type</code> · <code>$http_accept</code> · <code>$http_x_requested_with</code></td><td><span class="pill pill-admit">소비</span></td></tr>
+    <tr><td>7.5 preflight vs 진짜 OPTIONS</td><td><code>$http_access_control_request_method</code> · <code>$http_origin</code></td><td><span class="pill pill-admit">소비</span></td></tr>
+    <tr><td>7.5 web-form(POST) 억제 정밀화</td><td><code>$content_type</code> (요청 본문 타입)</td><td><span class="pill pill-drop">예약</span> 미소비</td></tr>
+    <tr><td>7.1 인증 방식 부재(부분)</td><td><code>$auth_scheme</code> (스킴만, 토큰 금지)</td><td><span class="pill pill-admit">소비</span></td></tr>
+    <tr><td>인벤토리 그룹핑(보조)</td><td><code>$upstream_addr</code> · <code>$server_protocol</code></td><td><span class="pill pill-drop">미채택</span> 판별력 미미(§8.1)</td></tr>
   </tbody>
 </table>
 <p class="legend">스키마·파라미터 타입·PII(7.1 의 본질)와 deprecation/버전(Zombie 정밀화)은 access log 항목 추가로는 해결되지 않는다 — 이는 본문/문서 메타가 필요해 로그 범위 밖이다.</p>
 
-<h3 id="s8-5">8.5 그래도 남는 한계 — 본문(body) 미수집</h3>
+<h3 id="s8-6">8.6 그래도 남는 한계 — 본문(body) 미수집</h3>
 <p>8장의 항목들은 모두 <strong>헤더·메타데이터</strong>다. 즉 "이 호출이 API 인가"라는 <em>판정(분류)</em>은 크게 개선하지만, 요청/응답 <strong>본문(body)을 로그에 남기지 않는다</strong>는 근본 전제는 그대로다. 따라서 항목을 모두 추가하더라도 아래는 여전히 불가능하다.</p>
 
 <div class="callout danger">

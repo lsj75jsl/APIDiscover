@@ -48,7 +48,7 @@
   - [x] §6 소비처 — **완료(9a17350).** EndpointKindClassifier(4-arg classify·확장자 veto 우선·CT 분기 2xx dist·dominant<0.5 skip·빈 dist 폴백·html>xml 순서·+json/+xml suffix)·ApiScorer(4 양성 가중치·WEIGHT_KEYS 14→18·weightsAsMap·applyOverrides·프리셋 3종 §3값·발화=Acc 다수결 불리언)·ScoringWeightCatalog 4 설명.
   - [x] 테스트 — **완료(9a17350, 559 green·실 PG 36 포함).** 파서 nullable(부재 null·설정 인덱스 read)·CT 오도(4xx/3xx html 미오염·401/403-only dist 빈·dominant<0.5 폴백·정적 veto 우선·xhtml→WEB_PAGE·미매핑 폴백)·scorer 4 발화/부재0=무회귀/override/프리셋·Acc 다수결·effective weights 14→18·descriptions 16→20.
   - [ ] 활성 단계 검증 — nginx log_format+인덱스 세팅 후 **전/후 스냅샷 diff 로 kind 재분류·격하 실측**(CT kind-flip 은 사전 시뮬 불가, doc/40 §4.3 잔여 위험).
-  - [ ] 매뉴얼(TW) — api-discovery-manual §8.3 에서 server_protocol·upstream_addr 2줄 삭제·**§8.4 매핑 표 "인벤토리 그룹핑(보조)" 행 동일 처리**·§8.2 현행화·신규 신호 가중치표. **후속.**
+  - [x] 매뉴얼(TW) — **완료(2026-07-14).** api-discovery-manual §8 을 실제 구현 기준으로 재작성: §8 재프레이밍('제안'→'소비 구현 완료·활성 대기', 무회귀 콜아웃)·§8.1 표에 '소비/구현' 열(6신호 소비·server_protocol/upstream_addr **미채택**·content_type **예약**·인덱스 24~30)·**신규 §8.2 '왜 스코어링 가중치는 4개뿐인가'**(소비 경로표 + 4신호 가중치표[MIDDLE/HIGH/LOW] + 다수결 발화 + 양성가산 격하0)·§8.3 endpoint_kind + **오도 CT 완화 가드표(§4.3: 2xx누적·과반>0.5·확장자veto우선·CT정규화)**·§8.4 log_format(server_protocol/upstream_addr 2줄 삭제·인덱스 24~30 주석·application.yml 설정키)·§8.5 매핑표(server_protocol/upstream_addr·content_type 행 정합). 기존 8.2~8.5→8.3~8.6 재번호(TOC·교차참조 무영향 확인). doc/40 §8-2 '559→560 tests' nit 정정. HTML 태그 균형·앵커 검증. **잔여 = 활성 단계 검증(운영자)만.**
 
 #### 리포트/출력 (01/12/14 문서)
 > (low_confidence+warnings·Active/Zombie params·total_dropped·API 판단근거 노출 완료, Done 참조)
