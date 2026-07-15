@@ -91,7 +91,8 @@ D67 원칙대로 기본값 승격(재배포 필요, baked defaults).
 
 ### 4.2 B — 유령 도메인 대량 하드 삭제 (즉효, 승인 후 ops)
 
-**방식 = `DELETE` 하드 삭제 (사용자 결정). 백업 테이블 선행 필수.**
+**방식 = `DELETE` 하드 삭제 (사용자 결정).** 설계 초안은 백업 테이블 선행을 권했으나, **최종 실행(2026-07-15)은
+사용자 결정으로 백업 없이** 진행했다(백업 미생성) — 복구는 자기치유뿐. 대신 dry-run 프리뷰·pre/post-guard 로 방어(§7).
 
 > 초안은 soft(`enabled=false`)를 권했으나 — 그 명분(재유입 sticky 차단)이 **C 도입으로 대체**되어
 > 사용자가 hard DELETE 를 확정했다. 아래 근거·트레이드오프. (결정 기록: DECISIONS D81.)
@@ -207,58 +208,34 @@ never-decrease 의미와 일치(NULL→값)·멱등. 아울러 **B 정리 기준
 | 470 의미 사이트 종속 | 낮 | 설정 노출(probe-statuses), 기본 [404,470] |
 | NEW-PAJ 외 신규 캐치올 엣지 등장 | 낮 | C 가 엣지 무관 근본 억제 — 엣지 제외는 지시 시 추가 |
 
-## 7. ops runbook 스케치 (승인 후 dev 가 스크립트화)
+## 7. ops runbook — 실행 완료(2026-07-15) 절차
 
-```sql
--- 0) 백업 (D62 선례) — 기준 충족 시점 스냅샷 + 버킷 라벨
-CREATE TABLE d8x_bak_domain_config AS
-SELECT dc.*, now() AS bak_at, 'ghost' AS bucket
-FROM domain_config dc
-WHERE dc.enabled
-  AND dc.last_scan_attempt_at IS NOT NULL
-  AND dc.discovered_at <= now() - interval '7 days'
-  AND NOT EXISTS (SELECT 1 FROM discovered_endpoint de WHERE de.host = dc.host)
-  AND NOT EXISTS (SELECT 1 FROM spec_record sr WHERE sr.host = dc.host)
-  AND NOT EXISTS (SELECT 1 FROM documented_api da WHERE da.host = dc.host)
-  AND NOT EXISTS (SELECT 1 FROM domain_classification_config dcc WHERE dcc.host = dc.host)  -- (d) 분류정책=운영자 흔적(QA P2)
-  AND dc.interval_override IS NULL AND dc.base_path_strip IS NULL;
+> **실행 권위본 = `sample/ghost_domain_cleanup.sql`**(dry-run 프리뷰·앱 정지 래퍼·세션 temp 삭제셋·pre/post-guard 포함).
+> 아래는 실제 실행 절차 요약. **★사용자 최종 결정: 백업 없이 실행**(백업 테이블 미생성) — 복구는 자기치유(C+실 트래픽 재등록)뿐.
 
-INSERT INTO d8x_bak_domain_config          -- 제외엣지 전용 버킷(B-2)
-SELECT dc.*, now(), 'excluded-only'
-FROM domain_config dc
-WHERE dc.enabled AND dc.host NOT IN (SELECT host FROM d8x_bak_domain_config)
-  AND dc.interval_override IS NULL AND dc.base_path_strip IS NULL                          -- (d) 사용자 흔적
-  AND NOT EXISTS (SELECT 1 FROM spec_record sr WHERE sr.host = dc.host)                     -- (d)
-  AND NOT EXISTS (SELECT 1 FROM documented_api da WHERE da.host = dc.host)                  -- (d)
-  AND NOT EXISTS (SELECT 1 FROM domain_classification_config dcc WHERE dcc.host = dc.host)  -- (d) 분류정책=운영자 흔적(QA P2)
-  AND EXISTS (SELECT 1 FROM domain_hostnames dh WHERE dh.host = dc.host)                    -- hostnames 존재
-  AND NOT EXISTS (SELECT 1 FROM domain_hostnames dh WHERE dh.host = dc.host
-                  AND NOT (dh.hostname LIKE 'P%' OR dh.hostname LIKE 'NEW-PAJ%'
-                           OR dh.hostname IN (/* AAJ 23종 */)));
+**★데드락 회피(실측 교훈)**: 1차 시도(앱 가동 중 원자 DELETE)는 discovery/scan 의 `domain_config`·`watermark` 동시 쓰기와
+**데드락** → 트랜잭션 통째 롤백(무손실·미완). ∴ 삭제 전 `adc-app` 컨테이너를 잠깐 멈춰 경합을 제거한다(`adc-db` 유지,
+다운타임 ~2분 — 백그라운드 워커라 서빙 무영향, 재기동 시 워터마크에서 이어감).
 
-CREATE TABLE d8x_bak_domain_hostnames AS   -- B-2 매핑 백업
-SELECT dh.* FROM domain_hostnames dh
-WHERE dh.host IN (SELECT host FROM d8x_bak_domain_config WHERE bucket = 'excluded-only');
+**실행 순서**(shell + SQL):
+1. **dry-run 프리뷰**(읽기전용): 삭제셋을 세션 temp `del_hosts` 에 빌드 → 버킷별·테이블별 삭제 예정 건수 + `unsafe=0` 육안 확인.
+2. `podman stop -t 30 adc-app`(`adc-db` 유지) — discovery/scan 경합 제거(데드락 회피).
+3. **원자 트랜잭션**(psql): `del_hosts` 재빌드 → PRE-GUARD(예상 밴드 이탈 시 `RAISE`→롤백) → `BEGIN;`
+   DELETE FK 순서(`domain_hostnames→watermark→scan_result→discovered_endpoint→domain_config`) → D 백필(§4.5) →
+   POST-GUARD(`orphan=0`·enabled 밴드) → 사후 검증 → `COMMIT;`.
+4. `podman start adc-app` → `/actuator/health` UP 확인.
 
--- 1) 카운트 검증(예상: ghost ~28.7k, excluded-only ~2.6k) → 승인값과 대조 후 진행
--- 2) ★하드 DELETE — FK 순서: 자식(domain_hostnames) → 부수(watermark/scan_result/discovered_endpoint) → 부모(domain_config)
-DELETE FROM domain_hostnames    WHERE host IN (SELECT host FROM d8x_bak_domain_config);  -- FK 자식 먼저(필수)
-DELETE FROM watermark           WHERE host IN (SELECT host FROM d8x_bak_domain_config);  -- FK 없음, 정합 purge
-DELETE FROM scan_result         WHERE host IN (SELECT host FROM d8x_bak_domain_config);
-DELETE FROM discovered_endpoint WHERE host IN (SELECT host FROM d8x_bak_domain_config);  -- ghost=0행
-DELETE FROM domain_config       WHERE host IN (SELECT host FROM d8x_bak_domain_config);  -- 부모 마지막(필수)
--- 3) D 백필 (§4.5 SQL)
--- 4) 사후 검증: due 재산출·domain_config 카운트·워터마크 밀림추이·orphan hostnames 0
--- 5) 자기치유 확인(오분류): 삭제 후 재등록된 도메인 = C 배포 후 신뢰 트래픽 재관측(정상 신호)
-SELECT dc.host, dc.discovered_at FROM domain_config dc
-JOIN d8x_bak_domain_config b USING (host)
-WHERE dc.discovered_at > b.bak_at;
--- 전체 롤백: 백업에서 재INSERT — domain_config(부모) 먼저 → domain_hostnames(자식).
-```
+**백업 없는 삭제 안전장치**(가역성 없으므로 사전·자동 방어로 대체): (i) dry-run 프리뷰 육안 확인,
+(ii) 세션 temp `del_hosts` 로 삭제셋 1회 고정(양 버킷·전 테이블 동일 집합 — 삭제 중 술어 재평가 드리프트 차단),
+(iii) PRE/POST-GUARD 가 예상 밴드 이탈·`orphan≠0` 시 `RAISE EXCEPTION`→롤백, (iv) 단일 원자 트랜잭션.
 
-주의: 운영 PG 직접 작업 — 앱 가동 중 단순 DELETE 는 due 선택과 경합하지 않아 다운타임 불요
-(스케줄러는 다음 틱부터 반영). ★이 §7 은 스케치이고 **실행 권위본은 `sample/ghost_domain_cleanup.sql`**
-(백업 `ghost_cleanup_bak_*`·원자 트랜잭션·롤백 포함, §3 (d) 전 술어). 방식 결정 근거 = DECISIONS D81.
+**복구(오분류)**: 백업 없음 → 재적재 불가. C 로 프로브 재유입이 막힌 상태에서 삭제 도메인에 실 트래픽이 오면 discovery 가
+재등록(자기치유). 확인: `SELECT host, discovered_at FROM domain_config WHERE discovered_at > '<삭제시각>'`.
+(`discovered_at` 리셋 = 수용된 트레이드오프, DECISIONS D81.)
+
+**실행 결과(2026-07-15)**: ghost 29,361 + excluded-only 2,624 = **31,985 도메인 삭제**
+(연계: `domain_hostnames` 41,294·`watermark` 31,985·`scan_result` 31,236·`discovered_endpoint` 25,867). D 백필 2,240건.
+사후: enabled 67,347→**35,362**·due 53,256→**20,401**·near-now 7.1%→**8.8%**.
 
 ## 8. 도출 dev 항목 (TASKS 반영은 매니저 — D71: 본 문서는 설계·근거만 보유)
 
