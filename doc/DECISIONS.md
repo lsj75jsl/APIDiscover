@@ -695,11 +695,11 @@ gap-free 크롤은 활성 수요(~22.6k 윈도우/h) vs 예산 용량(D65 후 ~7
 - **A(즉효)**: `NEW-PAJ*` 엣지 제외(설정 1행, EdgeExclusions 접두 매처). **C(근본)**: discovery 등록 status 신뢰 필터 — 404(미존재 vhost)·470(WAAP 차단)만 관측된 Host 는 등록·lastSeen 갱신 배제(`discovery.probe-statuses`, 기본 [404,470], 빈=무회귀). 서버측 LogQL 라벨 필터(광역 |= 아님·부하 안전).
 - **B/B-2/D(파괴적 정리) 방식 = hard DELETE 채택(사용자 결정)** — soft(enabled=false) 아님.
   - 근거: `DomainUpserter` 는 재관측 시 재-INSERT(enabled=true 기본) 하므로 원래 soft 가 재유입 sticky 차단 명분이었으나, **C 가 프로브 재유입을 원천 차단**하면 재등록되는 것은 실 트래픽뿐 = **자기치유**. 즉 C 도입으로 soft 의 명분이 대체됨. 사용자는 완전 정리(행 제거) 선호.
-  - **트레이드오프(명시)**: hard DELETE 는 재트래픽으로 재등록 시 `discovered_at`/firstSeen **리셋 = 이력 손실**(7일 지속성 기준 재누적). soft 는 이력 보존이나 재활성 수동. → **백업 테이블로 가역성 확보**(롤백=재INSERT, `sample/ghost_domain_cleanup.sql`).
+  - **트레이드오프(명시)**: hard DELETE 는 재트래픽으로 재등록 시 `discovered_at`/firstSeen **리셋 = 이력 손실**(7일 지속성 기준 재누적). soft 는 이력 보존이나 재활성 수동. → ★**실행은 백업 없이(2026-07-15, 사용자 최종 결정)** — 안전기준 통과분(unsafe 0)은 오탐도 자기치유(C 차단+실트래픽 재등록)로 복구되고 백업 유지비용을 회피. 무백업 안전장치=dry-run 프리뷰·세션 temp 삭제셋 고정·pre/post-guard(예상 밴드 이탈·orphan≠0 시 롤백)·단일 원자 트랜잭션(`sample/ghost_domain_cleanup.sql`).
 - **안전기준(§3, 'endpoint 0' 단독 판정 금지)**: (a)스캔이력 + (b)7일 지속 + (d)사용자/운영자 흔적 없음(`interval_override`·`base_path_strip`·`spec_record`·`documented_api`·**`domain_classification_config`**) + endpoint 0(ghost) / hostnames 전부 제외엣지(excluded-only).
 - **FK 실측**(운영 PG information_schema): 앱 FK 는 `domain_hostnames.host→domain_config.host` 단 1개 → 삭제 순서 자식(domain_hostnames) 먼저 → 부모(domain_config) 마지막. watermark/scan_result/discovered_endpoint 는 FK 없음(정합 purge).
 - **D48-F 경계**: "삭제·비활성 없음"은 **자동 스케줄러 정책** 결정 — 이번은 **운영자 승인 1회 정리**라 상충 아님.
-- **실행 순서**: A+C(PR #76) 리뷰·머지·재배포 → 1~2일 관찰 → **사용자 승인 하** runbook 실행.
+- **실행 순서·결과**: A+C(PR #76)·재배포(`a171edf`) → 관찰(C 효과: 신규 유령 유입 1,270→41/일 **−97%**) → **사용자 승인 하 실행 완료(2026-07-15)**. ★앱 가동 중 대량 멀티테이블 DELETE 가 discovery/scan 의 domain_config·watermark 쓰기와 **데드락** → adc-app 잠깐 stop(≈2분·백그라운드 워커 무영향) 후 무경합 원자 삭제(runbook 절차 반영). **결과: 31,985 삭제(ghost 29,361+excluded-only 2,624)·due 53.3k→20.3k(−62%)·near-now 7.1%→9.0%·orphan 0(FK 정합)**.
 
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
