@@ -216,6 +216,7 @@ curl -X PUT http://&lt;host&gt;:8080/api/v1/domains/api.weble.net \
 # 삭제
 curl -X DELETE http://&lt;host&gt;:8080/api/v1/domains/api.weble.net   # → 204</code></pre>
   <p class="legend">미전달 규칙: <code>enabled</code> 미전달=유지(명시 <code>false</code> 만 비활성), <code>hostnames</code> 미전달=유지·<code>[]</code>=비우기(명시 빈 배열), <code>intervalOverride</code>·<code>specMergeStrategy</code>·<code>basePathStrip</code> 미전달=유지. 응답은 수정된 <code>DomainView</code>.</p>
+  <div class="callout warn"><span class="ct">★ enabled ≠ 스캔 (D82)</span><code>enabled</code> 는 <code>activity_status</code>(무접속 시 자동 강등되는 활동 게이트)와 <strong>별개 축</strong>이다. 주기 스캔 대상 = <code>enabled=true</code> <strong>AND</strong> <code>activity_status='ACTIVE'</code> — <code>enabled</code> 를 켜도 무접속으로 <code>INACTIVE</code> 상태면 스캔되지 않는다. 즉시 스캔·주기 재포함은 <a href="#s2-2">§2.2 <code>/scan-now</code></a> 또는 트래픽 재개(다음 discovery 가 ACTIVE 로 승격). 두 상태의 차이·DB 확인·시나리오는 <a href="domain-status-ops-manual.html">도메인 상태 운영 매뉴얼</a> 참조.</div>
 </div>
 
 <!-- ===== 2.2 ===== -->
