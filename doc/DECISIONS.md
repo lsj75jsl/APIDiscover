@@ -710,7 +710,7 @@ gap-free 크롤은 활성 수요(~22.6k 윈도우/h) vs 예산 용량(D65 후 ~7
   - ② **임계 = 기본 P7D·설정 override**(사용자 확정 2026-07-20). `scan.inactive-after` 이미 설정화 → 기본값 1행 + 운영자 조정 가능. 스캔량↑ 트레이드오프는 Loki 예산 관찰.
   - ③ **status 표현 = 안 B 영속 enum**(사용자 확정 2026-07-20). `domain_config.activity_status`(ACTIVE/INACTIVE·기본 ACTIVE·인덱스) + `activity_status_changed_at`(전이 이력/중앙연동). ★`enabled`(사용자 수동·자동토글 금지 doc/30 §5) 과 별도 축, **"활성만 스캔"=enabled AND activity_status=ACTIVE**. 단일 진실원: lastSeenAt(입력)→sweep→activity_status(결정)→scan. 전이 3경로: (i) discovery 틱 종료 sweep 이 lastSeenAt<cutoff→INACTIVE, (ii) `DomainUpserter.upsert` 실요청 재관측→ACTIVE, (iii) 수동 스캔→ACTIVE(③). 진동은 C(probe필터)+경로제외로 실요청만 관측 + 7일 창 히스테리시스로 차단. findDue* 3쿼리의 lastSeenAt staleCutoff 술어를 `activity_status='ACTIVE'` 로 교체.
 - **재활성**: (②) 요청 재개→upsert 가 lastSeenAt+ACTIVE flip→다음 틱 재포함. (③ 확정) **수동 스캔(scan-now/scan)은 즉시 스캔 + activity_status=ACTIVE flip 으로 주기 스캔 대상 승격** — 이후 7일 무요청 시 sweep 이 다시 INACTIVE.
-- 상태: **설계 확정(architect+사용자), 구현 전** — doc/43 §5 체크리스트로 스프린트 진행. uri 필터 실 표기/Loki 부하 사전 실측(§7) 선행.
+- **구현·배포 완료(2026-07-20, main `5bced89`, 이미지 `4d876686b814` .197 배포·health UP·롤백 `prev-d82`=a171edf)**. 566 테스트 green(실 PG 포함). ★uri 필터 구현 함정: 이중따옴표 LogQL 문자열은 `\.` 이스케이프 규칙 위반→Loki **400** → **백틱 raw 문자열**로 확정(운영 2분창 status=200 실검증). ★마이그레이션: `columnDefinition default 'ACTIVE'`(D79 boolean 패턴)로 ddl-auto ADD 시 기존 57,566행 ACTIVE(안 그러면 NULL≠ACTIVE 로 스캔 전면 중단). 배포 후 첫 discovery: vector=16,986·Loki 에러 0·**deactivated=37,190**(초기 all-ACTIVE→무접속 7일+ 강등 수렴)·scannable(enabled&ACTIVE)=**20,377**(P3D 시절 selectable ~8.9k 대비 P7D 확대). 잔여=사후 관찰(1~2일).
 
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.

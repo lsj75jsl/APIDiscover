@@ -17,12 +17,14 @@
 
 ### 결과
 - 결론: 기능 대부분은 기존 lastSeenAt 게이트가 이미 수행. 실 갭 = ① `.cloudbric` 경로 제외(필수·discovery LogQL uri 라벨필터) ② 임계 P3D→P7D ③ status. 재활성은 이미 동작.
-- **사용자 확정(2026-07-20, D82)**: ① 임계 기본 **P7D**·설정 override ② status = **안B 영속 enum**(`activity_status`+`changed_at`, 단일진실원 lastSeenAt→sweep→status→scan, 전이 3경로) ③ **수동 스캔은 주기 스캔 대상으로 승격**(ACTIVE flip). doc/43·D82·TASKS 확정 반영.
-- 코드 변경 없음(조사·설계만). 구현 전.
+- **사용자 확정(2026-07-20, D82)**: ① 임계 기본 **P7D**·설정 override ② status = **안B 영속 enum**(`activity_status`+`changed_at`, 단일진실원 lastSeenAt→sweep→status→scan, 전이 3경로) ③ **수동 스캔은 주기 스캔 대상으로 승격**(ACTIVE flip).
+- **구현·배포 완료** — main `5bced89`(docs `fae1604`), 이미지 `4d876686b814` .197 배포·health UP·롤백 `prev-d82`. 566 테스트 green(실 PG 포함).
+  - ★uri 필터 함정: 이중따옴표 LogQL 문자열의 `\.` 이스케이프 위반→Loki **400** → **백틱 raw** 로 확정(운영 2분창 status=200 실검증, 배포 전 잡음).
+  - ★마이그레이션: `columnDefinition default 'ACTIVE'` 로 ddl-auto ADD 시 기존 57,566행 ACTIVE(NULL 방지=스캔 중단 회피). 첫 discovery: vector=16,986·Loki 에러 0·**deactivated=37,190**·scannable(enabled&ACTIVE)=**20,377**.
+  - ★기동 시 DB-not-ready 레이스로 1회 실패→wait-for-db 재시도로 정상 기동(설계대로, 무관).
 
 ### 다음 단계
-- 스프린트 구현(doc/43 §5 체크리스트, 안B): 경로제외 → P7D → activity_status 컬럼/전이 sweep·flip → 스캔 술어 교체 → 테스트.
-- 선행: uri 필터 실 표기 확인 + Loki 부하 사전 실측(짧은 창·hostname 스코프).
+- 사후 관찰(1~2일): sweep/재활성 안정성, scannable 20,377 추이, `.cloudbric`-only 도메인 INACTIVE 전환 확인.
 
 ---
 
