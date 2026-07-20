@@ -5,6 +5,27 @@
 
 ---
 
+## 2026-07-20 세션 — 스캔 상태 점검 + 무접속 도메인 상태 관리 원인규명·설계(doc/43)
+
+### 한 일
+- 테스트 VM(.197) 스캔/워터마크 실측 점검(read-only). 앱 UP·정상 스캔 중(최신 워터마크 2분 전).
+- **원인 규명 3가설 분리**: 워터마크 롱테일 발산은 window 상한(attempted-but-lagging 0)도, 라운드로빈 기아(selectable 미시도 0)도 아닌 **inactive-after=P3D 게이트 스킵**(굶는 enabled 8,201=100% lastSeenAt>3d). 라이브 트래픽엔 발산 없음.
+- **7일 미스캔 도메인 29,082** = enabled 8,201(게이트분) + disabled 20,881(07-02 유령잔존).
+- ★함정 교정: 전체 워터마크 기준 신선도는 disabled 20.8k(07-02 고착·enabled 6개뿐)에 오염 → **신선도는 반드시 `enabled` 조인**으로 봐야(메모리 기록).
+- 사용자 요구(7일 무요청 비활성·`.cloudbric/pron|afc` 경로 제외·수동스캔/재요청 재활성·DB status) **정책 부합 검토** → 코드 추적(ScanSelector·DomainConfigRepository·DomainDiscoveryService·DomainUpserter·LogLineParser).
+- **설계문서 doc/43 작성** + TASKS(P3 부모+subitem)·DECISIONS D82·본 로그 갱신.
+
+### 결과
+- 결론: 기능 대부분은 기존 lastSeenAt 게이트가 이미 수행. 실 갭 = ① `.cloudbric` 경로 제외(필수·discovery LogQL uri 라벨필터) ② 임계 P3D→P7D ③ status. 재활성은 이미 동작.
+- **사용자 확정(2026-07-20, D82)**: ① 임계 기본 **P7D**·설정 override ② status = **안B 영속 enum**(`activity_status`+`changed_at`, 단일진실원 lastSeenAt→sweep→status→scan, 전이 3경로) ③ **수동 스캔은 주기 스캔 대상으로 승격**(ACTIVE flip). doc/43·D82·TASKS 확정 반영.
+- 코드 변경 없음(조사·설계만). 구현 전.
+
+### 다음 단계
+- 스프린트 구현(doc/43 §5 체크리스트, 안B): 경로제외 → P7D → activity_status 컬럼/전이 sweep·flip → 스캔 술어 교체 → 테스트.
+- 선행: uri 필터 실 표기 확인 + Loki 부하 사전 실측(짧은 창·hostname 스코프).
+
+---
+
 ## 2026-07-14 세션 종합 (인계) — 8.3 로그변수 소비 완결 + 스캔 due/워터마크 발산 대응
 
 > 이번 세션(2026-07-14) 두 축의 인계용 롤업. 축별·에이전트별 상세는 아래 세션 77/78 항목 참조.

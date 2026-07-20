@@ -701,6 +701,17 @@ gap-free 크롤은 활성 수요(~22.6k 윈도우/h) vs 예산 용량(D65 후 ~7
 - **D48-F 경계**: "삭제·비활성 없음"은 **자동 스케줄러 정책** 결정 — 이번은 **운영자 승인 1회 정리**라 상충 아님.
 - **실행 순서·결과**: A+C(PR #76)·재배포(`a171edf`) → 관찰(C 효과: 신규 유령 유입 1,270→41/일 **−97%**) → **사용자 승인 하 실행 완료(2026-07-15)**. ★앱 가동 중 대량 멀티테이블 DELETE 가 discovery/scan 의 domain_config·watermark 쓰기와 **데드락** → adc-app 잠깐 stop(≈2분·백그라운드 워커 무영향) 후 무경합 원자 삭제(runbook 절차 반영). **결과: 31,985 삭제(ghost 29,361+excluded-only 2,624)·due 53.3k→20.3k(−62%)·near-now 7.1%→9.0%·orphan 0(FK 정합)**.
 
+### D82. 무접속 도메인 상태 관리 — 원인 규명 + 7일 무요청 비활성 정책 (2026-07-20, 설계 doc/43, 구현 전)
+- **원인 규명(실측 2026-07-20)**: 워터마크 롱테일 발산은 **window 상한도 라운드로빈 기아도 아니다**. 최근 시도(≤24h)됐는데 watermark 뒤처진(>3d) 도메인 **0**(window 상한 아님), selectable(lastSeenAt≤3d) 중 24h+ 미시도 **0**(기아 아님·throughput 650/PT1M 충분). 굶는 enabled 8,201개 = **100% lastSeenAt>3d 로 inactive-after=P3D 게이트에 스킵**된 무접속분. 즉 라이브 트래픽엔 발산 없음, 롱테일은 무접속 도메인이 enabled 인 채 워터마크 얼어붙은 **정상 동작(D59)의 누적 착시**.
+- **7일 미스캔 도메인 29,082** = enabled 8,201(게이트분·enabled 유지) + disabled 20,881(07-02 유령잔존, doc/42 삭제 별개).
+- **요구(사용자)**: ① 7일 무요청→비활성, 단 `.cloudbric/pron/`·`.cloudbric/afc/` 요청은 실요청에서 제외 ② 비활성이라도 수동 API 스캔·요청 재개 시 그때부터 활성 ③ DB 가 status 보유·규칙대로 변경·활성만 스캔.
+- **설계 결론(doc/43)**: 기능 대부분은 기존 lastSeenAt 게이트가 이미 수행 → 실 갭 3가지.
+  - ① **경로 제외(필수)**: discovery `buildLogQL` 에 uri 라벨필터(`\| uri !~`) 추가(pattern 인덱스8=`<uri>`, status 필터와 동일 안전패턴·광역 |= 아님). 두 경로만 받는 도메인은 관측 0→lastSeenAt 정체→게이트 자연 제외(신규 등록도 억제=doc/42 C 와 결).
+  - ② **임계 = 기본 P7D·설정 override**(사용자 확정 2026-07-20). `scan.inactive-after` 이미 설정화 → 기본값 1행 + 운영자 조정 가능. 스캔량↑ 트레이드오프는 Loki 예산 관찰.
+  - ③ **status 표현 = 안 B 영속 enum**(사용자 확정 2026-07-20). `domain_config.activity_status`(ACTIVE/INACTIVE·기본 ACTIVE·인덱스) + `activity_status_changed_at`(전이 이력/중앙연동). ★`enabled`(사용자 수동·자동토글 금지 doc/30 §5) 과 별도 축, **"활성만 스캔"=enabled AND activity_status=ACTIVE**. 단일 진실원: lastSeenAt(입력)→sweep→activity_status(결정)→scan. 전이 3경로: (i) discovery 틱 종료 sweep 이 lastSeenAt<cutoff→INACTIVE, (ii) `DomainUpserter.upsert` 실요청 재관측→ACTIVE, (iii) 수동 스캔→ACTIVE(③). 진동은 C(probe필터)+경로제외로 실요청만 관측 + 7일 창 히스테리시스로 차단. findDue* 3쿼리의 lastSeenAt staleCutoff 술어를 `activity_status='ACTIVE'` 로 교체.
+- **재활성**: (②) 요청 재개→upsert 가 lastSeenAt+ACTIVE flip→다음 틱 재포함. (③ 확정) **수동 스캔(scan-now/scan)은 즉시 스캔 + activity_status=ACTIVE flip 으로 주기 스캔 대상 승격** — 이후 7일 무요청 시 sweep 이 다시 INACTIVE.
+- 상태: **설계 확정(architect+사용자), 구현 전** — doc/43 §5 체크리스트로 스프린트 진행. uri 필터 실 표기/Loki 부하 사전 실측(§7) 선행.
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.
