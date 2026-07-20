@@ -1,6 +1,7 @@
 // 도메인 1건 무삭제 업서트 — managed 엔티티 단일 트랜잭션 (설정 lost-update 방지의 필수 조건, doc/30 §5 P3-1)
 package com.pentasecurity.apidiscover.batch;
 
+import com.pentasecurity.apidiscover.domain.ActivityStatus;
 import com.pentasecurity.apidiscover.domain.DomainConfig;
 import com.pentasecurity.apidiscover.domain.DomainConfigRepository;
 import java.time.Instant;
@@ -37,10 +38,11 @@ public class DomainUpserter {
         DomainConfig existing = repo.findById(domain).orElse(null);
         if (existing == null) {
             DomainConfig fresh = new DomainConfig();
-            fresh.setHost(domain);                                  // enabled·specMergeStrategy 는 필드 기본값(true·MERGE)
+            fresh.setHost(domain);                                  // enabled·specMergeStrategy·activityStatus 필드 기본값(true·MERGE·ACTIVE)
             fresh.setHostnames(new ArrayList<>(new TreeSet<>(discoveredHostnames)));
             fresh.setDiscoveredAt(now);
             fresh.setLastSeenAt(now);
+            fresh.setActivityStatusChangedAt(now);                  // D82: 신규=ACTIVE 시작(전이 시각 기록)
             repo.save(fresh);
             return true;
         }
@@ -59,6 +61,11 @@ public class DomainUpserter {
             hostnames.addAll(merged);
         }
         existing.setLastSeenAt(now);
+        // D82(doc/43 §4.3): 실요청 재관측 = INACTIVE→ACTIVE 복귀(전이 시각 기록). 이미 ACTIVE 면 미터치(비-dirty, changed_at 보존).
+        if (existing.getActivityStatus() != ActivityStatus.ACTIVE) {
+            existing.setActivityStatus(ActivityStatus.ACTIVE);
+            existing.setActivityStatusChangedAt(now);
+        }
         return false;
     }
 }

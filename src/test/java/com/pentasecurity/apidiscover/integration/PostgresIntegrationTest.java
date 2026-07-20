@@ -16,6 +16,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.pentasecurity.apidiscover.batch.DiscoveryJobService;
 import com.pentasecurity.apidiscover.classify.EffectiveClassificationResolver;
+import com.pentasecurity.apidiscover.domain.ActivityStatus;
 import com.pentasecurity.apidiscover.domain.ClassificationConfig;
 import com.pentasecurity.apidiscover.domain.ClassificationConfigRepository;
 import com.pentasecurity.apidiscover.domain.DiscoveredEndpointRecord;
@@ -807,34 +808,53 @@ class PostgresIntegrationTest {
         domainRepo.save(due("dated3.example.com", now.minus(Duration.ofHours(3)))); // 가장 오래
         domainRepo.save(due("never.example.com", null));                            // null=즉시 due
 
-        List<DomainConfig> top2 = domainRepo.findDueForScan(now, Instant.EPOCH, PageRequest.of(0, 2)); // K=2 (EPOCH=무접속 필터 미적용)
+        List<DomainConfig> top2 = domainRepo.findDueForScan(now, PageRequest.of(0, 2)); // K=2
 
         assertThat(top2).hasSize(2);
         assertThat(top2.get(0).getHost()).as("nulls first — 신규 미스캔이 맨 앞").isEqualTo("never.example.com");
         assertThat(top2.get(1).getHost()).as("그다음 가장 오래된 dated").isEqualTo("dated3.example.com");
     }
 
-    // --- ★무접속 중단(요구): inactive-after 보다 마지막 접속이 오래된 도메인 제외 (실 PG) ---
+    // --- ★무접속 중단(D82): activity_status 게이트 + sweep/markActive 전이 (실 PG) ---
 
     @Test
-    void findDueForScanExcludesStaleLastSeenOnRealPg() {
-        // staleCutoff=now−inactive-after 보다 lastSeenAt 이 과거면 제외. null lastSeenAt(미관측)은 포함.
-        // ★실 PG 가드: nullable :staleCutoff 바인딩(untyped-null) + null lastSeenAt 포함이 PG 에서 동작하는지(H2 가 가릴 수 있음).
+    void findDueForScanExcludesInactiveStatusOnRealPg() {
+        // D82: 게이트 = activity_status(과거 lastSeenAt staleCutoff 대체). ★실 PG 가드: JPQL enum literal 술어가
+        // 실 PG 에서 동작하는지(H2 가 가릴 수 있는 dialect, h2-pg trap). null lastSeenAt·ACTIVE 기본 = 포함.
         Instant now = Instant.parse("2026-06-26T12:00:00Z");
-        Instant cutoff = now.minus(Duration.ofDays(30));
-        domainRepo.save(seen("recent.example.com", now.minus(Duration.ofDays(5))));  // 5일 전=활성→포함
-        domainRepo.save(seen("stale.example.com", now.minus(Duration.ofDays(40))));  // 40일 전=무접속→제외
-        domainRepo.save(seen("never.example.com", null));                           // 미관측→포함(스캔 기회)
+        domainRepo.save(seen("active.example.com", now.minus(Duration.ofDays(1))));  // ACTIVE 기본 → 포함
+        domainRepo.save(seen("nullseen.example.com", null));                         // lastSeenAt null·ACTIVE → 포함
+        DomainConfig inactive = seen("inactive.example.com", now.minus(Duration.ofDays(40)));
+        inactive.setActivityStatus(ActivityStatus.INACTIVE);
+        domainRepo.save(inactive);
 
-        List<String> hosts = domainRepo.findDueForScan(now, cutoff, PageRequest.of(0, 10))
+        List<String> hosts = domainRepo.findDueForScan(now, PageRequest.of(0, 10))
                 .stream().map(DomainConfig::getHost).toList();
-        assertThat(hosts).contains("recent.example.com", "never.example.com");
-        assertThat(hosts).doesNotContain("stale.example.com"); // 마지막 접속 30일 초과 → 스캔(수집+평가) 제외
+        assertThat(hosts).contains("active.example.com", "nullseen.example.com");
+        assertThat(hosts).doesNotContain("inactive.example.com"); // INACTIVE → 스캔 제외
+    }
 
-        // staleCutoff=EPOCH → 비활성(현행 무회귀) → stale 도 포함
-        List<String> all = domainRepo.findDueForScan(now, Instant.EPOCH, PageRequest.of(0, 10))
+    @Test
+    void sweepDeactivateStaleAndMarkActiveOnRealPg() {
+        // D82 sweep: lastSeenAt<cutoff 인 ACTIVE → INACTIVE(실 PG bulk UPDATE). null lastSeenAt 은 미강등(is not null 가드).
+        // markActive: INACTIVE→ACTIVE 복귀(수동 스캔 승격), 이미 ACTIVE 면 no-op. bulk UPDATE 후 findDueForScan(DB 술어)로 관측(L1 캐시 무관).
+        Instant now = Instant.parse("2026-06-26T12:00:00Z");
+        Instant cutoff = now.minus(Duration.ofDays(7));
+        domainRepo.save(seen("recent.example.com", now.minus(Duration.ofDays(1))));  // 최근 → 유지
+        domainRepo.save(seen("stale.example.com", now.minus(Duration.ofDays(40))));  // 무접속 → 강등
+        domainRepo.save(seen("nullseen.example.com", null));                         // null → 미강등
+        domainRepo.flush();
+
+        assertThat(domainRepo.deactivateStale(now, cutoff)).isEqualTo(1); // stale 1건만 강등
+        List<String> due = domainRepo.findDueForScan(now, PageRequest.of(0, 10))
                 .stream().map(DomainConfig::getHost).toList();
-        assertThat(all).contains("recent.example.com", "stale.example.com", "never.example.com");
+        assertThat(due).contains("recent.example.com", "nullseen.example.com").doesNotContain("stale.example.com");
+
+        assertThat(domainRepo.markActive("stale.example.com", now)).isEqualTo(1); // 승격
+        assertThat(domainRepo.markActive("recent.example.com", now)).isZero();    // 이미 ACTIVE=no-op
+        List<String> due2 = domainRepo.findDueForScan(now, PageRequest.of(0, 10))
+                .stream().map(DomainConfig::getHost).toList();
+        assertThat(due2).contains("stale.example.com"); // 재활성 후 다시 스캔 대상
     }
 
     @Test
@@ -853,9 +873,9 @@ class PostgresIntegrationTest {
             watermarkRepo.save(w);
         }
 
-        List<String> active = domainRepo.findDueWithNewTraffic(now, Instant.EPOCH, PageRequest.of(0, 10))
+        List<String> active = domainRepo.findDueWithNewTraffic(now, PageRequest.of(0, 10))
                 .stream().map(DomainConfig::getHost).toList();
-        List<String> rest = domainRepo.findDueWithoutNewTraffic(now, Instant.EPOCH, PageRequest.of(0, 10))
+        List<String> rest = domainRepo.findDueWithoutNewTraffic(now, PageRequest.of(0, 10))
                 .stream().map(DomainConfig::getHost).toList();
 
         assertThat(active).contains("busy.example.com", "fresh.example.com").doesNotContain("idle.example.com");

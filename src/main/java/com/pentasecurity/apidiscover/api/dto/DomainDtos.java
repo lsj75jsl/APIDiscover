@@ -1,6 +1,7 @@
 // 중앙 서버 연동 REST DTO 묶음 (doc/07 §3)
 package com.pentasecurity.apidiscover.api.dto;
 
+import com.pentasecurity.apidiscover.domain.ActivityStatus;
 import com.pentasecurity.apidiscover.domain.SpecMetaProjection;
 import com.pentasecurity.apidiscover.domain.SpecRecord;
 import com.pentasecurity.apidiscover.model.EffectiveClassificationView;
@@ -52,7 +53,9 @@ public final class DomainDtos {
             String basePathStrip,
             SpecMetaView spec,                              // 최근 active 스펙(filename·uploadedAt 포함), 없으면 null
             Instant lastScanAt,                             // scan_result.lastScanAt, 미스캔 null
-            EffectiveClassificationView effectiveClassification // 도메인 현재 분류 설정(doc/34, resolver)
+            EffectiveClassificationView effectiveClassification, // 도메인 현재 분류 설정(doc/34, resolver)
+            ActivityStatus activityStatus,                  // D82: 활동상태(ACTIVE=주기 스캔 대상, INACTIVE=무접속 제외)
+            Instant activityStatusChangedAt                 // D82: 마지막 활동상태 전이 시각(null=이력 없음)
     ) {}
 
     /** 스펙 메타 (doc/07 §3.1, doc/35 M2/M6). filename·specName·active 가산(additive). */

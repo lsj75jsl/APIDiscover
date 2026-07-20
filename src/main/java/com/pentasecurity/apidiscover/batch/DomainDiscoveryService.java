@@ -128,9 +128,21 @@ public class DomainDiscoveryService {
                 updated++;
             }
         }
-        log.info("domain discovery: bootstrap={} window={} vector={} inserted={} updated={} rejected={} dropped={} excludedEdge={}",
-                bootstrap, window, vector.size(), inserted, updated, rejected, dropped, excluded);
+        // D82(doc/43 §4.3): 무접속 sweep — 위 upsert 가 실요청 관측분을 ACTIVE·lastSeenAt=now 로 올린 뒤 실행하므로
+        // 방금 관측분은 강등되지 않는다(cutoff=now−inactive-after). inactive-after=0/null=no-op(무회귀).
+        int deactivated = sweepInactive(now);
+        log.info("domain discovery: bootstrap={} window={} vector={} inserted={} updated={} rejected={} dropped={} excludedEdge={} deactivated={}",
+                bootstrap, window, vector.size(), inserted, updated, rejected, dropped, excluded, deactivated);
         return new DiscoveryResult(bootstrap, inserted, updated, rejected, dropped);
+    }
+
+    /** 무접속 sweep — lastSeenAt<cutoff 인 ACTIVE 도메인을 INACTIVE 로 강등(별도 tx bulk UPDATE). 반환=강등 건수. */
+    private int sweepInactive(Instant now) {
+        Duration inactiveAfter = props.scan().inactiveAfter();
+        if (inactiveAfter == null || inactiveAfter.isZero()) {
+            return 0; // 게이트 비활성(무회귀)
+        }
+        return repo.deactivateStale(now, now.minus(inactiveAfter));
     }
 
     /**
@@ -143,7 +155,37 @@ public class DomainDiscoveryService {
                 + "{job=\"" + props.loki().jobLabel() + "\"}"
                 + " | pattern \"" + buildPattern() + "\""
                 + probeStatusFilter()
+                + pathExcludeFilter()
                 + " [" + window.toSeconds() + "s]))";
+    }
+
+    /**
+     * D82(doc/43 §4.1): 실요청에서 제외할 URI 경로(예 {@code /.cloudbric/pron/}) 라벨 필터. pattern 이 뽑은 {@code <uri>} 를
+     * RE2 비앵커 substring 부정매칭({@code !~})으로 제외 — 이 경로만 관측된 도메인은 vector 에서 빠져 등록/lastSeen 갱신 안 됨.
+     * 빈/미설정 = 필터 없음 = 현행 무회귀. status 필터와 동일 라벨필터(광역 |= 아님 → Loki 부하 안전).
+     */
+    private String pathExcludeFilter() {
+        List<String> paths = props.discovery().excludedPaths();
+        if (paths == null || paths.isEmpty()) {
+            return "";
+        }
+        String regex = paths.stream().map(DomainDiscoveryService::escapeRe2).collect(Collectors.joining("|"));
+        // ★백틱 raw 문자열: 정규식의 '\.' 를 이중따옴표에 넣으면 LogQL(Go) 문자열 이스케이프 규칙 위반→파싱 400.
+        // 백틱은 raw(이스케이프 미처리)라 RE2 가 '\.' 를 리터럴 dot 로 받는다. (status 필터는 백슬래시 없어 이중따옴표 유지)
+        return " | uri !~ `" + regex + "`";
+    }
+
+    /** RE2 메타문자 이스케이프(경로의 '.' 등 리터럴화) — buildLogQL uri 필터 정규식 조립용. */
+    static String escapeRe2(String s) {
+        StringBuilder b = new StringBuilder(s.length() + 4);
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if ("\\.+*?()|[]{}^$".indexOf(c) >= 0) {
+                b.append('\\');
+            }
+            b.append(c);
+        }
+        return b.toString();
     }
 
     /**
@@ -166,7 +208,9 @@ public class DomainDiscoveryService {
     static String buildPattern() {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < LogLineParser.F_HOST; i++) {
-            sb.append(i == LogLineParser.F_STATUS ? "<status>" : "<_>").append(LogLineParser.DELIM);
+            String name = (i == LogLineParser.F_STATUS) ? "<status>"
+                    : (i == LogLineParser.F_REQUEST_URI) ? "<uri>" : "<_>"; // D82: uri 경로제외 필터용
+            sb.append(name).append(LogLineParser.DELIM);
         }
         sb.append("<host>").append(LogLineParser.DELIM)
                 .append("<real_host>").append(LogLineParser.DELIM).append("<_>");

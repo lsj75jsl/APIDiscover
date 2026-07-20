@@ -4,6 +4,7 @@ package com.pentasecurity.apidiscover.batch;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.pentasecurity.apidiscover.config.ApiDiscoverProperties;
+import com.pentasecurity.apidiscover.domain.ActivityStatus;
 import com.pentasecurity.apidiscover.domain.DomainConfig;
 import com.pentasecurity.apidiscover.domain.DomainConfigRepository;
 import com.pentasecurity.apidiscover.domain.Watermark;
@@ -64,17 +65,18 @@ class ScanSelectorTest {
     }
 
     @Test
-    void excludesDomainsWithLastSeenOlderThanInactiveAfter() {
-        // inactive-after=30d(props 기본). NOON 기준 cutoff=NOON−30d. 게이트 기준=lastSeenAt(discovery 관측, D59).
-        repo.save(domain("recent.example.com", null, true, NOON.minus(Duration.ofDays(5))));  // 5일 전 관측=활성→포함
-        repo.save(domain("stale.example.com", null, true, NOON.minus(Duration.ofDays(40))));  // 40일 전=무접속→제외
-        repo.save(domain("never-seen.example.com", null, true, null));                        // 미관측=제외 안 함(기회 부여)
+    void excludesInactiveStatusDomains() {
+        // D82: 게이트 기준 = activity_status(무접속 강등은 discovery sweep 이 수행, ScanSelector 는 상태만 신뢰).
+        repo.save(domain("active.example.com", null, true));       // 기본 ACTIVE → 포함
+        DomainConfig inactive = domain("inactive.example.com", null, true);
+        inactive.setActivityStatus(ActivityStatus.INACTIVE);       // 무접속 강등됨 → 제외
+        repo.save(inactive);
 
         ScanSelector selector = new ScanSelector(repo, props(10, 10, "UTC"), fixed(NOON));
         var hosts = selector.selectForTick().stream().map(DomainConfig::getHost).toList();
 
-        assertThat(hosts).contains("recent.example.com", "never-seen.example.com");
-        assertThat(hosts).doesNotContain("stale.example.com"); // 마지막 관측 30일 초과 → 자동스캔 제외
+        assertThat(hosts).contains("active.example.com");
+        assertThat(hosts).doesNotContain("inactive.example.com");
     }
 
     @Test
@@ -106,16 +108,6 @@ class ScanSelectorTest {
         var selected = selector.selectForTick().stream().map(DomainConfig::getHost).toList();
 
         assertThat(selected).hasSize(5).contains("idle.example.com"); // 예약분으로 idle 포함
-    }
-
-    @Test
-    void inactiveAfterZeroDisablesStaleExclusion() {
-        repo.save(domain("stale.example.com", null, true, NOON.minus(Duration.ofDays(40))));
-
-        ScanSelector selector = new ScanSelector(repo, props(10, 10, "UTC", Duration.ZERO), fixed(NOON));
-
-        assertThat(selector.selectForTick().stream().map(DomainConfig::getHost).toList())
-                .contains("stale.example.com"); // inactive-after=0 → 필터 비활성(현행 무회귀)
     }
 
     private static Clock fixed(Instant now) {
@@ -155,7 +147,8 @@ class ScanSelectorTest {
                         Duration.ofDays(7), "01:00-06:00"),
                 new ApiDiscoverProperties.Central("https://central.internal"),
                 new ApiDiscoverProperties.Discovery(true, Duration.ofMinutes(10), Duration.ofMinutes(12),
-                        Duration.ofHours(1), Duration.ofMinutes(2), 0, "^x$", java.util.List.of(), java.util.List.of()),
+                        Duration.ofHours(1), Duration.ofMinutes(2), 0, "^x$", java.util.List.of(), java.util.List.of(),
+                        java.util.List.of()),
                 new ApiDiscoverProperties.Scan(Duration.ofMinutes(5), domainsPerTick, Duration.ZERO, 0, 0L, true,
                         Duration.ZERO, 0, true, Duration.ofMinutes(30), Duration.ofHours(2), Duration.ofHours(6),
                         Duration.ofHours(24), offPeakDomainsPerTick, Duration.ofHours(24), offPeakZone,

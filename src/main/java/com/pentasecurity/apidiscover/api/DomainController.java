@@ -100,7 +100,8 @@ public class DomainController {
         Instant lastScanAt = scanRepo.findById(d.getHost()).map(ScanResult::getLastScanAt).orElse(null);
         var effective = classificationResolver.resolve(d.getHost()).toView(); // 공유 빌더(EffectiveClassification.toView)
         return new DomainDetailView(d.getHost(), d.isEnabled(), d.getHostnames(), d.getIntervalOverride(),
-                mode, d.getBasePathStrip(), spec, lastScanAt, effective);
+                mode, d.getBasePathStrip(), spec, lastScanAt, effective,
+                d.getActivityStatus(), d.getActivityStatusChangedAt());
     }
 
     @PutMapping("/{host}")

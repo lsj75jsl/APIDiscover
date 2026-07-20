@@ -33,10 +33,9 @@ public interface DomainConfigRepository extends JpaRepository<DomainConfig, Stri
      */
     @Query("select d from DomainConfig d where d.enabled = true "
             + "and (d.nextScanDueAt is null or d.nextScanDueAt <= :now) "
-            + "and (d.lastSeenAt is null or d.lastSeenAt >= :staleCutoff) "
+            + "and d.activityStatus = com.pentasecurity.apidiscover.domain.ActivityStatus.ACTIVE "
             + "order by d.nextScanDueAt asc nulls first")
-    List<DomainConfig> findDueForScan(@Param("now") Instant now,
-                                      @Param("staleCutoff") Instant staleCutoff, Pageable pageable);
+    List<DomainConfig> findDueForScan(@Param("now") Instant now, Pageable pageable);
 
     /**
      * D64 활성 우선(Phase 3): due 중 "워터마크 이후 신규 트래픽 확정" 도메인 — discovery 관측(lastSeenAt)이
@@ -46,21 +45,19 @@ public interface DomainConfigRepository extends JpaRepository<DomainConfig, Stri
     @Query("select d from DomainConfig d left join Watermark w on w.host = d.host "
             + "where d.enabled = true "
             + "and (d.nextScanDueAt is null or d.nextScanDueAt <= :now) "
-            + "and (d.lastSeenAt is null or d.lastSeenAt >= :staleCutoff) "
+            + "and d.activityStatus = com.pentasecurity.apidiscover.domain.ActivityStatus.ACTIVE "
             + "and (w.lastEnd is null or d.lastSeenAt > w.lastEnd) "
             + "order by d.nextScanDueAt asc nulls first")
-    List<DomainConfig> findDueWithNewTraffic(@Param("now") Instant now,
-                                             @Param("staleCutoff") Instant staleCutoff, Pageable pageable);
+    List<DomainConfig> findDueWithNewTraffic(@Param("now") Instant now, Pageable pageable);
 
     /** D64: findDueWithNewTraffic 의 여집합 — 신규 트래픽 없음(delta-skip 예정, 값싼 워터마크 전진용). */
     @Query("select d from DomainConfig d join Watermark w on w.host = d.host "
             + "where d.enabled = true "
             + "and (d.nextScanDueAt is null or d.nextScanDueAt <= :now) "
-            + "and (d.lastSeenAt is null or d.lastSeenAt >= :staleCutoff) "
+            + "and d.activityStatus = com.pentasecurity.apidiscover.domain.ActivityStatus.ACTIVE "
             + "and (d.lastSeenAt is null or d.lastSeenAt <= w.lastEnd) "
             + "order by d.nextScanDueAt asc nulls first")
-    List<DomainConfig> findDueWithoutNewTraffic(@Param("now") Instant now,
-                                                @Param("staleCutoff") Instant staleCutoff, Pageable pageable);
+    List<DomainConfig> findDueWithoutNewTraffic(@Param("now") Instant now, Pageable pageable);
 
     /**
      * ★실 access log 최신 시각 갱신(D56) — 스캔이 관측한 최신 로그시각으로 {@code last_access_log_at} 전진(never decrease).
@@ -81,4 +78,28 @@ public interface DomainConfigRepository extends JpaRepository<DomainConfig, Stri
     @Transactional
     @Query("update DomainConfig d set d.lastScanAttemptAt = :now, d.nextScanDueAt = :nextDue where d.host = :host")
     void touchScanSchedule(@Param("host") String host, @Param("now") Instant now, @Param("nextDue") Instant nextDue);
+
+    /**
+     * D82(doc/43 §4.3) 무접속 sweep — {@code lastSeenAt < cutoff} 인 ACTIVE 도메인을 INACTIVE 로 강등(discovery 틱 종료 1회).
+     * ★{@code lastSeenAt IS NOT NULL} 조건: null(미관측)은 기존 게이트가 '제외 안 함'이었으므로 ACTIVE 유지(무회귀). 반환=강등 건수.
+     * 직접 bulk UPDATE(엔티티 로드 없음)라 사용자 설정 PUT 과 lost-update 무관. cutoff=now−inactive-after(호출자 계산).
+     */
+    @Modifying
+    @Transactional
+    @Query("update DomainConfig d set d.activityStatus = com.pentasecurity.apidiscover.domain.ActivityStatus.INACTIVE, "
+            + "d.activityStatusChangedAt = :now "
+            + "where d.activityStatus = com.pentasecurity.apidiscover.domain.ActivityStatus.ACTIVE "
+            + "and d.lastSeenAt is not null and d.lastSeenAt < :cutoff")
+    int deactivateStale(@Param("now") Instant now, @Param("cutoff") Instant cutoff);
+
+    /**
+     * D82(doc/43 §4.4) 수동 스캔 승격 — 해당 host 를 ACTIVE 로 flip(전이 시각 기록). 이미 ACTIVE 면 no-op(changed_at 보존).
+     * discovery 실요청 재관측 재활성은 {@code DomainUpserter}(managed 엔티티) 담당 — 여기는 REST 수동 스캔 경로 전용. 반환=전이 건수.
+     */
+    @Modifying
+    @Transactional
+    @Query("update DomainConfig d set d.activityStatus = com.pentasecurity.apidiscover.domain.ActivityStatus.ACTIVE, "
+            + "d.activityStatusChangedAt = :now "
+            + "where d.host = :host and d.activityStatus <> com.pentasecurity.apidiscover.domain.ActivityStatus.ACTIVE")
+    int markActive(@Param("host") String host, @Param("now") Instant now);
 }

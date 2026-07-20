@@ -18,6 +18,7 @@ import com.pentasecurity.apidiscover.batch.CombinedDiscoveryService;
 import com.pentasecurity.apidiscover.batch.DiscoveryJobService;
 import com.pentasecurity.apidiscover.batch.DomainRegistrar;
 import com.pentasecurity.apidiscover.domain.DomainConfig;
+import com.pentasecurity.apidiscover.domain.DomainConfigRepository;
 import com.pentasecurity.apidiscover.domain.ScanResult;
 import com.pentasecurity.apidiscover.domain.ScanResultRepository;
 import com.pentasecurity.apidiscover.domain.SpecMetaProjection;
@@ -47,9 +48,10 @@ class ScanControllerTest {
     private final SpecStore specStore = mock(SpecStore.class);
     private final CombinedDiscoveryService combined = mock(CombinedDiscoveryService.class);
     private final DomainRegistrar registrar = mock(DomainRegistrar.class);
+    private final DomainConfigRepository domainRepo = mock(DomainConfigRepository.class);
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final ScanController controller =
-            new ScanController(scanRepo, jobService, specStore, combined, registrar, objectMapper);
+            new ScanController(scanRepo, jobService, specStore, combined, registrar, domainRepo, objectMapper);
 
     @Test
     void statusIncludesLatestSpecFilenameAndApiCount() {
@@ -137,6 +139,7 @@ class ScanControllerTest {
         assertThat(result).isSameAs(expected);                 // /discovery 일관 결과 반환
         verify(registrar).registerIfAbsent(HOST);              // 미등록 자동등록
         verify(jobService).scanOnDemand(HOST, w, null);        // watermark 미전진 경로
+        verify(domainRepo).markActive(eq(HOST), any());        // D82: 수동 스캔 = ACTIVE 승격
     }
 
     @Test

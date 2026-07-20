@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.pentasecurity.apidiscover.config.ApiDiscoverProperties;
+import com.pentasecurity.apidiscover.domain.ActivityStatus;
 import com.pentasecurity.apidiscover.domain.DomainConfig;
 import com.pentasecurity.apidiscover.domain.DomainConfigRepository;
 import com.pentasecurity.apidiscover.ingest.LokiClient;
@@ -66,6 +67,26 @@ class DomainDiscoveryServiceTest {
         assertThat(db.stream().map(DomainConfig::getHost)).doesNotContain("only-excluded.example.com");
         DomainConfig mixed = find("mixed.example.com");
         assertThat(mixed.getHostnames()).containsExactly("AHJ11"); // 제외 엣지 매핑 미등록
+    }
+
+    // --- D82(doc/43 §4.3): 실요청 재관측 = INACTIVE→ACTIVE 복귀 ---
+
+    @Test
+    void reactivatesInactiveDomainOnRealObservation() {
+        DomainConfig inactive = new DomainConfig();
+        inactive.setHost("back.example.com");
+        inactive.setActivityStatus(ActivityStatus.INACTIVE);
+        inactive.setActivityStatusChangedAt(NOW.minus(Duration.ofDays(10)));
+        db.add(inactive);
+        when(loki.queryInstant(any(), any())).thenReturn(List.of(sample("back.example.com", "AHJ11", 10)));
+
+        DomainDiscoveryService.DiscoveryResult r = service().discover(NOW);
+
+        assertThat(r.updated()).isEqualTo(1);
+        DomainConfig back = find("back.example.com");
+        assertThat(back.getActivityStatus()).isEqualTo(ActivityStatus.ACTIVE); // 실요청 재관측 → 복귀
+        assertThat(back.getActivityStatusChangedAt()).isEqualTo(NOW);          // 전이 시각 갱신
+        assertThat(back.getLastSeenAt()).isEqualTo(NOW);
     }
 
     @Test
@@ -261,6 +282,31 @@ class DomainDiscoveryServiceTest {
         assertThat(ql).doesNotContain("status !~");
     }
 
+    // --- D82(doc/43 §4.1): 실요청 제외 경로 필터 = 해당 경로만 받는 도메인 관측 배제 ---
+
+    @Test
+    void buildLogQLAppendsPathExcludeFilterWhenConfigured() {
+        DomainDiscoveryService svc = new DomainDiscoveryService(loki, repo, new DomainUpserter(repo),
+                props(200, List.of(), List.of(), List.of("/.cloudbric/pron/", "/.cloudbric/afc/")));
+        String ql = svc.buildLogQL(Duration.ofMinutes(12));
+        assertThat(ql).contains("<uri>"); // pattern 이 uri 추출
+        // '.' 이스케이프·'|' 조인, 비앵커 substring 부정매칭. 백틱 raw 문자열(이중따옴표는 '\.' 이스케이프 규칙 위반→Loki 400).
+        assertThat(ql).contains("| uri !~ `/\\.cloudbric/pron/|/\\.cloudbric/afc/`");
+        assertThat(ql).containsPattern("\\| uri !~ .* \\[720s\\]"); // 필터는 range 앞
+    }
+
+    @Test
+    void buildLogQLOmitsPathExcludeFilterWhenEmpty() {
+        // 빈 리스트 = 경로필터 없음(무회귀). pattern 의 <uri> 라벨은 있으나 'uri !~' 필터는 없음.
+        assertThat(service().buildLogQL(Duration.ofMinutes(12))).doesNotContain("uri !~");
+    }
+
+    @Test
+    void escapeRe2EscapesRegexMetacharacters() {
+        assertThat(DomainDiscoveryService.escapeRe2("/.cloudbric/pron/")).isEqualTo("/\\.cloudbric/pron/");
+        assertThat(DomainDiscoveryService.escapeRe2("a+b(c)")).isEqualTo("a\\+b\\(c\\)");
+    }
+
     // --- helpers ---
 
     private DomainDiscoveryService serviceWithProbeStatuses(List<Integer> probeStatuses) {
@@ -318,6 +364,11 @@ class DomainDiscoveryServiceTest {
     }
 
     private static ApiDiscoverProperties props(int maxDomains, List<String> excludedHostnames, List<Integer> probeStatuses) {
+        return props(maxDomains, excludedHostnames, probeStatuses, List.of());
+    }
+
+    private static ApiDiscoverProperties props(int maxDomains, List<String> excludedHostnames,
+                                               List<Integer> probeStatuses, List<String> excludedPaths) {
         return new ApiDiscoverProperties(
                 new ApiDiscoverProperties.Loki("http://loki.local:3200", "access_log",
                         Duration.ofSeconds(30), Duration.ofMinutes(10), 2000, 2, Duration.ofMillis(1)),
@@ -325,7 +376,7 @@ class DomainDiscoveryServiceTest {
                         Duration.ofDays(7), "01:00-06:00"),
                 new ApiDiscoverProperties.Central("https://central.internal"),
                 new ApiDiscoverProperties.Discovery(true, Duration.ofMinutes(10), Duration.ofMinutes(12),
-                        Duration.ofHours(1), Duration.ofMinutes(2), maxDomains, FQDN, excludedHostnames, probeStatuses),
+                        Duration.ofHours(1), Duration.ofMinutes(2), maxDomains, FQDN, excludedHostnames, probeStatuses, excludedPaths),
                 new ApiDiscoverProperties.Scan(Duration.ofMinutes(5), 100, Duration.ZERO, 0, 0L, true, Duration.ZERO, 0, false, Duration.ofMinutes(30), Duration.ofHours(2), Duration.ofHours(6), Duration.ofHours(24), 500, Duration.ofHours(24), "", Duration.ofDays(14), Duration.ofDays(1), Duration.ZERO, 0, false, Duration.ZERO));
     }
 }

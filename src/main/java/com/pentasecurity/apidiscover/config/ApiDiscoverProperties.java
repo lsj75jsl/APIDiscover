@@ -44,7 +44,11 @@ public record ApiDiscoverProperties(Loki loki, Schedule schedule, Central centra
             List<String> excludedHostnames,
             // C(doc/42 §4.4): 프로브/스푸핑 Host 억제 — 이 status 만 관측된 도메인은 등록·lastSeen 갱신 안 함.
             // 서버측 LogQL 라벨 필터(| status !~ ...)로 구현. null/빈=필터 없음(현행 무회귀). 기본 [404, 470].
-            List<Integer> probeStatuses
+            List<Integer> probeStatuses,
+            // D82(doc/43 §4.1): 실요청에서 제외할 URI 경로(접두 substring). 이 경로만 관측된 도메인은 등록·lastSeen 갱신 안 됨
+            // → inactive-after 경과 후 INACTIVE. 서버측 LogQL 라벨 필터(| uri !~ ...·pattern <uri> 파싱). null/빈=필터 없음(무회귀).
+            // 기본 [/.cloudbric/pron/, /.cloudbric/afc/].
+            List<String> excludedPaths
     ) {}
 
     /** 엔드포인트 스캔 부하 운영정책 — B 틱당 예산·A 윈도우 상한·E 전역 레이트 가드 (doc/33 §8/§14, PR1·PR1.1) + C/D/F 티어링(§4–6, PR2/PR3 D48). */

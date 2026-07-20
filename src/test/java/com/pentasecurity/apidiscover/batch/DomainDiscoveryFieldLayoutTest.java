@@ -25,9 +25,11 @@ class DomainDiscoveryFieldLayoutTest {
         assertThat(fields[LogLineParser.F_HOST]).isEqualTo("<host>");
         assertThat(fields[LogLineParser.F_REAL_HOST]).isEqualTo("<real_host>");
         assertThat(fields[LogLineParser.F_STATUS]).isEqualTo("<status>"); // status 필터가 참조
-        // host 앞은 F_STATUS 만 <status>, 나머지는 skip
+        assertThat(fields[LogLineParser.F_REQUEST_URI]).isEqualTo("<uri>"); // D82: 경로제외 필터가 참조
+        // host 앞은 F_STATUS=<status>·F_REQUEST_URI=<uri>, 나머지는 skip
         for (int i = 0; i < LogLineParser.F_HOST; i++) {
-            String expected = (i == LogLineParser.F_STATUS) ? "<status>" : "<_>";
+            String expected = (i == LogLineParser.F_STATUS) ? "<status>"
+                    : (i == LogLineParser.F_REQUEST_URI) ? "<uri>" : "<_>";
             assertThat(fields[i]).as("field %d", i).isEqualTo(expected);
         }
     }

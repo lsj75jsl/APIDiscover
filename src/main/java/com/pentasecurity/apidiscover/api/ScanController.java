@@ -12,6 +12,7 @@ import com.pentasecurity.apidiscover.api.dto.DomainDtos.SummaryView;
 import com.pentasecurity.apidiscover.batch.CombinedDiscoveryService;
 import com.pentasecurity.apidiscover.batch.DiscoveryJobService;
 import com.pentasecurity.apidiscover.batch.DomainRegistrar;
+import com.pentasecurity.apidiscover.domain.DomainConfigRepository;
 import com.pentasecurity.apidiscover.domain.ScanResult;
 import com.pentasecurity.apidiscover.domain.ScanResultRepository;
 import com.pentasecurity.apidiscover.ingest.LogWindow;
@@ -45,16 +46,18 @@ public class ScanController {
     private final SpecStore specStore;
     private final CombinedDiscoveryService combinedDiscoveryService;
     private final DomainRegistrar registrar;
+    private final DomainConfigRepository domainRepo;
     private final ObjectMapper objectMapper;
 
     public ScanController(ScanResultRepository scanRepo, DiscoveryJobService jobService, SpecStore specStore,
                           CombinedDiscoveryService combinedDiscoveryService, DomainRegistrar registrar,
-                          ObjectMapper objectMapper) {
+                          DomainConfigRepository domainRepo, ObjectMapper objectMapper) {
         this.scanRepo = scanRepo;
         this.jobService = jobService;
         this.specStore = specStore;
         this.combinedDiscoveryService = combinedDiscoveryService;
         this.registrar = registrar;
+        this.domainRepo = domainRepo;
         this.objectMapper = objectMapper;
     }
 
@@ -135,7 +138,16 @@ public class ScanController {
     @PostMapping("/scan")
     public ResponseEntity<Void> triggerScan(@PathVariable String host) {
         jobService.runScan(host); // TODO: 비동기 큐잉으로 전환
+        promoteActive(host);      // D82: 수동 스캔 = 주기 스캔 대상 승격(INACTIVE→ACTIVE)
         return ResponseEntity.accepted().build();
+    }
+
+    /** D82(doc/43 §4.4): 수동 스캔 host 를 ACTIVE 로 flip → 주기 스캔 재포함. 정규화 키로 매칭(등록 정규화 일관), 이미 ACTIVE 면 no-op. */
+    private void promoteActive(String host) {
+        String normalized = DomainNames.normalize(host);
+        if (normalized != null) {
+            domainRepo.markActive(normalized, java.time.Instant.now());
+        }
     }
 
     /**
@@ -159,6 +171,7 @@ public class ScanController {
         } catch (RuntimeException e) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "on-demand scan failed: " + e.getMessage(), e);
         }
+        domainRepo.markActive(normalized, java.time.Instant.now()); // D82: 수동 스캔 = 주기 스캔 대상 승격(INACTIVE→ACTIVE)
         return combinedDiscoveryService.forHost(normalized);
     }
 

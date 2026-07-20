@@ -24,7 +24,11 @@ import org.hibernate.annotations.DynamicUpdate;
 // @Version(낙관락)은 D18 §5(last-writer-wins) 결정대로 미도입 — @DynamicUpdate 는 컬럼 범위 축소라 그 결정과 일관.
 @Entity
 @DynamicUpdate
-@Table(name = "domain_config", indexes = @Index(columnList = "next_scan_due_at"))
+@Table(name = "domain_config", indexes = {
+        @Index(columnList = "next_scan_due_at"),
+        // D82: 스캔 선택 hot 쿼리(enabled AND activity_status=ACTIVE AND due 정렬)·sweep bulk UPDATE 술어 — seq scan 회피(D75).
+        @Index(columnList = "activity_status, next_scan_due_at")
+})
 public class DomainConfig {
 
     @Id
@@ -68,6 +72,18 @@ public class DomainConfig {
 
     /** 다음 스캔 due 시각(doc/33 §4, D48) — 스캔 시 now+effectiveInterval 갱신, null=즉시 due. ddl-auto nullable, index. */
     private Instant nextScanDueAt;
+
+    /**
+     * D82(doc/43): 활동 상태 게이트(주기 스캔 대상). {@code enabled} 과 별도 축 — "활성만 스캔"=enabled AND ACTIVE.
+     * ★{@code columnDefinition default 'ACTIVE'}: ddl-auto ADD COLUMN 시 <b>기존 행 전부 ACTIVE</b>(무회귀 — 안 그러면
+     * NULL≠ACTIVE 로 전 도메인 스캔 중단). 배포 후 첫 discovery sweep 이 무접속분을 INACTIVE 로 수렴(D79 boolean default 패턴 동형).
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "activity_status", columnDefinition = "varchar not null default 'ACTIVE'")
+    private ActivityStatus activityStatus = ActivityStatus.ACTIVE;
+
+    /** 마지막 활동상태 전이 시각(감사·중앙연동용, doc/43 §4.3). flip 시에만 갱신. null=전이 이력 없음. */
+    private Instant activityStatusChangedAt;
 
     private Instant createdAt;
     private Instant updatedAt;
@@ -158,6 +174,22 @@ public class DomainConfig {
 
     public void setNextScanDueAt(Instant nextScanDueAt) {
         this.nextScanDueAt = nextScanDueAt;
+    }
+
+    public ActivityStatus getActivityStatus() {
+        return activityStatus;
+    }
+
+    public void setActivityStatus(ActivityStatus activityStatus) {
+        this.activityStatus = activityStatus;
+    }
+
+    public Instant getActivityStatusChangedAt() {
+        return activityStatusChangedAt;
+    }
+
+    public void setActivityStatusChangedAt(Instant activityStatusChangedAt) {
+        this.activityStatusChangedAt = activityStatusChangedAt;
     }
 
     public Instant getCreatedAt() {

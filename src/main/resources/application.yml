@@ -66,7 +66,7 @@ apidiscover:
     off-peak-zone: "Asia/Seoul"    # D off-peak 01-06 판정 zone(KST 실 저부하 시간대 정렬)
     dormant-after: "P14D"          # F dormant 진입 age(삭제 아님, 최장 주기로 강등)
     dormant-interval: "P1D"        # F dormant 최장 주기
-    inactive-after: "P3D"          # ★무접속 중단(D59): 마지막 관측(lastSeenAt) > 이 기간이면 스캔 제외(0=비활성). 트래픽 재개 시 자동 복귀
+    inactive-after: "P7D"          # ★무접속 중단(D59→D82): 마지막 실요청(lastSeenAt) > 이 기간이면 activity_status=INACTIVE(sweep)→스캔 제외(0=비활성). 재요청/수동스캔 시 ACTIVE 복귀
     query-batch-size: 20           # D63 배칭: 같은 엣지 실조회 도메인 N개를 1쿼리로(0=off). D67: 10→20(실측 쿼리 -13.7%)
     edge-group-main-only: true     # D65: 엣지를 그룹 Master 로 치환 조회(Master 로그=그룹 전체 집계, 활성 매핑 -47%). false=off
     sample-window: "PT10M"         # D66 롤링 샘플링: 주기 스캔을 최신 N분 표본만(0=off=gap-free 크롤). 발산 정지·신선도=재방문주기
@@ -88,6 +88,9 @@ apidiscover:
     # C(doc/42 §4.4) 프로브 status 신뢰필터 — 이 status 만 관측된 Host 는 등록·lastSeen 갱신 배제(스푸핑/프로브 억제).
     # 404=미존재 vhost, 470=WAAP 차단(PAN 스캐너 실측). 빈 리스트=필터 없음(무회귀). 서버측 LogQL 라벨 필터.
     probe-statuses: [404, 470]
+    # D82(doc/43 §4.1) 실요청 제외 경로 — 이 URI 접두만 관측된 도메인은 등록·lastSeen 갱신 배제 → inactive-after 후 INACTIVE.
+    # 헬스/프로브성 경로(cloudbric pron·afc)를 트래픽으로 치지 않기 위함. 빈 리스트=필터 없음(무회귀). 서버측 LogQL 라벨 필터(| uri !~).
+    excluded-paths: ["/.cloudbric/pron/", "/.cloudbric/afc/"]
   central:
     base-url: "https://central.internal"
   normalization:                 # 고카디널리티 방지 (doc/13)
