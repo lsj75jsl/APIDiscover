@@ -5,6 +5,25 @@
 
 ---
 
+## 2026-07-21 세션 — D82 배포 관찰 + 자사 서비스 아닌 도메인 제외(1단계)
+
+### 관찰 (D82 효과)
+- 워터마크 발산 해소 확인 — 스캔 대상(enabled&ACTIVE) 100% 24h 이내·중앙 lag ~30분·3일+ 0건(배포 전 중앙 3.7일 대비). ACTIVE는 20.4k→13.6k→12.5k→10.7k로 프로브·`.cloudbric`-only 도메인이 걷히며 수렴.
+- ★관측: ACTIVE ~10.7k vs 실제 서비스 ~6k(사용자 파악) 차이 특성화 — `*.cbricdns.com`(전체 26,642행·ACTIVE ~1,795)·IP 리터럴 544·endpoint 0 ~1,433·서브도메인 90%(FQDN vs 서비스 단위).
+
+### 한 일 — 도메인 제외 1단계 (main `d426b75`·이미지 `bbb3d737a508` .197 배포·롤백 `prev-cbric`=4d876686b814)
+- `discovery.excluded-domain-suffixes`(기본 `[cbricdns.com]`·빈=no-op) 접미 제외 + IPv4 리터럴 항상 제외. client-side skip. 로그 `excludedDomain=` 추가. 568 테스트 green.
+- 배포 후 첫 사이클 `excludedDomain=60`(재관측 차단 동작 확인)·health UP·activity_status 컬럼 무결.
+- 효과는 **점진**: 제외분은 재관측 안 됨→lastSeen 정체→P7D 후 INACTIVE. cbricdns ACTIVE ~1,795 + IP 가 ~7일간 빠져 scannable ~8.9k 대로 수렴 예상.
+
+### 알려진 후속 (무해)
+- ★재기동 시 Hibernate ddl-auto WARN: `alter column activity_status set data type varchar not null default 'ACTIVE'` 구문오류(PG ALTER TYPE 는 제약 인라인 불가). **컬럼 이미 정상**(D82 생성)이라 스킵=무해하나 매 재기동 반복. 수정=`@Column(columnDefinition)` 제약 분리(@ColumnDefault/nullable) — 다음 재배포에 배치 권장.
+
+### 다음 단계 (사용자 결정 대기)
+- 2단계 eTLD+1 실제 서비스 수 산출 / 3단계 endpoint 0 ~1,433 드릴다운.
+
+---
+
 ## 2026-07-20 세션 — 스캔 상태 점검 + 무접속 도메인 상태 관리 원인규명·설계(doc/43)
 
 ### 한 일
