@@ -23,7 +23,7 @@
 - **www+bare 병합(분석)**: ACTIVE 10,760 FQDN → www 병합 **8,959**(www 2,721 중 bare 짝 1,801). eTLD+1 근사 서비스 ~3,714 = 실서비스 ~6k 중 활성분(나머지 조용→INACTIVE). ★"10.7k vs 6k" 은 FQDN 단위 착시로 규명 — 서비스 단위론 오히려 6k 미만. 시스템 dedup 은 미실행(분석만).
 - **scan 정합**(main `c07891e`·이미지 `7632f074c9f0` 배포·롤백 `prev-scanfix`): `analyze()` 가 `.cloudbric` 요청을 인벤토리에서 제외 → 신규 discovered_endpoint 미오염. discovery(활동)만 제외하던 불일치 해소. 569 테스트 green·health UP·discovery excludedDomain=76.
   - 실증(1casino77.com): bare+www 는 실 페이지(`/login` 등), `call/master/pt/site` 는 `/.cloudbric/pron` 만 → 4개는 D82 로 INACTIVE 수렴.
-  - ★기존 `.cloudbric` discovered_endpoint 잔존 5,430행(5,037 host) — 단일테이블 DELETE 1회 정리 대기(FK 없음·안전).
+  - ★기존 `.cloudbric` discovered_endpoint 잔존 5,430행(5,037 host) — **2026-07-22 정리 완료**(사용자 승인·단일테이블 DELETE·앱 가동 중·5,430 삭제·잔존 0·에러/락 없음).
 - **DDL 경고 정리**: `@Column(columnDefinition="varchar not null default")` → `nullable=false + @ColumnDefault`. 재기동 ALTER 경고 0건 확인.
 
 ### 다음 단계 (사용자 결정 대기)
