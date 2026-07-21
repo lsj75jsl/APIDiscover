@@ -91,6 +91,9 @@ apidiscover:
     # D82(doc/43 §4.1) 실요청 제외 경로 — 이 URI 접두만 관측된 도메인은 등록·lastSeen 갱신 배제 → inactive-after 후 INACTIVE.
     # 헬스/프로브성 경로(cloudbric pron·afc)를 트래픽으로 치지 않기 위함. 빈 리스트=필터 없음(무회귀). 서버측 LogQL 라벨 필터(| uri !~).
     excluded-paths: ["/.cloudbric/pron/", "/.cloudbric/afc/"]
+    # 자사 서비스 아닌 도메인 제외(doc/43 후속 1단계) — 이 접미로 끝나는 host 는 등록·lastSeen 갱신 배제.
+    # cbricdns.com = Cloudbric 자체 DNS/인프라 호스트(*.cbricdns.com 머신 생성, 서비스 아님). ★IPv4 리터럴 Host 는 항상 제외(설정 무관).
+    excluded-domain-suffixes: ["cbricdns.com"]
   central:
     base-url: "https://central.internal"
   normalization:                 # 고카디널리티 방지 (doc/13)

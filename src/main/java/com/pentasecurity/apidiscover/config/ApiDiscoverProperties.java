@@ -48,7 +48,11 @@ public record ApiDiscoverProperties(Loki loki, Schedule schedule, Central centra
             // D82(doc/43 §4.1): 실요청에서 제외할 URI 경로(접두 substring). 이 경로만 관측된 도메인은 등록·lastSeen 갱신 안 됨
             // → inactive-after 경과 후 INACTIVE. 서버측 LogQL 라벨 필터(| uri !~ ...·pattern <uri> 파싱). null/빈=필터 없음(무회귀).
             // 기본 [/.cloudbric/pron/, /.cloudbric/afc/].
-            List<String> excludedPaths
+            List<String> excludedPaths,
+            // 자사 서비스 아닌 도메인 제외(doc/43 후속 1단계) — 이 접미(suffix)로 끝나는 host 는 등록·lastSeen 갱신 안 함
+            // (예 "cbricdns.com" → *.cbricdns.com 전부·자기자신 제외). ★IPv4 리터럴 Host 는 접미와 무관하게 항상 제외
+            // (API 서비스 도메인이 아님). null/빈=접미 제외 없음(IP 제외는 유지). 정규화 lowercase 비교.
+            List<String> excludedDomainSuffixes
     ) {}
 
     /** 엔드포인트 스캔 부하 운영정책 — B 틱당 예산·A 윈도우 상한·E 전역 레이트 가드 (doc/33 §8/§14, PR1·PR1.1) + C/D/F 티어링(§4–6, PR2/PR3 D48). */

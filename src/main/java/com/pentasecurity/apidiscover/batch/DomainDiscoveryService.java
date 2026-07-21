@@ -40,6 +40,10 @@ public class DomainDiscoveryService {
     private final Pattern hostPattern;
     /** D62·D69: 대상 제외 엣지(hostname 라벨, 정확 일치 + 'X*' 접두) — 이 엣지의 관측은 없는 것으로 취급(등록·lastSeen 갱신 안 함). */
     private final EdgeExclusions excludedHostnames;
+    /** doc/43 후속: 제외 도메인 접미(정규화 lowercase, 선행 '*.'·'.' 제거). 이 접미로 끝나는 host 는 등록·lastSeen 갱신 안 함. */
+    private final List<String> excludedDomainSuffixes;
+    /** IPv4 리터럴 Host — API 서비스 도메인이 아니므로 항상 제외(설정 무관). */
+    private static final Pattern IPV4 = Pattern.compile("^\\d{1,3}(\\.\\d{1,3}){3}$");
 
     public DomainDiscoveryService(LokiClient loki, DomainConfigRepository repo,
                                   DomainUpserter upserter, ApiDiscoverProperties props) {
@@ -49,6 +53,13 @@ public class DomainDiscoveryService {
         this.props = props;
         this.hostPattern = Pattern.compile(props.discovery().hostPattern());
         this.excludedHostnames = new EdgeExclusions(props.discovery().excludedHostnames());
+        List<String> sfx = props.discovery().excludedDomainSuffixes();
+        this.excludedDomainSuffixes = (sfx == null) ? List.of()
+                : sfx.stream()
+                        .map(p -> p.startsWith("*.") ? p.substring(2) : (p.startsWith(".") ? p.substring(1) : p))
+                        .map(s -> s.toLowerCase(java.util.Locale.ROOT))
+                        .filter(s -> !s.isBlank())
+                        .toList();
     }
 
     /** 디스커버리 1회 실행 결과(스케줄러 로그·테스트용). */
@@ -75,6 +86,7 @@ public class DomainDiscoveryService {
         Map<String, Double> countByDomain = new LinkedHashMap<>();
         int rejected = 0;
         int excluded = 0;
+        int excludedDomain = 0;
         for (LokiClient.MetricSample s : vector) {
             // D62: 제외 엣지의 관측은 통째로 skip — 그 엣지에서만 보이는 도메인은 등록/lastSeen 갱신이 안 돼
             // 자동스캔 대상이 되지 않는다(기존 등록분은 lastSeen 정체 → inactive-after 게이트가 자연 제외).
@@ -89,6 +101,10 @@ public class DomainDiscoveryService {
                     normalizeDomain(s.labels().get("host")), normalizeDomain(s.labels().get("real_host")));
             if (domain == null || !hostPattern.matcher(domain).matches()) {
                 rejected++; // 빈/형식위반 Host(변조·랜덤) 자동등록 차단(§6)
+                continue;
+            }
+            if (isExcludedDomain(domain)) {
+                excludedDomain++; // 자사 서비스 아닌 도메인(접미 일치·IP) 등록·lastSeen 갱신 배제 → inactive-after 후 INACTIVE
                 continue;
             }
             Set<String> hostnames = hostnamesByDomain.computeIfAbsent(domain, k -> new TreeSet<>());
@@ -131,9 +147,22 @@ public class DomainDiscoveryService {
         // D82(doc/43 §4.3): 무접속 sweep — 위 upsert 가 실요청 관측분을 ACTIVE·lastSeenAt=now 로 올린 뒤 실행하므로
         // 방금 관측분은 강등되지 않는다(cutoff=now−inactive-after). inactive-after=0/null=no-op(무회귀).
         int deactivated = sweepInactive(now);
-        log.info("domain discovery: bootstrap={} window={} vector={} inserted={} updated={} rejected={} dropped={} excludedEdge={} deactivated={}",
-                bootstrap, window, vector.size(), inserted, updated, rejected, dropped, excluded, deactivated);
+        log.info("domain discovery: bootstrap={} window={} vector={} inserted={} updated={} rejected={} dropped={} excludedEdge={} excludedDomain={} deactivated={}",
+                bootstrap, window, vector.size(), inserted, updated, rejected, dropped, excluded, excludedDomain, deactivated);
         return new DiscoveryResult(bootstrap, inserted, updated, rejected, dropped);
+    }
+
+    /** 자사 서비스 아닌 도메인 판정 — IPv4 리터럴(항상) 또는 excludedDomainSuffixes 접미 일치(자기자신·서브도메인). */
+    private boolean isExcludedDomain(String domain) {
+        if (IPV4.matcher(domain).matches()) {
+            return true; // ponytail: IP Host 는 API 서비스 도메인이 아님 → 설정 무관 항상 제외
+        }
+        for (String suffix : excludedDomainSuffixes) {
+            if (domain.equals(suffix) || domain.endsWith("." + suffix)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** 무접속 sweep — lastSeenAt<cutoff 인 ACTIVE 도메인을 INACTIVE 로 강등(별도 tx bulk UPDATE). 반환=강등 건수. */

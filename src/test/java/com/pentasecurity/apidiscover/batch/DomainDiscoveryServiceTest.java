@@ -307,6 +307,36 @@ class DomainDiscoveryServiceTest {
         assertThat(DomainDiscoveryService.escapeRe2("a+b(c)")).isEqualTo("a\\+b\\(c\\)");
     }
 
+    // --- doc/43 후속 1단계: 자사 서비스 아닌 도메인 제외(접미·IP) ---
+
+    @Test
+    void excludesDomainsBySuffix() {
+        when(loki.queryInstant(any(), any())).thenReturn(List.of(
+                sample("x.cbricdns.com", "AYJ11", 100),   // 접미 일치 → 제외
+                sample("cbricdns.com", "AYJ11", 10),      // 자기자신 → 제외
+                sample("api.example.com", "AHJ11", 50)));  // 정상 → 등록
+
+        DomainDiscoveryService.DiscoveryResult r = serviceWithExcludedDomains(List.of("cbricdns.com")).discover(NOW);
+
+        assertThat(r.inserted()).isEqualTo(1);
+        assertThat(db.stream().map(DomainConfig::getHost))
+                .contains("api.example.com")
+                .doesNotContain("x.cbricdns.com", "cbricdns.com");
+    }
+
+    @Test
+    void excludesIpLiteralHostsAlways() {
+        when(loki.queryInstant(any(), any())).thenReturn(List.of(
+                sample("10.0.0.5", "AAI13", 100),          // IPv4 리터럴 → 항상 제외(접미 설정 비어도)
+                sample("api.example.com", "AHJ11", 50)));
+
+        DomainDiscoveryService.DiscoveryResult r = serviceWithExcludedDomains(List.of()).discover(NOW);
+
+        assertThat(r.inserted()).isEqualTo(1);
+        assertThat(db.stream().map(DomainConfig::getHost))
+                .contains("api.example.com").doesNotContain("10.0.0.5");
+    }
+
     // --- helpers ---
 
     private DomainDiscoveryService serviceWithProbeStatuses(List<Integer> probeStatuses) {
@@ -324,6 +354,12 @@ class DomainDiscoveryServiceTest {
     /** D62: 제외 엣지 목록을 지정한 서비스. */
     private DomainDiscoveryService serviceWithExcluded(List<String> excludedHostnames) {
         return new DomainDiscoveryService(loki, repo, new DomainUpserter(repo), props(200, excludedHostnames));
+    }
+
+    /** doc/43 후속: 제외 도메인 접미 지정 서비스. */
+    private DomainDiscoveryService serviceWithExcludedDomains(List<String> suffixes) {
+        return new DomainDiscoveryService(loki, repo, new DomainUpserter(repo),
+                props(200, List.of(), List.of(), List.of(), suffixes));
     }
 
     /** host=도메인·real_host="-"(폴백 불필요) 편의 — 기존 테스트의 "도메인=host" 의미 유지. */
@@ -369,6 +405,12 @@ class DomainDiscoveryServiceTest {
 
     private static ApiDiscoverProperties props(int maxDomains, List<String> excludedHostnames,
                                                List<Integer> probeStatuses, List<String> excludedPaths) {
+        return props(maxDomains, excludedHostnames, probeStatuses, excludedPaths, List.of());
+    }
+
+    private static ApiDiscoverProperties props(int maxDomains, List<String> excludedHostnames,
+                                               List<Integer> probeStatuses, List<String> excludedPaths,
+                                               List<String> excludedDomainSuffixes) {
         return new ApiDiscoverProperties(
                 new ApiDiscoverProperties.Loki("http://loki.local:3200", "access_log",
                         Duration.ofSeconds(30), Duration.ofMinutes(10), 2000, 2, Duration.ofMillis(1)),
@@ -376,7 +418,7 @@ class DomainDiscoveryServiceTest {
                         Duration.ofDays(7), "01:00-06:00"),
                 new ApiDiscoverProperties.Central("https://central.internal"),
                 new ApiDiscoverProperties.Discovery(true, Duration.ofMinutes(10), Duration.ofMinutes(12),
-                        Duration.ofHours(1), Duration.ofMinutes(2), maxDomains, FQDN, excludedHostnames, probeStatuses, excludedPaths),
+                        Duration.ofHours(1), Duration.ofMinutes(2), maxDomains, FQDN, excludedHostnames, probeStatuses, excludedPaths, excludedDomainSuffixes),
                 new ApiDiscoverProperties.Scan(Duration.ofMinutes(5), 100, Duration.ZERO, 0, 0L, true, Duration.ZERO, 0, false, Duration.ofMinutes(30), Duration.ofHours(2), Duration.ofHours(6), Duration.ofHours(24), 500, Duration.ofHours(24), "", Duration.ofDays(14), Duration.ofDays(1), Duration.ZERO, 0, false, Duration.ZERO));
     }
 }
