@@ -19,8 +19,15 @@
 ### 알려진 후속 (무해)
 - ★재기동 시 Hibernate ddl-auto WARN: `alter column activity_status set data type varchar not null default 'ACTIVE'` 구문오류(PG ALTER TYPE 는 제약 인라인 불가). **컬럼 이미 정상**(D82 생성)이라 스킵=무해하나 매 재기동 반복. 수정=`@Column(columnDefinition)` 제약 분리(@ColumnDefault/nullable) — 다음 재배포에 배치 권장.
 
+### 한 일 (추가) — 2단계 www+bare 병합(분석) + scan 정합 + DDL 정리
+- **www+bare 병합(분석)**: ACTIVE 10,760 FQDN → www 병합 **8,959**(www 2,721 중 bare 짝 1,801). eTLD+1 근사 서비스 ~3,714 = 실서비스 ~6k 중 활성분(나머지 조용→INACTIVE). ★"10.7k vs 6k" 은 FQDN 단위 착시로 규명 — 서비스 단위론 오히려 6k 미만. 시스템 dedup 은 미실행(분석만).
+- **scan 정합**(main `c07891e`·이미지 `7632f074c9f0` 배포·롤백 `prev-scanfix`): `analyze()` 가 `.cloudbric` 요청을 인벤토리에서 제외 → 신규 discovered_endpoint 미오염. discovery(활동)만 제외하던 불일치 해소. 569 테스트 green·health UP·discovery excludedDomain=76.
+  - 실증(1casino77.com): bare+www 는 실 페이지(`/login` 등), `call/master/pt/site` 는 `/.cloudbric/pron` 만 → 4개는 D82 로 INACTIVE 수렴.
+  - ★기존 `.cloudbric` discovered_endpoint 잔존 5,430행(5,037 host) — 단일테이블 DELETE 1회 정리 대기(FK 없음·안전).
+- **DDL 경고 정리**: `@Column(columnDefinition="varchar not null default")` → `nullable=false + @ColumnDefault`. 재기동 ALTER 경고 0건 확인.
+
 ### 다음 단계 (사용자 결정 대기)
-- 2단계 eTLD+1 실제 서비스 수 산출 / 3단계 endpoint 0 ~1,433 드릴다운.
+- `.cloudbric` 기존 endpoint 5,430행 정리(승인 시) / 3단계 endpoint 0 드릴다운 / full eTLD+1(PSL·SaaS 카운팅 규칙).
 
 ---
 
