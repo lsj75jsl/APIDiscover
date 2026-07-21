@@ -79,6 +79,8 @@ public class DiscoveryJobService {
 
     /** D62·D69: 대상 제외 엣지(정확 일치 + 'X*' 접두) — 스캔 조회에서 이 엣지 매핑을 뺀다(디스커버리 필터와 동일 목록). */
     private final EdgeExclusions excludedEdges;
+    /** D82 정합: 스캔 인벤토리에서 제외할 경로 접두(후행 '/' 제거). discovery.excluded-paths 재사용(단일 진실원). */
+    private final List<String> excludedPathPrefixes;
     /** D65: 엣지 그룹 Master 해석기 — edge-group-main-only 시 조회 엣지를 Master 로 치환. */
     private final EdgeGroupResolver edgeGroups;
 
@@ -118,6 +120,14 @@ public class DiscoveryJobService {
         this.objectMapper = objectMapper;
         this.props = props;
         this.excludedEdges = new EdgeExclusions(props.discovery().excludedHostnames());
+        // D82 정합: discovery 가 실요청에서 제외하는 경로(.cloudbric 등)는 스캔 인벤토리에서도 제외 → discovered_endpoint 미오염.
+        // 설정 접미의 후행 '/' 제거(예 "/.cloudbric/pron/" → "/.cloudbric/pron")해 rawPath(쿼리 제거 경로) 접두 매칭.
+        List<String> ep = props.discovery().excludedPaths();
+        this.excludedPathPrefixes = (ep == null) ? List.of()
+                : ep.stream()
+                        .map(p -> p.endsWith("/") ? p.substring(0, p.length() - 1) : p)
+                        .filter(s -> !s.isBlank())
+                        .toList();
         this.edgeGroups = edgeGroups;
     }
 
@@ -393,6 +403,8 @@ public class DiscoveryJobService {
         String scanDomain = DomainNames.normalize(host);
         requests = requests.stream()
                 .filter(r -> scanDomain != null && scanDomain.equals(DomainNames.normalize(r.host())))
+                // D82 정합: 실요청 제외 경로(.cloudbric 등)는 discovered_endpoint 인벤토리에서도 배제(discovery 와 일관).
+                .filter(r -> !isExcludedPath(r.rawPath(), excludedPathPrefixes))
                 .toList();
 
         // Spec 로드 — 없으면 빈 스펙(매처는 아무것도 매칭 못함 → 관찰분 전부 Shadow)
@@ -741,6 +753,19 @@ public class DiscoveryJobService {
         w.setHost(host);
         w.setLastEnd(end);
         watermarkRepo.save(w);
+    }
+
+    /** D82 정합: rawPath(쿼리 제거 경로)가 제외 접두와 일치하는지 — {@code prefix} 정확일치 또는 {@code prefix + "/"} 접두. */
+    static boolean isExcludedPath(String rawPath, List<String> prefixes) {
+        if (rawPath == null || prefixes.isEmpty()) {
+            return false;
+        }
+        for (String prefix : prefixes) {
+            if (rawPath.equals(prefix) || rawPath.startsWith(prefix + "/")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** request_id 가 있을 때만 중복 제거. id 없으면(20필드 로그 등) 정상 보존. */

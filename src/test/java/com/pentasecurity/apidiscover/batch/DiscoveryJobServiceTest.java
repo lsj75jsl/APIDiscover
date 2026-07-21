@@ -161,6 +161,19 @@ class DiscoveryJobServiceTest {
     private final LogWindow window = new LogWindow(Instant.EPOCH, Instant.EPOCH.plusSeconds(3600));
 
     @Test
+    void isExcludedPathMatchesExactAndPrefixOnly() {
+        // D82 정합: rawPath 가 제외 접두와 정확일치 또는 접두+"/" 일 때만 제외(유사 접두 오탐 방지).
+        List<String> prefixes = List.of("/.cloudbric/pron", "/.cloudbric/afc");
+        assertThat(DiscoveryJobService.isExcludedPath("/.cloudbric/pron", prefixes)).isTrue();
+        assertThat(DiscoveryJobService.isExcludedPath("/.cloudbric/pron/x", prefixes)).isTrue();
+        assertThat(DiscoveryJobService.isExcludedPath("/.cloudbric/afc", prefixes)).isTrue();
+        assertThat(DiscoveryJobService.isExcludedPath("/login", prefixes)).isFalse();
+        assertThat(DiscoveryJobService.isExcludedPath("/.cloudbric/pronx", prefixes)).isFalse(); // 유사 접두≠제외
+        assertThat(DiscoveryJobService.isExcludedPath(null, prefixes)).isFalse();
+        assertThat(DiscoveryJobService.isExcludedPath("/x", List.of())).isFalse();               // 빈=no-op
+    }
+
+    @Test
     void noSpecMakesEverythingShadow() {
         when(specStore.activeMeta(HOST)).thenReturn(Optional.empty());
         when(scanRepo.findById(HOST)).thenReturn(Optional.empty());

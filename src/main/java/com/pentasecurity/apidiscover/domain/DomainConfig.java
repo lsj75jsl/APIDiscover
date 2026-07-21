@@ -75,11 +75,14 @@ public class DomainConfig {
 
     /**
      * D82(doc/43): 활동 상태 게이트(주기 스캔 대상). {@code enabled} 과 별도 축 — "활성만 스캔"=enabled AND ACTIVE.
-     * ★{@code columnDefinition default 'ACTIVE'}: ddl-auto ADD COLUMN 시 <b>기존 행 전부 ACTIVE</b>(무회귀 — 안 그러면
-     * NULL≠ACTIVE 로 전 도메인 스캔 중단). 배포 후 첫 discovery sweep 이 무접속분을 INACTIVE 로 수렴(D79 boolean default 패턴 동형).
+     * ★{@code @ColumnDefault('ACTIVE') + nullable=false}: ddl-auto ADD COLUMN 시 <b>기존 행 전부 ACTIVE</b>(무회귀 — 안 그러면
+     * NULL≠ACTIVE 로 전 도메인 스캔 중단). 배포 후 첫 discovery sweep 이 무접속분을 INACTIVE 로 수렴.
+     * ★columnDefinition 미사용: "varchar not null default"를 넣으면 ddl-auto update 가 매 재기동 {@code ALTER COLUMN SET DATA TYPE}
+     * 로 재적용 시도 → PG 는 ALTER TYPE 에 제약 인라인 불가라 구문오류 WARN 반복. 제약을 애너테이션으로 분리해 회피(컬럼 이미 정상).
      */
     @Enumerated(EnumType.STRING)
-    @Column(name = "activity_status", columnDefinition = "varchar not null default 'ACTIVE'")
+    @Column(name = "activity_status", nullable = false)
+    @org.hibernate.annotations.ColumnDefault("'ACTIVE'")
     private ActivityStatus activityStatus = ActivityStatus.ACTIVE;
 
     /** 마지막 활동상태 전이 시각(감사·중앙연동용, doc/43 §4.3). flip 시에만 갱신. null=전이 이력 없음. */
