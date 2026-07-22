@@ -99,7 +99,7 @@
     <li><a href="#s2">엔드포인트 상세 (사용법 · 실제 응답)</a>
       <ol>
         <li><a href="#s2-1">도메인 인벤토리 — <code>/domains</code></a></li>
-        <li><a href="#s2-2">스캔 상태 · 결과 · 즉시 스캔 — <code>/scan-status</code> · <code>/result</code> · <code>/scan</code> · <code>/scan-now</code></a></li>
+        <li><a href="#s2-2">스캔 상태 · 결과 · 즉시 스캔 — <code>/scan-result</code> · <code>/scan-result/detail</code> · <code>/scan</code> · <code>/scan-now</code></a></li>
         <li><a href="#s2-3">결합 디스커버리(판단 근거) — <code>/discovery</code></a></li>
         <li><a href="#s2-4">스펙 · API 인벤토리 — <code>/spec</code> · <code>/spec/apis</code></a></li>
         <li><a href="#s2-5">분류 설정 · 가중치 편집 — <code>/classification</code></a></li>
@@ -127,8 +127,8 @@
     <tr><td><span class="m m-get">GET</span></td><td><code>/domains/{host}</code></td><td>도메인 상세(설정 + effective + spec)</td><td>DB</td></tr>
     <tr><td><span class="m m-put">PUT</span></td><td><code>/domains/{host}</code></td><td>도메인 설정 부분수정</td><td>DB</td></tr>
     <tr><td><span class="m m-del">DELETE</span></td><td><code>/domains/{host}</code></td><td>도메인 삭제(204)</td><td>DB</td></tr>
-    <tr><td><span class="m m-get">GET</span></td><td><code>/domains/{host}/scan-status</code></td><td>최신 스캔 상태·요약(+latestSpec)</td><td>DB</td></tr>
-    <tr><td><span class="m m-get">GET</span></td><td><code>/domains/{host}/result</code></td><td>전체 리포트(+rationale · 조건부 GET)</td><td>DB</td></tr>
+    <tr><td><span class="m m-get">GET</span></td><td><code>/domains/{host}/scan-result</code></td><td>최신 스캔 상태·요약(+latestSpec·유형별 API 목록)</td><td>DB</td></tr>
+    <tr><td><span class="m m-get">GET</span></td><td><code>/domains/{host}/scan-result/detail</code></td><td>전체 리포트(+판단근거 인라인 · 조건부 GET)</td><td>DB</td></tr>
     <tr><td><span class="m m-post">POST</span></td><td><code>/domains/{host}/scan</code></td><td>온디맨드 재스캔(비동기 202)</td><td><span class="loki">⚠️ Loki</span></td></tr>
     <tr><td><span class="m m-post">POST</span></td><td><code>/domains/{host}/scan-now</code></td><td>즉시 동기 스캔(결과 반환)</td><td><span class="loki">⚠️ Loki</span></td></tr>
     <tr><td><span class="m m-get">GET</span></td><td><code>/domains/{host}/discovery</code></td><td>결합 디스커버리 + 판단 근거</td><td>DB</td></tr>
@@ -252,12 +252,12 @@ curl -X DELETE http://&lt;host&gt;:8080/api/v1/domains/api.weble.net   # → 204
 </div>
 
 <!-- ===== 2.2 ===== -->
-<h3 id="s2-2">2.2 스캔 상태 · 결과 · 즉시 스캔 — <code>/scan-status</code> · <code>/result</code> · <code>/scan</code> · <code>/scan-now</code></h3>
+<h3 id="s2-2">2.2 스캔 상태 · 결과 · 즉시 스캔 — <code>/scan-result</code> · <code>/scan-result/detail</code> · <code>/scan</code> · <code>/scan-now</code></h3>
 
 <div class="ep">
-  <div class="sig"><span class="m m-get">GET</span><code>/api/v1/domains/{host}/scan-status</code></div>
-  <p>가벼운 상태 메타. 중앙 서버가 <code>version</code>·<code>lastScanAt</code> 만 비교해 결과 재조회 여부를 결정한다. <code>latestSpec</code> 은 최근 업로드된 활성 스펙 요약(파일명·업로드 일시·파일에서 추출한 API 수)이며 스펙이 없으면 null. <code>summary</code> 카운트 의미는 <a href="#s2-3">§2.3</a>·DB 스키마 매뉴얼 참조.</p>
-  <pre><code>curl http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/scan-status</code></pre>
+  <div class="sig"><span class="m m-get">GET</span><code>/api/v1/domains/{host}/scan-result</code></div>
+  <p>상태 메타 + <strong>유형별 API 목록</strong>. 중앙 서버가 <code>version</code>·<code>lastScanAt</code> 만 비교해 결과 재조회 여부를 결정한다. <code>latestSpec</code> 은 최근 업로드된 활성 스펙 요약(파일명·업로드 일시·파일에서 추출한 API 수)이며 스펙이 없으면 null. <code>apis</code> 는 이번 스캔 리포트의 finding 을 유형별로 나열한 목록(아래)이다. <code>summary</code> 카운트 의미는 <a href="#s2-3">§2.3</a>·DB 스키마 매뉴얼 참조.</p>
+  <pre><code>curl http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/scan-result</code></pre>
   <pre><code>{
   "host":"api.weble.net",
   "state":"idle",
@@ -265,7 +265,14 @@ curl -X DELETE http://&lt;host&gt;:8080/api/v1/domains/api.weble.net   # → 204
   "version":"829bfa4c628a7ede",
   "summary":{"discovered":162,"active":0,"shadow":153,"zombie":0,"unused":0},
   "totalDropped":9,
-  "latestSpec":null
+  "latestSpec":null,
+  "apis":{
+    "discovered":["GET [https://api.weble.net/stats]", "..."],
+    "active":[],
+    "shadow":["GET [https://api.weble.net/stats]", "..."],
+    "zombie":[],
+    "unused":[]
+  }
 }</code></pre>
   <p><strong>응답 키</strong></p>
   <table>
@@ -274,20 +281,22 @@ curl -X DELETE http://&lt;host&gt;:8080/api/v1/domains/api.weble.net   # → 204
       <tr><td><code>host</code></td><td>string</td><td>도메인.</td></tr>
       <tr><td><code>state</code></td><td>string</td><td>스캔 상태 — <code>idle</code>(대기) 등. 진행 상태 메타.</td></tr>
       <tr><td><code>lastScanAt</code></td><td>string(ISO-8601)|null</td><td>마지막 스캔 완료 시각. 중앙 서버가 재조회 여부 판단에 사용.</td></tr>
-      <tr><td><code>version</code></td><td>string</td><td>결과 콘텐츠 해시 = <code>/result</code> 의 <code>ETag</code>. <code>If-None-Match</code> 로 조건부 GET(<a href="#s3">§3</a>).</td></tr>
+      <tr><td><code>version</code></td><td>string</td><td>결과 콘텐츠 해시 = <code>/scan-result/detail</code> 의 <code>ETag</code>. <code>If-None-Match</code> 로 조건부 GET(<a href="#s3">§3</a>).</td></tr>
       <tr><td><code>summary</code></td><td>object</td><td>분류 카운트 — <code>discovered</code>(OPTIONS 제외 관측 시그니처 수)·<code>active</code>·<code>shadow</code>·<code>zombie</code>·<code>unused</code>.</td></tr>
-      <tr><td><code>totalDropped</code></td><td>number</td><td>비-API 로 버려진 총 건수(<code>/result</code> 의 <code>droppedNonApi.total</code> 등 합).</td></tr>
+      <tr><td><code>totalDropped</code></td><td>number</td><td>비-API 로 버려진 총 건수(<code>/scan-result/detail</code> 의 <code>droppedNonApi.total</code> 등 합).</td></tr>
       <tr><td><code>latestSpec</code></td><td>object|null</td><td>최근 업로드된 활성 스펙 요약 — <code>{filename, uploadedAt, endpointCount}</code>. 스펙 없으면 null.</td></tr>
+      <tr><td><code>apis</code></td><td>object</td><td>유형별 API 목록 — <code>{discovered, active, shadow, zombie, unused}</code>, 각 값은 <code>"METHOD [https://host/pathTemplate]"</code> 문자열 배열. <code>discovered</code>=전체 finding, 나머지=분류별. 이번 스캔 리포트(per-scan) 기준이라 <code>summary</code> 카운트와 동일 집합. 미스캔이면 전부 빈 배열.</td></tr>
     </tbody>
   </table>
   <p class="legend"><code>latestSpec</code> 보유 예: <code>{"filename":"petstore-v1.json","uploadedAt":"2026-06-29T07:35:40.406366Z","endpointCount":2}</code>. <code>api.weble.net</code> 은 스펙 미업로드라 null.</p>
+  <p class="legend"><code>apis</code> 의 URL scheme 은 로그에 저장되지 않아 <code>https</code> 로 고정 표기한다(WAAP API 트래픽 전제). 분류(<code>shadow</code>/<code>active</code>/…)는 <code>/scan-result/detail</code> 과 동일하게 조회 시점 현재 설정으로 산출된다.</p>
 </div>
 
 <div class="ep">
-  <div class="sig"><span class="m m-get">GET</span><code>/api/v1/domains/{host}/result</code></div>
-  <p>스캔 전체 리포트(<code>DiscoveryReport</code> JSON). <strong>조건부 GET 대상</strong> — <code>ETag</code> 응답 헤더에 <code>version</code> 이 실린다(<a href="#s3">§3</a>). 아직 완료된 스캔이 없으면 <code>204 No Content</code>. <strong>200 응답에는 판단 근거가 각 finding 에 인라인</strong>된다 — 매칭되는 <code>findings[i]</code> 마다 <code>classification</code>·<code>basis</code>(<a href="#s2-3">§2.3</a> 의 <code>/discovery</code> rationale 와 동일 shape)가 가산된다(별도 top-level <code>rationale[]</code> 배열은 없다). 기존 <code>report_json</code> 필드는 불변이라 중앙 조건부 GET 은 깨지지 않는다.</p>
-  <pre><code>curl -i http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/result</code></pre>
-  <p>응답 본문 상위 키와 핵심 부분(트림). 각 finding 에 <code>classification</code>·<code>basis</code> 가 가산된다.</p>
+  <div class="sig"><span class="m m-get">GET</span><code>/api/v1/domains/{host}/scan-result/detail</code></div>
+  <p>스캔 전체 리포트(<code>DiscoveryReport</code> JSON). <strong>조건부 GET 대상</strong> — <code>ETag</code> 응답 헤더에 <code>version</code> 이 실린다(<a href="#s3">§3</a>). 아직 완료된 스캔이 없으면 <code>204 No Content</code>. <strong>200 응답에는 판단 근거가 각 finding 에 인라인</strong>된다 — 매칭되는 <code>findings[i]</code> 마다 <code>classification</code>·<code>basis</code>(<a href="#s2-3">§2.3</a> 의 <code>/discovery</code> rationale 와 동일 shape)가 가산되고, <code>reason</code> 은 <code>classification</code> 뒤로 재배치된다(별도 top-level <code>rationale[]</code> 배열은 없다). 기존 <code>report_json</code> 필드 값은 불변이라 중앙 조건부 GET 은 깨지지 않는다.</p>
+  <pre><code>curl -i http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/scan-result/detail</code></pre>
+  <p>응답 본문 상위 키와 핵심 부분(트림). 각 finding 에 <code>classification</code>·<code>reason</code>·<code>basis</code> 가 <code>classification</code> 뒤 순서로 정렬된다.</p>
   <pre><code>{
   "host":"api.weble.net",
   "generatedAt":"2026-06-29T05:00:37.105714556Z",
@@ -296,10 +305,11 @@ curl -X DELETE http://&lt;host&gt;:8080/api/v1/domains/api.weble.net   # → 204
   "summary":{"discovered":162,"active":0,"shadow":153,"zombie":0,"unused":0,"lowConfidence":0},
   "findings":[
     { "host":"api.weble.net", "method":"GET", "pathTemplate":"/stats",
-      "confidence":0.9, "reason":"트래픽 존재, 문서 내 매칭 템플릿 없음",
+      "confidence":0.9,
       "params":{ "query":[], "path":[] },
       "low_confidence":false,
       "classification":"SHADOW",
+      "reason":"트래픽 존재, 문서 내 매칭 템플릿 없음",
       "basis":{ /* §2.3 ②의 basis 와 동일 구조: type·mode·gate·apiScore·threshold·signals(전체) */ } }
     /* 총 153건(Shadow) — 매칭되는 각 건에 classification·basis 가산 */
   ],
@@ -336,10 +346,10 @@ curl -X DELETE http://&lt;host&gt;:8080/api/v1/domains/api.weble.net   # → 204
     <tbody>
       <tr><td><code>host</code>·<code>method</code>·<code>pathTemplate</code></td><td>string</td><td>엔드포인트 identity(정규화 경로 템플릿).</td></tr>
       <tr><td><code>confidence</code></td><td>number[0,1]</td><td>실재성 신뢰도(Shadow/Zombie). <strong>점수(apiScore)와 별개</strong> — 관측 견고성.</td></tr>
-      <tr><td><code>reason</code></td><td>string</td><td>분류 사유(사람 읽기용 요약).</td></tr>
       <tr><td><code>params</code></td><td>object</td><td>관측 파라미터 후보 — <code>{query[], path[]}</code>(이름·길이버킷만, 값 미수집).</td></tr>
       <tr><td><code>low_confidence</code></td><td>boolean</td><td>저신뢰(<code>confidence&lt;0.5</code>) 표시.</td></tr>
       <tr><td><code>classification</code></td><td>string</td><td><code>SHADOW</code>/<code>ACTIVE</code>/<code>ZOMBIE</code>/<code>UNUSED</code>(인라인 가산).</td></tr>
+      <tr><td><code>reason</code></td><td>string</td><td>분류 사유(사람 읽기용 요약). <code>classification</code> 뒤 순서로 배치.</td></tr>
       <tr><td><code>basis</code></td><td>object</td><td>판단 근거 — 분류별 구조가 다름(<a href="#s2-3">§2.3 ②·③</a>). Shadow=<code>score</code>(신호·게이트), Active/Zombie=<code>spec_match</code>.</td></tr>
     </tbody>
   </table>
@@ -349,7 +359,7 @@ curl -X DELETE http://&lt;host&gt;:8080/api/v1/domains/api.weble.net   # → 204
 
 <div class="ep">
   <div class="sig"><span class="m m-post">POST</span><code>/api/v1/domains/{host}/scan</code> <span class="loki">⚠️ Loki</span></div>
-  <p>온디맨드 재스캔 트리거(<strong>비동기</strong>). <strong>운영 Loki 를 호출</strong>하므로 남발 금지. 즉시 <code>202 Accepted</code> 만 반환하고 결과는 따로 <code>/scan-status</code>·<code>/result</code> 로 조회한다(<a href="#s5">비동기 큐잉은 TODO</a>). 즉시 결과가 필요하면 아래 <code>/scan-now</code>. ★수동 스캔은 <code>activity_status</code> 를 <strong>ACTIVE 로 승격</strong>(무접속 INACTIVE 였어도 주기 스캔 대상 재포함, <a class="dref" href="#d82">D82</a>)하고 <code>ghost_suppressed</code> 를 <strong>해제</strong>(유령 억제 복구, <a class="dref" href="#d83">D83</a>)한다(<code>markActive</code>).</p>
+  <p>온디맨드 재스캔 트리거(<strong>비동기</strong>). <strong>운영 Loki 를 호출</strong>하므로 남발 금지. 즉시 <code>202 Accepted</code> 만 반환하고 결과는 따로 <code>/scan-result</code>·<code>/scan-result/detail</code> 로 조회한다(<a href="#s5">비동기 큐잉은 TODO</a>). 즉시 결과가 필요하면 아래 <code>/scan-now</code>. ★수동 스캔은 <code>activity_status</code> 를 <strong>ACTIVE 로 승격</strong>(무접속 INACTIVE 였어도 주기 스캔 대상 재포함, <a class="dref" href="#d82">D82</a>)하고 <code>ghost_suppressed</code> 를 <strong>해제</strong>(유령 억제 복구, <a class="dref" href="#d83">D83</a>)한다(<code>markActive</code>).</p>
   <pre><code>curl -i -X POST http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/scan   # → 202 Accepted</code></pre>
 </div>
 
@@ -458,7 +468,7 @@ curl -X DELETE http://&lt;host&gt;:8080/api/v1/domains/api.weble.net   # → 204
 <!-- ===== 2.4 ===== -->
 <h3 id="s2-4">2.4 스펙 · API 인벤토리 — <code>/api/v1/domains/{host}/spec</code> · <code>/spec/apis</code></h3>
 
-<p class="legend">문서화 API 인벤토리는 <strong>스펙 리소스 아래</strong>에 둔다 — <code>GET /spec</code>=업로드된 문서 목록, <code>GET /spec/apis</code>=그 문서들에서 파싱한 API. 관측 트래픽 기반 발견(discovery) 결과(<a href="#s2-2"><code>/result</code></a>·<a href="#s2-3"><code>/discovery</code></a>)와는 구분된다.</p>
+<p class="legend">문서화 API 인벤토리는 <strong>스펙 리소스 아래</strong>에 둔다 — <code>GET /spec</code>=업로드된 문서 목록, <code>GET /spec/apis</code>=그 문서들에서 파싱한 API. 관측 트래픽 기반 발견(discovery) 결과(<a href="#s2-2"><code>/scan-result/detail</code></a>·<a href="#s2-3"><code>/discovery</code></a>)와는 구분된다.</p>
 
 <div class="ep">
   <div class="sig"><span class="m m-put">PUT</span><code>/api/v1/domains/{host}/spec</code> &nbsp;·&nbsp; <span class="m m-get">GET</span><code>/api/v1/domains/{host}/spec</code></div>
@@ -624,7 +634,7 @@ curl http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/spec   # → [] (200)
 
   <div class="callout danger">
     <span class="ct">★ DELETED → Zombie 탐지</span>
-    인벤토리에서 <code>status=DELETED</code> 인 API(문서에서 제거됨)가 <strong>여전히 트래픽이 관측되면</strong> deleted-from-spec <strong>Zombie</strong>(confidence <strong>0.8</strong>)로 분류된다(<a href="#s2-3">§2.3</a> <code>/discovery</code>·<code>/result</code> rationale 의 <code>spec_match</code>·<code>specRef:"deleted-from-spec"</code>). 문서 안에 폐기예정으로 표기된 <code>deprecated</code> Zombie(confidence <strong>1.0</strong>)와는 구분된다 — <strong>deprecated</strong>=문서에 폐기예정 표기, <strong>DELETED</strong>=문서에서 아예 제거. 둘 다 Zombie 계열(차단·마이그레이션 검토 대상)이다. 이 인벤토리 결합 전에는 DELETED API 가 <strong>SHADOW 로 오분류</strong>됐다.
+    인벤토리에서 <code>status=DELETED</code> 인 API(문서에서 제거됨)가 <strong>여전히 트래픽이 관측되면</strong> deleted-from-spec <strong>Zombie</strong>(confidence <strong>0.8</strong>)로 분류된다(<a href="#s2-3">§2.3</a> <code>/discovery</code>·<code>/scan-result/detail</code> rationale 의 <code>spec_match</code>·<code>specRef:"deleted-from-spec"</code>). 문서 안에 폐기예정으로 표기된 <code>deprecated</code> Zombie(confidence <strong>1.0</strong>)와는 구분된다 — <strong>deprecated</strong>=문서에 폐기예정 표기, <strong>DELETED</strong>=문서에서 아예 제거. 둘 다 Zombie 계열(차단·마이그레이션 검토 대상)이다. 이 인벤토리 결합 전에는 DELETED API 가 <strong>SHADOW 로 오분류</strong>됐다.
   </div>
 </div>
 
@@ -797,16 +807,16 @@ curl -X DELETE http://&lt;host&gt;:8080/api/v1/config/static-classify/NAME_TOKEN
 
 <!-- ============================================================ -->
 <h2 id="s3">3. 조건부 GET (ETag) — 304 실증</h2>
-<p>중앙 서버는 변경이 없을 때 큰 리포트 본문을 다시 받지 않도록 <strong>조건부 GET</strong> 을 쓴다. <code>/scan-status</code> 의 <code>version</code> 을 <code>If-None-Match</code> 헤더에 담아 <code>/result</code> 에 보내면, 결과가 그대로면 <code>304 Not Modified</code>(본문 없음)가 온다.</p>
+<p>중앙 서버는 변경이 없을 때 큰 리포트 본문을 다시 받지 않도록 <strong>조건부 GET</strong> 을 쓴다. <code>/scan-result</code> 의 <code>version</code> 을 <code>If-None-Match</code> 헤더에 담아 <code>/scan-result/detail</code> 에 보내면, 결과가 그대로면 <code>304 Not Modified</code>(본문 없음)가 온다.</p>
 <pre><code># 1) version 확인
-curl -s http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/scan-status | grep version
+curl -s http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/scan-result | grep version
 #   "version":"829bfa4c628a7ede"
 
-# 2) 그 version 을 If-None-Match 로 result 에 — 변경 없으면 304
+# 2) 그 version 을 If-None-Match 로 detail 에 — 변경 없으면 304
 curl -i -H 'If-None-Match: "829bfa4c628a7ede"' \
-  http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/result
+  http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/scan-result/detail
 #   HTTP/1.1 304 Not Modified   ← 실측 확인됨 (본문 재전송 회피)</code></pre>
-<p class="legend">ETag 값은 따옴표를 포함한다(<code>"829bfa4c628a7ede"</code>). version 이 달라지면(=새 스캔으로 결과 갱신) <code>200 OK</code> + 새 본문 + 새 <code>ETag</code> 가 온다. <code>/result</code>·<code>/scan-status</code> 의 <code>version</code> 은 동일 ETag 다.</p>
+<p class="legend">ETag 값은 따옴표를 포함한다(<code>"829bfa4c628a7ede"</code>). version 이 달라지면(=새 스캔으로 결과 갱신) <code>200 OK</code> + 새 본문 + 새 <code>ETag</code> 가 온다. <code>/scan-result/detail</code>·<code>/scan-result</code> 의 <code>version</code> 은 동일 ETag 다.</p>
 
 <!-- ============================================================ -->
 <h2 id="s4">4. 현재 제약사항</h2>
@@ -817,9 +827,9 @@ curl -i -H 'If-None-Match: "829bfa4c628a7ede"' \
     <tr><td><strong>네트워크</strong></td><td>외부 접근 차단 상태</td><td>VM 방화벽이 8080 미개방(열림: 5432/9100/9443) → 현재 VM 내부(localhost)에서만. 외부 노출 시 위 무인증과 함께 고려.</td></tr>
     <tr><td><strong>목록</strong></td><td><code>GET /domains</code> 는 <strong>페이지네이션 필수</strong>(전체 45,592건)</td><td>전건 일괄 반환은 폐지. 목록의 spec 조회는 페이지당(≤1000) N+1 이 남아 있다(<a href="#s5">배치 로드 후속</a>).</td></tr>
     <tr><td><strong>Breaking</strong></td><td><code>GET /spec</code> 응답이 <strong>단일 객체/404 → 배열/<code>[]</code>/200</strong> 으로 변경(M6)</td><td>기존 소비자는 배열 처리로 수정 필요.</td></tr>
-    <tr><td><strong>재계산</strong></td><td><code>/discovery</code>·<code>/classification</code> 의 effective·rationale, <code>/result</code> 가산 rationale 은 <strong>조회 시점</strong> 현재 설정으로 재계산</td><td>스캔 당시 값이 아니다. preset 을 바꾸면 즉시 반영(과거 점수 재현 아님).</td></tr>
-    <tr><td><strong>카탈로그 vs 스캔</strong></td><td><code>/discovery</code> 의 findings·rationale 는 누적 검출 카탈로그(<code>discovered_endpoint</code>) 기반</td><td>특정 스캔 윈도우의 <code>/scan-status</code>·<code>/result</code> 수치와 다를 수 있다(예: discovery 194 vs scan-status shadow 153).</td></tr>
-    <tr><td><strong>결과 보관</strong></td><td><code>/result</code> 리포트는 도메인당 <strong>최신 1건만</strong> 보관(덮어쓰기)</td><td>과거 이력 없음.</td></tr>
+    <tr><td><strong>재계산</strong></td><td><code>/discovery</code>·<code>/classification</code> 의 effective·rationale, <code>/scan-result/detail</code>·<code>/scan-result</code> 의 가산 rationale·<code>apis</code> 분류는 <strong>조회 시점</strong> 현재 설정으로 재계산</td><td>스캔 당시 값이 아니다. preset 을 바꾸면 즉시 반영(과거 점수 재현 아님).</td></tr>
+    <tr><td><strong>카탈로그 vs 스캔</strong></td><td><code>/discovery</code> 의 findings·rationale 는 누적 검출 카탈로그(<code>discovered_endpoint</code>) 기반</td><td>특정 스캔 윈도우의 <code>/scan-result</code>·<code>/scan-result/detail</code> 수치와 다를 수 있다(예: discovery 194 vs scan-result shadow 153).</td></tr>
+    <tr><td><strong>결과 보관</strong></td><td><code>/scan-result/detail</code> 리포트는 도메인당 <strong>최신 1건만</strong> 보관(덮어쓰기)</td><td>과거 이력 없음.</td></tr>
     <tr><td><strong>Loki 부하</strong></td><td><code>POST /scan</code>(비동기)·<code>POST /scan-now</code>(동기) 만 운영 Loki 호출</td><td>남발 금지(부하보호). <code>scan-now</code> 는 동기라 busy 도메인에서 응답 지연 — <code>window</code> 작게. 나머지는 DB-only.</td></tr>
     <tr><td><strong>dropped</strong></td><td>비-API 로 drop 된 엔드포인트는 findings·rationale 에 <strong>없음</strong></td><td>집계 <code>droppedNonApi</code> 만 제공.</td></tr>
     <tr><td><strong>breaking 판정</strong></td><td>type 비교가 <strong>요약 수준</strong>(호환 허용표 = <code>integer→number</code> 등 최소)</td><td>enum 값집합·format·nested object 깊이 비교는 범위 밖 → 일부 호환 변경을 보수적으로 <strong>breaking 과판정</strong>할 수 있다(후속 정밀화).</td></tr>
