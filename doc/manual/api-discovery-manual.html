@@ -177,10 +177,10 @@
 <table>
   <thead><tr><th>구분</th><th>정의</th><th>집합식</th></tr></thead>
   <tbody>
-    <tr><td><span class="pill" style="background:var(--red-soft);color:var(--red)">Shadow</span></td><td>트래픽엔 있는데 문서엔 없는 API (그림자 API)</td><td><code>D \ S</code></td></tr>
-    <tr><td><span class="pill" style="background:var(--amber-soft);color:var(--amber)">Zombie</span></td><td>문서상 deprecated(또는 구버전)인데 트래픽이 계속 도는 API</td><td><code>S_deprecated ∩ D</code></td></tr>
-    <tr><td><span class="pill" style="background:var(--green-soft);color:var(--green)">Active</span></td><td>문서에 있고(미deprecated) 트래픽도 정상인 API</td><td><code>S ∩ D</code></td></tr>
-    <tr><td><span class="pill" style="background:#eef2f7;color:#334">Unused</span></td><td>문서엔 있으나 트래픽이 관측되지 않은 API</td><td><code>S \ D</code></td></tr>
+    <tr><td><span class="pill" style="background:var(--red-soft);color:var(--red)">Shadow</span></td><td>트래픽엔 있는데 문서엔 없는 API (그림자 API)</td><td><code>D \ S</code> — 차집합: D 에서 S 를 뺀 것(관측됐지만 문서엔 없음)</td></tr>
+    <tr><td><span class="pill" style="background:var(--amber-soft);color:var(--amber)">Zombie</span></td><td>문서상 deprecated(또는 구버전)인데 트래픽이 계속 도는 API</td><td><code>S_deprecated ∩ D</code> — 교집합: 문서의 deprecated 분이면서 관측도 됨</td></tr>
+    <tr><td><span class="pill" style="background:var(--green-soft);color:var(--green)">Active</span></td><td>문서에 있고(미deprecated) 트래픽도 정상인 API</td><td><code>S ∩ D</code> — 교집합: 문서에도 있고 관측도 됨</td></tr>
+    <tr><td><span class="pill" style="background:#eef2f7;color:#334">Unused</span></td><td>문서엔 있으나 트래픽이 관측되지 않은 API</td><td><code>S \ D</code> — 차집합: S 에서 D 를 뺀 것(문서엔 있지만 미관측)</td></tr>
   </tbody>
 </table>
 <p class="legend">D = 로그에서 관측된 엔드포인트 집합(Discovered), S = 스펙 문서의 엔드포인트 집합(Spec).</p>
