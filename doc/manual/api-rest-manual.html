@@ -308,7 +308,7 @@ curl -X DELETE http://&lt;host&gt;:8080/api/v1/domains/api.weble.net   # → 204
 }</code></pre>
 
   <h4>② 엔드포인트별 판단 근거 — <code>rationale[]</code> (findings 와 병렬)</h4>
-  <p><code>rationale[i]</code> 는 <code>findings[i]</code> 와 동일 순서·동일 identity(method·host·pathTemplate)다. 아래는 점수로 판정된 <strong>Shadow</strong> 의 실제 근거다(<code>api.weble.net</code>, findings·rationale 각 194건). <code>pathless</code> 모드라 평가 신호는 13개다(<code>pathHint</code> 는 explicit-hint 모드 전용=14번째 가중치, pathless 에선 미평가). 미발화 신호도 모두 포함된다(<code>fired:false</code>·<code>contribution:0.0</code>).</p>
+  <p><code>rationale[i]</code> 는 <code>findings[i]</code> 와 동일 순서·동일 identity(method·host·pathTemplate)다. 아래는 점수로 판정된 <strong>Shadow</strong> 의 실제 근거다(<code>api.weble.net</code>, findings·rationale 각 194건). <code>pathless</code> 모드라 평가 신호는 13개다(<code>pathHint</code> 는 explicit-hint 모드 전용=14번째 가중치, pathless 에선 미평가). 미작동 신호도 모두 포함된다(<code>fired:false</code>·<code>contribution:0.0</code>).</p>
   <pre><code>{
   "method":"POST", "host":"api.weble.net", "pathTemplate":"/clips",
   "classification":"SHADOW",
@@ -333,7 +333,7 @@ curl -X DELETE http://&lt;host&gt;:8080/api/v1/domains/api.weble.net   # → 204
 }</code></pre>
   <div class="callout note">
     <span class="ct">읽는 법 — 위 예시</span>
-    발화 신호 기여 합 <code>0.4 + 0.3 + 0.34 = 1.04</code> → <code>[0,1]</code> clamp = <strong><code>apiScore</code> 1.0</strong> ≥ <code>threshold</code> 0.7 → <code>gate</code> <strong>ADMIT</strong>(API 로 확정 → 스펙에 없으므로 Shadow). 위 예에서 발화한 신호는 <code>hostApiSubdomain</code>·<code>corsPreflight</code>·<code>writeMethod</code> 3개이고 나머지 10개는 미발화(<code>contribution</code> 0.0)다. <code>mode:"pathless"</code> 는 내장 path-shape 모드(operator 힌트 미설정). <code>contribution</code> 을 전부 더하면 <code>apiScore</code> 가 된다.
+    작동 신호 기여 합 <code>0.4 + 0.3 + 0.34 = 1.04</code> → <code>[0,1]</code> clamp = <strong><code>apiScore</code> 1.0</strong> ≥ <code>threshold</code> 0.7 → <code>gate</code> <strong>ADMIT</strong>(API 로 확정 → 스펙에 없으므로 Shadow). 위 예에서 작동한 신호는 <code>hostApiSubdomain</code>·<code>corsPreflight</code>·<code>writeMethod</code> 3개이고 나머지 10개는 미작동(<code>contribution</code> 0.0)다. <code>mode:"pathless"</code> 는 내장 path-shape 모드(operator 힌트 미설정). <code>contribution</code> 을 전부 더하면 <code>apiScore</code> 가 된다.
   </div>
 
   <h4>③ 분류별 근거가 다르다 — <code>basis.type</code></h4>
@@ -506,7 +506,7 @@ curl http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/spec   # → [] (200)
   },
   "descriptions":{
     "threshold":{ "ko":"API 판정 점수 임계 — 점수 ≥ 이면 API 후보(미만은 비-API)", "en":"Score cutoff for API admission — score ≥ threshold ⇒ API candidate" },
-    "repeatMinCount":{ "ko":"repeatBonus 발화 최소 반복 횟수 (override 불가)", "en":"Min repeat count to fire repeatBonus (not overridable)" },
+    "repeatMinCount":{ "ko":"repeatBonus 작동 최소 반복 횟수 (override 불가)", "en":"Min repeat count to fire repeatBonus (not overridable)" },
     "graphqlSegment":{ "ko":"경로에 graphql/rpc/jsonrpc 세그먼트", "en":"Path contains a graphql/rpc/jsonrpc segment" }
   }
 }</code></pre>
@@ -518,7 +518,7 @@ curl http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/spec   # → [] (200)
   <thead><tr><th>필드</th><th>의미</th><th>적용 방식</th></tr></thead>
   <tbody>
     <tr><td><code>thresholdOverride</code></td><td>API 점수 게이트 임계값(<code>[0,1]</code>) 교체. Shadow(미문서) 후보가 이 값 이상이면 API 로 ADMIT.</td><td>미설정(null)=preset 기본(MIDDLE 0.70 · HIGH 0.85 · LOW 0.55) 상속. <strong>전 프로파일에서</strong> 설정 가능.</td></tr>
-    <tr><td><code>customWeights</code></td><td>14개 신호 가중치 override map. 설정된 키만 교체·나머지는 베이스. 점수 = 발화 신호 가중치 합(clamp<code>[0,1]</code>).</td><td><strong><code>profile=CUSTOM</code> 한정</strong>. unknown 키·비유한 값은 <code>400</code> 거부(<code>WEIGHT_KEYS</code> 14개만 허용).</td></tr>
+    <tr><td><code>customWeights</code></td><td>14개 신호 가중치 override map. 설정된 키만 교체·나머지는 베이스. 점수 = 작동 신호 가중치 합(clamp<code>[0,1]</code>).</td><td><strong><code>profile=CUSTOM</code> 한정</strong>. unknown 키·비유한 값은 <code>400</code> 거부(<code>WEIGHT_KEYS</code> 14개만 허용).</td></tr>
     <tr><td><code>matcher</code></td><td>매칭/힌트 — api 힌트(경로 직접 선언 시 임계 무관 <strong>강제 ADMIT</strong>)·<code>exclude</code>(게이트 최우선 제외)·<code>includeWebForms</code>(write-method web-form 억제 on/off).</td><td>explicit-hint 모드면 내장 path-shape 신호를 끄고 선언 경로만 <code>pathHint</code> 로 가산.</td></tr>
   </tbody>
 </table>

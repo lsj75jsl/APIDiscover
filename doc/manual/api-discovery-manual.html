@@ -324,13 +324,13 @@ for (int attempt = 0; attempt &lt; MAX_ATTEMPTS; attempt++) {   // MAX_ATTEMPTS 
 
 <details>
   <summary>참고 — 전체 필드 정의 (코어 24필드, 인덱스 0~23) 펼치기</summary>
-  <p class="legend">✅ 소비 = 파서가 실제로 읽는 위치(정확한 위치 필수) · ⬚ 자리 = 안 읽지만 뒤 필드 인덱스를 맞추려 자리를 차지. 8.3 확장 필드(24~30)는 <a href="#s8-4">§8.4</a> 참조.</p>
+  <p class="legend">✅ 소비 = 파서가 실제로 읽는 필드(위치가 정확해야 함) · ⬚ 미사용 = 파서가 읽지 않는 필드. 그중 <strong>'자리 채움'</strong>으로 표시한 것은 값이 무의미해도 <strong>뒤 필드의 인덱스 번호를 맞추려 자리만 차지</strong>하는 필드라, 빼면 그 뒤 필드의 인덱스가 한 칸씩 밀린다(지우면 안 됨). 8.3 확장 필드(24~30)는 <a href="#s8-4">§8.4</a> 참조.</p>
   <table>
     <thead><tr><th>idx</th><th>nginx 변수</th><th>파서</th><th>APIDiscover 용도</th></tr></thead>
     <tbody>
       <tr><td>0</td><td><code>$http_client_real_ip</code></td><td>✅</td><td>client_ip(우선)</td></tr>
       <tr><td>1</td><td><code>$remote_addr</code></td><td>✅</td><td>client_ip(fallback)</td></tr>
-      <tr><td>2</td><td><code>$remote_port</code></td><td>⬚</td><td>(미사용·자리)</td></tr>
+      <tr><td>2</td><td><code>$remote_port</code></td><td>⬚</td><td>(미사용·자리 채움)</td></tr>
       <tr><td>3</td><td><code>$time_iso8601</code></td><td>✅</td><td>타임스탬프</td></tr>
       <tr><td>4</td><td><code>$upstream_cache_status</code></td><td>⬚</td><td>(미사용)</td></tr>
       <tr><td>5</td><td><code>$request</code></td><td>✅</td><td>method 추출(첫 토큰)</td></tr>
@@ -348,9 +348,9 @@ for (int attempt = 0; attempt &lt; MAX_ATTEMPTS; attempt++) {   // MAX_ATTEMPTS 
       <tr><td>17</td><td><code>$server_addr</code></td><td>⬚</td><td>(미사용)</td></tr>
       <tr><td>18</td><td><code>$server_port</code></td><td>⬚</td><td>(미사용)</td></tr>
       <tr><td>19</td><td><code>$type</code></td><td>✅</td><td><strong>endpoint_kind($type)</strong></td></tr>
-      <tr><td>20</td><td>(geo country, 예: <code>$geoip_country_code</code>)</td><td>⬚</td><td>(미사용·자리)</td></tr>
-      <tr><td>21</td><td>(예약, 관측='0')</td><td>⬚</td><td>(미사용·자리)</td></tr>
-      <tr><td>22</td><td>(예약, 관측='0')</td><td>⬚</td><td>(미사용·자리)</td></tr>
+      <tr><td>20</td><td>(geo country, 예: <code>$geoip_country_code</code>)</td><td>⬚</td><td>(미사용·자리 채움)</td></tr>
+      <tr><td>21</td><td>(예약, 관측='0')</td><td>⬚</td><td>(미사용·자리 채움)</td></tr>
+      <tr><td>22</td><td>(예약, 관측='0')</td><td>⬚</td><td>(미사용·자리 채움)</td></tr>
       <tr><td>23</td><td><code>$request_id</code></td><td>✅</td><td><strong>dedup(중복 제거) 키(32 hex)</strong></td></tr>
     </tbody>
   </table>
@@ -620,6 +620,18 @@ api_confidence <span class="op">=</span> clamp<sub>[0,1]</sub> ( <span class="hl
 </table>
 
 
+<div class="callout note">
+  <span class="ct">가중치·프로파일·임계 수정 방법</span>
+  위 preset 표는 <strong>소스에 박힌 기본값</strong>이다. 운영 중 조정은 <strong>설정 파일(application.yml)이 아니라 REST API</strong> 로 한다 — 분류 설정은 DB + REST 로 관리되며(<a class="dref" href="#d17">D17</a>·<a class="dref" href="#d78">D78</a>), <code>application.yml</code> 에는 가중치 노브가 없다.
+  <ul style="margin:6px 0 0; padding-left:18px;">
+    <li><strong>프로파일 선택</strong> — 전역 <code>PUT /api/v1/classification</code>(body <code>{"profile":"HIGH|MIDDLE|LOW"}</code>) · 도메인 <code>PUT /api/v1/domains/{host}/classification</code>. HIGH/MIDDLE/LOW 는 preset 가중치를 그대로 쓴다.</li>
+    <li><strong>임계값(threshold)만 조정</strong> — 어떤 프로파일에서도 <code>thresholdOverride</code> 로 override 가능(<a href="#s4-4">§4.4</a> 병합 규칙).</li>
+    <li><strong>개별 가중치 조정</strong> — <code>PATCH /api/v1/classification/weights</code>(전역) · <code>PATCH /api/v1/domains/{host}/classification/weights</code>(도메인). 편집한 키만 override 되고 <strong>프로파일이 자동으로 CUSTOM</strong> 이 된다(편집 안 한 키는 현재 effective 값 유지).</li>
+    <li>세 방식 모두 <strong>즉시 적용</strong>된다(effective 캐시 무효화, <a href="#s4-4">§4.4</a>). ★preset <em>기본값 자체</em>(HIGH/MIDDLE/LOW 의 14신호 수치)를 바꾸려면 소스 <code>ApiScorer</code> preset 상수 수정 + 재빌드가 필요하다(운영 중 조정 아님, 전 배포에 반영).</li>
+  </ul>
+  <span class="legend">전체 요청/응답 형식·필드·검증(400)은 <a href="api-rest-manual.html#s2-5">REST API 매뉴얼 §2.5 — 분류 설정·가중치 편집</a>, 전역↔도메인 병합 우선순위는 <a href="#s4-4">§4.4</a> 참조.</span>
+</div>
+
 <h4>실제 점수 내역 읽는 법 — <code>GET /api/v1/domains/{host}/discovery</code></h4>
 <p>위 preset 표는 <strong>기준값</strong>이다. 특정 도메인에 <em>실제로</em> 어떤 설정이 적용됐고, 각 엔드포인트가 <strong>어떤 신호에 몇 점</strong>을 받아 어떻게 판정됐는지는 도메인 Discovery 조회 응답에서 직접 확인한다. 응답에 <code>effectiveClassification</code>(도메인 현재 설정)과 <code>rationale[]</code>(엔드포인트별 판단 근거)가 함께 내려온다.</p>
 <p class="legend">이 두 필드는 <code>/discovery</code> <strong>전용</strong>이며 <strong>조회 시점의 effective 설정으로 재계산</strong>된다(operator 가 preset 을 바꾸면 근거도 즉시 갱신). 스캔 결과 <code>/result</code>(<code>report_json</code>·ETag[Entity Tag, HTTP 캐시 검증 태그])는 불변이라 영향이 없다(근거 설계 doc/34, <a class="dref" href="#d49">D49</a>).</p>
@@ -841,7 +853,7 @@ flowchart TD
 <h2 id="s5">5. 분류 — Shadow / Zombie / Active / Unused</h2>
 <p class="src-ref">소스: <code>classify/Classifier.java</code>, <code>model/Finding.java</code></p>
 
-<p>API 게이트를 통과한 경로와 스펙을 2-pass 로 대조한다.</p>
+<p>API 게이트를 통과한 경로와 스펙을 <a href="#g-2pass">2-pass(2단계 대조)</a>로 대조한다 — 아래 그림처럼 <strong>1차는 관찰된 엔드포인트 쪽(D)</strong>, <strong>2차는 스펙 문서 쪽(S)</strong>을 각각 한 번씩 훑는다.</p>
 
 <div class="mermaid">
 flowchart TD
@@ -1322,6 +1334,7 @@ access_log /var/log/nginx/access.log api_discovery;</code></pre>
     <tr id="g-cardinality"><td>고카디널리티<br/>(high cardinality)</td><td>한 항목(예: 경로 세그먼트·쿼리 값)이 갖는 <strong>서로 다른 값의 종류가 매우 많은</strong> 상태. 사용자 ID·토큰·slug 처럼 값이 거의 무한히 갈리면 정규화 없이는 엔드포인트 인벤토리가 폭증한다 → 템플릿화·통계 승격(<code>{var}</code>)으로 묶는다.</td></tr>
     <tr id="g-pii"><td>PII<br/>(Personally Identifiable Information, 개인식별정보)</td><td>이름·이메일·주민번호 등 <strong>개인을 식별할 수 있는 정보</strong>. 본 시스템은 요청/응답 본문과 쿼리 값을 수집하지 않아(이름·길이버킷만 보관) PII 를 애초에 담지 않는 것이 설계 경계다.</td></tr>
     <tr id="g-dedup"><td><code>dedup</code><br/>(deduplication, 중복 제거)</td><td>같은 요청이 윈도우 겹침·재시도로 두 번 이상 수집될 때 하나만 남기는 것. 본 시스템은 <code>request_id</code>(32 hex)가 있으면 처음 본 것만 통과시킨다.</td></tr>
+    <tr id="g-2pass"><td><code>2-pass</code><br/>(2단계 대조)</td><td>분류(§5)를 두 번(pass)에 나눠 도는 방식. <strong>1차(관찰 측, D)</strong>는 로그에서 관측된 엔드포인트를 하나씩 스펙과 대조해 — 매칭되면 근거를 모으고(2차에서 Active/Zombie 판정), 미매칭이면 API 게이트를 거쳐 Shadow 후보로 삼는다. <strong>2차(문서 측, S)</strong>는 스펙 문서의 엔드포인트를 훑어 deprecated·관측 여부로 Active/Zombie/Unused 를 가른다. 관찰 집합(D)과 문서 집합(S)을 각각 한 번씩 훑어 두 집합의 교집합·차집합을 빠짐없이 분류한다.</td></tr>
   </tbody>
 </table>
 

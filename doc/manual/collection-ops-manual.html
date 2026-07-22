@@ -256,7 +256,7 @@
 <br><span class="hl">sample-window = 0(gap-free 크롤)</span> window <span class="op">=</span> [ lastEnd (없으면 end−initial-backfill) , end );  if (end−start) &gt; <span class="hl">max-window</span> → end = start+max-window
 </div>
 <ul>
-  <li><strong>롤링 샘플링(D66, <code>sample-window=PT10M</code> 기본)</strong>: 주기 스캔은 최신 <code>sample-window</code> 표본만 본다. 과거 워터마크~시작 사이 백로그는 <strong>의도적으로 skip</strong> → 대량 백필 발산 정지. 신선도 = 재방문 주기(active 30분 = 시간당 2회 표본). <code>0</code>=끄면 아래 gap-free 크롤(백필)로 동작.</li>
+  <li><strong>롤링 샘플링(D66, <code>sample-window=PT10M</code> 기본)</strong>: 주기 스캔은 최신 <code>sample-window</code> 표본만 본다. 과거 워터마크~시작 사이 백로그는 <strong>의도적으로 skip</strong> → 대량 백필 밀림 누적 정지. 신선도 = 재방문 주기(active 30분 = 시간당 2회 표본). <code>0</code>=끄면 아래 gap-free 크롤(백필)로 동작.</li>
   <li><strong>delta-skip(D60)</strong>: 디스커버리의 마지막 관측(<code>lastSeenAt</code>)이 윈도우 시작 이전이면 = 구간에 신규 트래픽 없음 → <strong>Loki 조회 없이 watermark 만 전진</strong>(빈 윈도우 쿼리 낭비 제거). 대부분의 도메인이 매 틱 이 경로로 값싸게 skip 된다.</li>
   <li><strong>watermark 점프(D61)</strong>: delta-skip 시 watermark 를 <code>now−ingest-lag</code> 까지 즉시 전진(max-window 미적용) → 트래픽 재개 시 빈 과거 윈도우를 기어가는 낭비 없이 near-now 유지.</li>
   <li><strong>백필 슬라이스(gap-free 모드)</strong>: 샘플링을 끄면 미스캔/지연 도메인이 1회 최대 <code>max-window</code>(PT30M)만 수집하고 watermark 가 그만큼 전진 → 여러 틱 점진 백필.</li>
@@ -299,7 +299,7 @@
     <tr><td><span class="b-key">inactive-after</span></td><td><code>P3D</code></td><td>무접속 스캔 중단 — <code>lastSeenAt</code> 이 이보다 오래되면 스캔 제외(0=off). 트래픽 재개 시 자동 복귀(D59)</td><td><span class="badge b-now">구현됨</span></td></tr>
     <tr><td><span class="b-key">query-batch-size</span></td><td><code>20</code></td><td>같은 엣지 실조회 도메인 N개를 정규식 OR 1쿼리로(0=off). Loki 청크 재읽기 1/N(D63)</td><td><span class="badge b-now">구현됨</span></td></tr>
     <tr><td><span class="b-key">edge-group-main-only</span></td><td><code>true</code></td><td>엣지를 그룹 Master 로 치환 조회(Master 로그=그룹 전체 집계). false=off(D65)</td><td><span class="badge b-now">구현됨</span></td></tr>
-    <tr><td><span class="b-key">tiering-enabled</span></td><td><code>true</code></td><td>C 활동 티어 on/off. false=구 LRS 동작(무회귀 롤백 스위치)</td><td><span class="badge b-now">구현됨</span></td></tr>
+    <tr><td><span class="b-key">tiering-enabled</span></td><td><code>true</code></td><td>C 활동 티어 on/off. false=구 LRS 동작(동작 불변 롤백 스위치)</td><td><span class="badge b-now">구현됨</span></td></tr>
     <tr><td><span class="b-key">active-interval / inactive-interval / default-interval</span></td><td>PT30M / PT6H / PT2H</td><td>활동 기반 티어 주기(active=최근·inactive=뜸·default=신호 없음, <code>active-threshold=PT24H</code>)</td><td><span class="badge b-now">구현됨(C)</span></td></tr>
     <tr><td><span class="b-key">off-peak-domains-per-tick / off-peak-max-window / off-peak-zone</span></td><td>650 / PT30M / Asia/Seoul</td><td>off-peak(01–06시) 예산/윈도우 스위치(D). ★현재는 주간과 동일값으로 튜닝(대량조회 복구 금지 — Loki 과부하 이력)</td><td><span class="badge b-now">구현됨(D)</span></td></tr>
     <tr><td><span class="b-key">dormant-after / dormant-interval</span></td><td>P14D / P1D</td><td>장기 무트래픽 디프라이오리티(최장 주기로 강등, <strong>삭제 아님</strong>)</td><td><span class="badge b-now">구현됨(F)</span></td></tr>
