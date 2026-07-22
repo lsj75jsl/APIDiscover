@@ -20,8 +20,14 @@
 - **경로 개명**: `GET /scan-status`→**`/scan-result`**, `GET /result`→**`/scan-result/detail`**. `ScanController` @GetMapping 2곳 + `PostgresIntegrationTest` MockMvc 4곳. Java 메서드명(status/result)·응답 shape 는 유지, 경로만 변경. `/scan-result` vs `/scan-result/detail` Spring 매칭 무충돌.
 - 재빌드 `./gradlew test` **573 green**(실패 0).
 
+### 한 일 (3차 — 매뉴얼 반영 + 커밋/머지/배포, 사용자 요청)
+- **api-rest-manual.html** 현행화: §2.2 제목·시그니처·curl·예시·응답키표를 `/scan-result`·`/scan-result/detail` 로 갱신, `/scan-result` 에 `apis` 블록·키설명·https 고정 노트 추가, `/scan-result/detail` finding 예시·키표에서 reason 을 classification 뒤로, §3 조건부 GET·§4 제약표·요약표·TOC 구 경로 전건 교체(scan-status 잔존 0). HTML 태그 균형 OK.
+- **커밋·머지**: PR #77 squash-merge → `main dafbb69`(feat 코드+테스트+세션문서 / docs 매뉴얼 2커밋). untracked(bin/·sample) 제외 경로지정 add.
+- **배포**: dev(.198) `podman build`→`app.tar` save→scp .197→load(`:test`=`100606f00f38`)→`podman play kube` 재기동. 기동 ~10s health UP. 롤백 태그 `prev-d84`(a2b31a1c8c4b) 보존, VM /root/app.tar 정리.
+- **실측 검증(.197)**: `/scan-result` → 200·`apis{discovered,active,shadow,zombie,unused}`·shadow 105=summary.shadow(정합)·원소 `"GET [https://api.weble.net/tickets]"`. `/scan-result/detail` → finding 키 `…classification, reason, basis`(reason 이 classification 뒤). 구 경로 `/scan-status`·`/result` → **404**.
+
 ### 다음 단계
-- 미배포·미커밋(커밋 보류). 배포 시 .197 재배포 필요. ★**breaking(경로 변경)** — 중앙 연동·매뉴얼(TW) 필수 반영(신 경로 `/scan-result`·`/scan-result/detail` + scan-result apis 블록 + detail reason 순서).
+- ★**breaking(경로 변경)** — 중앙 서버 연동 코드가 신 경로(`/scan-result`·`/scan-result/detail`)로 갱신 필요.
 - ★scan-result 가 forHost 호출로 무거워짐(원래 경량 메타) — 사용자 명시 요청 트레이드오프. 중앙이 빈번 폴링 시 부하 재검토 여지(D84).
 
 ---
