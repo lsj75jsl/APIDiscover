@@ -70,6 +70,10 @@
 - POST/PUT(DomainView)·PATCH weights(classification 표)는 동형이라 참조. weights 14 신호 키 의미는 응답 descriptions/판독 매뉴얼 §4.2 로 위임(중복 회피).
 - 신규 용어 링크(g-self-endpoint·g-edge)를 api-rest 용어집에 추가. 검증: 태그 균형·죽은 링크 0.
 
+### 한 일 (추가) — 다른 매뉴얼 응답 JSON 키 표 (조사 → 적용)
+- 전 매뉴얼 JSON 응답 조사: 실제 API 응답 JSON 은 **api-rest 에만** 있음(완료). **api-discovery §4.3** 은 /discovery JSON(effectiveClassification·signals[]·basis.type)을 이미 상세 표로 설명 중 → 추가 불요. **scan-tick·collection-ops·db-schema** 는 API 응답 JSON 없음(db-schema 는 컬럼 표 자체가 키 설명). **deploy-verify** 는 health {status} 만(체크리스트 셀에 기대값 이미 표기).
+- **domain-status §4**: GET /domains/{host} 응답의 도메인 상태 키 표 추가(enabled·activityStatus·activityStatusChangedAt·ghostSuppressed·lastScanAt + 3축 스캔 대상식). 전체 DomainDetailView 는 api-rest §2.1 링크. 검증: 태그·죽은 링크 0.
+
 ### 다음 단계
 - ghost 게이트 수렴 관찰 계속(scannable 추이) / full eTLD+1 서비스 수 정밀화(사용자 결정 대기, 7-21 항목).
 

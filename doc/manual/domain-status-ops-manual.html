@@ -104,6 +104,16 @@ FROM domain_config WHERE host = '&lt;도메인&gt;';</code></pre></div>
 <h3>REST 로도 확인 (단건)</h3>
 <p class="muted">8080 은 VM 내부 전용(외부 방화벽) → <code>ssh</code> 로 실행. 응답의 <code>activityStatus</code>·<code>activityStatusChangedAt</code> 필드.</p>
 <div class="step"><pre><code>ssh root@192.168.8.197 "curl -s localhost:8080/api/v1/domains/&lt;도메인&gt;"</code></pre></div>
+<p class="muted"><b>응답 키(도메인 상태 관련)</b> — 전체 <code>DomainDetailView</code> 키·타입은 <a href="api-rest-manual.html#s2-1">REST API 매뉴얼 §2.1</a> 참조.</p>
+<table>
+<tr><th>키</th><th>값</th><th>의미</th></tr>
+<tr><td><code>enabled</code></td><td>true / false</td><td>사용자 수동 스위치(사람만 변경). 스캔 대상 <b>1축</b>.</td></tr>
+<tr><td><code>activityStatus</code></td><td>ACTIVE / INACTIVE</td><td>활동 게이트 — 7일 무요청 시 sweep 이 INACTIVE 로 강등(시스템 자동, D82). 스캔 대상 <b>2축</b>.</td></tr>
+<tr><td><code>activityStatusChangedAt</code></td><td>timestamp / null</td><td>마지막 <code>ACTIVE↔INACTIVE</code> 전이 시각(전이 이력 없으면 null).</td></tr>
+<tr><td><code>ghostSuppressed</code></td><td>true / false</td><td>유령 억제 여부(지속 self-endpoint 0, <a class="dref" href="#d83">D83</a>). true=스캔 제외(수동 스캔이 가역 해제). 스캔 대상 <b>3축</b>.</td></tr>
+<tr><td><code>lastScanAt</code></td><td>timestamp / null</td><td>마지막 스캔 완료 시각(미스캔 null).</td></tr>
+</table>
+<p class="muted">주기 스캔 대상 = <code>enabled=true</code> <b>AND</b> <code>activityStatus=ACTIVE</code> <b>AND NOT</b> <code>ghostSuppressed</code>.</p>
 
 <h2>5. <code>enabled</code> 상태 변경하기 (사람이)</h2>
 <p><code>enabled</code> 는 <b>REST PUT</b> 이 정식 경로다. present-only 반영이라 body 에 넣은 필드만 바뀌고 나머지 설정(hostnames·intervalOverride 등)은 유지된다.</p>
