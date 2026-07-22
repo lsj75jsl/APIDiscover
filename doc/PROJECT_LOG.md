@@ -5,6 +5,24 @@
 
 ---
 
+## 2026-07-22 세션 — 스캔 상태 점검 + api-discovery-manual 현행화(D81~D83)
+
+### 관찰 (14:43 KST 실측, read-only)
+- domain_config: total 57,834 · enabled 36,953 · ACTIVE 10,675 · 스캔 대상(enabled&ACTIVE) 10,675(D83 게이트 반영 후 수렴 지속).
+- 워터마크(스캔 대상 기준): **전원 당일**(가장 오래된 last_end 03:54 KST)·중앙 lag ~29분·near-now(≤30m) 42%·3d+/7d+ 0건 — **발산 해소 유지**, 스캔 루프 정상(최신 워터마크 10분 전).
+- enabled 전체 기준 >7d 12,379건은 전부 INACTIVE(설계상 정상, 스캔 대상 아님).
+
+### 한 일 — api-discovery-manual.html 현행화 (7-14 이후 변경분 반영)
+- §2.1 스캔 정책 표: 무접속 중단 D59(P3D) → **D82(P7D·activity_status)** 갱신 + **D81-C 등록 신뢰 필터**(404·470-only 미등록)·**도메인/경로 제외**(cbricdns·IPv4·`.cloudbric/pron|afc`)·**D83 유령 억제**(ghost_suppressed) 행 추가. 핵심 콜아웃에 스캔 대상 3축(enabled AND ACTIVE AND NOT ghost_suppressed) 명시. src-ref 에 domain-status-ops-manual 링크.
+- §3.3: dedup 직후 필터 2종(foreign-host 제외·`.cloudbric` 경로 스캔 인벤토리 제외=D82 정합) 주석 추가.
+- §7.7 표: P3D 행 → D82 갱신 + 프로브/비대상 Host(D81-C)·`.cloudbric` 경로(D82)·유령 억제(D83, ★자동 복구 없음 트레이드오프 명시) 행 추가.
+- footer 참조 doc/00~31→00~43. HTML 태그 균형·구식 표기(P3D/3일) 잔존 0 검증.
+
+### 다음 단계
+- ghost 게이트 수렴 관찰 계속(scannable 추이) / full eTLD+1 서비스 수 정밀화(사용자 결정 대기, 7-21 항목).
+
+---
+
 ## 2026-07-21 세션 — D82 배포 관찰 + 자사 서비스 아닌 도메인 제외(1단계)
 
 ### 관찰 (D82 효과)
