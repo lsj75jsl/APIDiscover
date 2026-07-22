@@ -5,6 +5,40 @@
 
 ---
 
+## 2026-07-23 세션 — 응답 배열 전역 {count, items} 래핑 (D86)
+
+### 한 일 (사용자 요청)
+- **전역 배열 래핑**: 모든 API JSON 응답의 모든 배열을 `{"count":n,"items":[...]}` 로 변환. `ArrayCountJson.wrap`(재귀 트리 변환) + `ArrayCountResponseAdvice`(`@RestControllerAdvice(basePackages="..api")` ResponseBodyAdvice, DTO→valueToTree→wrap). `/scan-result/detail` 은 String(report_json) 경로라 어드바이스 우회 → `ScanController.inlineBasis` 에서 직접 `wrap`. 파서는 어디서든 `.count`·`.items` 로 읽음(사용자가 `<name>Count` 형제필드는 이름 제각각이라 거부 → `{count,items}` 채택).
+- **형식 확정 전 미리보기 제공** → 사용자 확정 후 구현.
+- **테스트**: `ArrayCountResponseAdvice`(전역)·`inlineBasis` 래핑 반영. MockMvc 통합테스트(`PostgresIntegrationTest`, /spec·/spec/apis 루트배열·중첩 params/changedParams/contributingSpecNames·findings·static-classify)·`ClassificationControllerTest`(matcher prefix 배열)·`ScanControllerTest`(findings.items) jsonPath 를 `.items`/`.count` 로 갱신. 단위테스트(컨트롤러 직접호출)는 무영향. `./gradlew test` **575 green**(실패 0·skip 2).
+- **매뉴얼**: 전역 콜아웃(모든 배열=`{count,items}`·breaking) + 전 JSON 예시 배열 래핑 + 응답키 표 타입 갱신(hostnames·findings·params·contributingSpecNames·matcher 배열·extensions·nameTokens). weights/descriptions(맵)·요청 body 입력배열은 미변경.
+
+### 결과
+- 575 green. ★breaking(배열→객체). 커밋/머지/배포 진행(사용자 요청).
+- ※D85(/discovery 분리·finding classification)도 직전까지 미커밋이었어 D86 과 함께 커밋·배포.
+
+### 다음 단계
+- 배포 후 실측 검증(모든 배열 `{count,items}`). 중앙 연동 `.items` 접근 반영 필요(breaking).
+
+---
+
+## 2026-07-23 세션 — /discovery 요약·상세 분리 + Finding classification 인라인 (D85)
+
+### 한 일 (사용자 요청)
+- **`/discovery` 분리**: `GET /discovery` = 요약(`DiscoverySummaryView`: host·summary·apis, per-scan `/scan-result` 와 동형·창 무관 누적), `GET /discovery/detail` = 기존 full CombinedDiscovery(findings+rationale+effectiveClassification). `CombinedDiscoveryController.summarize()` 가 forHost findings 를 `classification()` 로 유형별 카운트+목록화. `ApiLists.label()` 공용 추출(scan-result·discovery 공유).
+- **★근본 수정 — findings 에 유형 노출**: `Finding.classification()` 5개 레코드에 `@JsonProperty("classification")` 추가. 그동안 Finding 에 타입 판별자가 없어 findings[] 가 classification 을 직렬화 안 했고(그래서 `/scan-result` 는 serve-time `inlineBasis` 로 붙이고 `/discovery` findings 엔 유형이 없었음), 이제 `/discovery/detail`·scan-now·report_json 의 **모든 finding 이 shadow/zombie 등 유형을 self-describe**. report_json additive(무파괴).
+- **테스트**: `CombinedDiscoveryControllerTest`(요약 유형별 분류·apis 라벨·detail 원본) 신설 + 통합테스트 `/discovery` 요약(apis)·`/discovery/detail`(findings classification) 갱신. `./gradlew test` **575 green**(실패 0·skip 2).
+- **매뉴얼**: §2.3 을 `/discovery`(요약)·`/discovery/detail`(상세)로 분리, 요약 응답키표·detail 의 classification 인라인 설명·요약표 2행·TOC·교차참조(scan-now·§2.4·§4) 갱신. "결합 디스커버리(판단 근거)" → "총 알려진 API 요약/상세정보".
+
+### 결과
+- 사용자 질문(왜 개명 후 shadow 98→70?) 답변: 개명 무관, `/scan-result` 는 per-scan 최신 창 스냅샷(새벽 저트래픽 창이라 감소). 누적은 `/discovery`(237).
+- 사용자 지적(=/discovery findings 에 유형 없음) → 근본 수정(Finding @JsonProperty)으로 해소.
+
+### 다음 단계
+- ★미커밋·미배포(사용자 지시 대기). 배포 시 D84 절차 동일(dev build→app.tar→scp .197→load→play kube). ★`/discovery` breaking(요약 축소) — 중앙 반영 필요.
+
+---
+
 ## 2026-07-22 세션 — scan-status 유형별 API 목록 + /result reason 재배치 (D84)
 
 ### 한 일 (사용자 요청 API 2건)
