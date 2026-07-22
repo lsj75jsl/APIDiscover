@@ -71,6 +71,7 @@
   .tbl-card h3{margin-top:18px;}
   .meta{font-size:13px; color:var(--muted); margin:2px 0 0;}
   .star{color:var(--red); font-weight:700;}
+  a.dref{border-bottom:1px dotted currentColor;}
 </style>
 </head>
 <body>
@@ -83,7 +84,7 @@
       <span class="tag">Java 21 · Spring Boot 3.3</span>
       <span class="tag">Hibernate ddl-auto=update</span>
       <span class="tag">H2(dev) / PostgreSQL(prod)</span>
-      <span class="tag">근거: doc/18 · doc/06 · D11/D17/D40</span>
+      <span class="tag">근거: doc/18 · doc/06 · <a class="dref" href="#d11">D11</a>/<a class="dref" href="#d17">D17</a>/<a class="dref" href="#d40">D40</a></span>
     </div>
   </div>
 </header>
@@ -98,6 +99,8 @@
     <li><a href="#s3">타입 매핑 컨벤션 (JPA → SQL)</a></li>
     <li><a href="#s4">테이블별 컬럼 명세 (10 테이블)</a></li>
     <li><a href="#s5">테이블 관계 요약 (9건)</a></li>
+    <li><a href="#appx">별첨 A — 참조 결정(DECISIONS) 요약</a></li>
+    <li><a href="#gloss">별첨 B — 용어 설명</a></li>
   </ol>
 </nav>
 
@@ -117,11 +120,11 @@
   <thead><tr><th>#</th><th>테이블</th><th>PK</th><th>역할</th></tr></thead>
   <tbody>
     <tr><td>1</td><td><code>domain_config</code></td><td>host</td><td>분석 대상 도메인 설정·스캔 정책 (허브)</td></tr>
-    <tr><td>2</td><td><code>domain_hostnames</code></td><td>(host, hostname)</td><td>도메인↔엣지 hostname 컬렉션 (유일한 실 FK)</td></tr>
+    <tr><td>2</td><td><code>domain_hostnames</code></td><td>(host, hostname)</td><td>도메인↔<a href="#g-edge">엣지</a> hostname 컬렉션 (유일한 실 FK)</td></tr>
     <tr><td>3</td><td><code>scan_result</code></td><td>host</td><td>도메인별 <strong>최신 스캔 결과·요약</strong> (1:1)</td></tr>
     <tr><td>4</td><td><code>watermark</code></td><td>host</td><td>도메인별 증분 분석 워터마크 (1:1)</td></tr>
     <tr><td>5</td><td><code>spec_record</code></td><td>id</td><td>도메인×버전 API 스펙 (1:N)</td></tr>
-    <tr><td>6</td><td><code>discovered_endpoint</code></td><td>id</td><td>누적 검출 엔드포인트 카탈로그 (1:N)</td></tr>
+    <tr><td>6</td><td><code>discovered_endpoint</code></td><td>id</td><td>누적 검출 <a href="#g-endpoint">엔드포인트</a> 카탈로그 (1:N)</td></tr>
     <tr><td>7</td><td><code>domain_classification_config</code></td><td>host</td><td>도메인별 분류 설정 override (1:1, 희소)</td></tr>
     <tr><td>8</td><td><code>classification_config</code></td><td>id=1</td><td>전역 분류 기본값 (단일 행)</td></tr>
     <tr><td>9</td><td><code>documented_api</code></td><td>id</td><td>문서화 API 인벤토리 — 파라미터·상태 (1:N)</td></tr>
@@ -197,7 +200,7 @@
   </g>
   <g>
     <rect x="40" y="234" width="210" height="48" rx="9" fill="#eff4ff" stroke="#9bbcff" stroke-width="1.4"/>
-    <text x="145" y="254" text-anchor="middle" font-size="13.5" font-weight="700" fill="#10204a">watermark</text>
+    <text x="145" y="254" text-anchor="middle" font-size="13.5" font-weight="700" fill="#10204a"><a href="#g-watermark">watermark</a></text>
     <text x="145" y="271" text-anchor="middle" font-size="11" fill="#5b6473">PK host · 증분 커서</text>
   </g>
   <g>
@@ -284,7 +287,7 @@
 <!-- ============================================================ -->
 <h2 id="s4">4. 테이블별 컬럼 명세 (10 테이블)</h2>
 
-<p>표기: <span class="pk">PK</span> 기본키 · <span class="nn">NN</span> NOT NULL · <span class="nl">null</span> nullable. JSON 컬럼은 모두 PG <code>text</code>(D40 실측 확정).</p>
+<p>표기: <span class="pk">PK</span> 기본키 · <span class="nn">NN</span> NOT NULL · <span class="nl">null</span> nullable. JSON 컬럼은 모두 PG <code>text</code>(<a class="dref" href="#d40">D40</a> 실측 확정).</p>
 
 <!-- ===== 4.1 domain_config ===== -->
 <div class="tbl-card">
@@ -482,7 +485,7 @@
 <!-- ===== 4.10 static_classify_rule ===== -->
 <div class="tbl-card">
 <h3>4.10 <code>static_classify_rule</code> — 정적 분류 규칙(관리자 편집·reload)</h3>
-<p class="meta">엔티티 <code>StaticClassifyRule</code> · PK <code>id</code> · <strong>전역 규칙(host 무관)</strong>. <code>EndpointKindClassifier</code> 의 하드코드(정적 확장자·파일명 토큰)를 DB 로 외부화 — 관리자가 REST(<code>/api/v1/config/static-classify</code>)로 추가/삭제 후 <code>StaticClassifyRules.reload()</code> 로 런타임 반영. 첫 기동 시 빈 테이블이면 기본값 seed. 근거 <strong>D56</strong>.</p>
+<p class="meta">엔티티 <code>StaticClassifyRule</code> · PK <code>id</code> · <strong>전역 규칙(host 무관)</strong>. <code>EndpointKindClassifier</code> 의 하드코드(정적 확장자·파일명 토큰)를 DB 로 외부화 — 관리자가 REST(<code>/api/v1/config/static-classify</code>)로 추가/삭제 후 <code>StaticClassifyRules.reload()</code> 로 런타임 반영. 첫 기동 시 빈 테이블이면 기본값 seed. 근거 <strong><a class="dref" href="#d56">D56</a></strong>.</p>
 <table>
   <thead><tr><th>컬럼</th><th>SQL 타입</th><th>키/널</th><th>의미</th></tr></thead>
   <tbody>
@@ -510,7 +513,7 @@
     <tr><td>6</td><td><code>domain_config</code> ↔ <code>discovered_endpoint</code></td><td>1 : N</td><td><code>host</code>(자식 idx)</td><td>논리 FK</td></tr>
     <tr><td>7</td><td><code>domain_config</code> ↔ <code>documented_api</code></td><td>1 : N</td><td><code>host</code>(자식 idx)</td><td>논리 FK</td></tr>
     <tr><td>8</td><td><code>classification_config</code></td><td>전역 단일 행</td><td>고정 PK=1</td><td>도메인 무관 · 전역 기본값(앱 병합)</td></tr>
-    <tr><td>9</td><td><code>static_classify_rule</code></td><td>전역 규칙 집합</td><td>UNIQUE(kind, rule_value)</td><td>도메인 무관 · <code>EndpointKindClassifier</code> 전역 적용(D56)</td></tr>
+    <tr><td>9</td><td><code>static_classify_rule</code></td><td>전역 규칙 집합</td><td>UNIQUE(kind, rule_value)</td><td>도메인 무관 · <code>EndpointKindClassifier</code> 전역 적용(<a class="dref" href="#d56">D56</a>)</td></tr>
   </tbody>
 </table>
 
@@ -519,7 +522,33 @@
   한 엣지 서버(<code>hostname</code>)가 서빙하는 도메인은 <code>domain_hostnames</code> 자식 테이블을 조인해 찾는다(<code>DomainConfigRepository.findByHostname</code>).
 </div>
 
-<p class="meta" style="margin-top:40px;">근거: <code>doc/18-db-schema.md</code>(엔티티 역설계 상세) · <code>doc/06</code>(스택) · <code>doc/10</code>(분류 설정) · DECISIONS D11/D17/D40. 코드(엔티티)가 단일 진실원이며 본 문서는 그 스냅샷이다.</p>
+<p class="meta" style="margin-top:40px;">근거: <code>doc/18-db-schema.md</code>(엔티티 역설계 상세) · <code>doc/06</code>(스택) · <code>doc/10</code>(분류 설정) · DECISIONS <a class="dref" href="#d11">D11</a>/<a class="dref" href="#d17">D17</a>/<a class="dref" href="#d40">D40</a>. 코드(엔티티)가 단일 진실원이며 본 문서는 그 스냅샷이다.</p>
+
+<!-- ============================================================= -->
+<h2 id="appx">별첨 A — 참조 결정(DECISIONS) 요약</h2>
+<p>이 문서가 인용하는 결정들의 한 줄 요약이다. 권위 있는 전문·근거는 <code>doc/DECISIONS.md</code> 이며, 본문의 <code>D*</code> 표기를 누르면 이 표로 이동한다.</p>
+<table>
+  <thead><tr><th>결정</th><th>한 줄 요약</th></tr></thead>
+  <tbody>
+    <tr><td><code id="d11">D11</code></td><td>내부 DB = PostgreSQL(운영)/H2(개발). 신규 DB 불필요 — 기존 인프라 재사용.</td></tr>
+    <tr><td><code id="d17">D17</code></td><td>분류 설정 DB 저장(전역 1행 + 도메인 override) + effective 병합(도메인→전역→MIDDLE). weights override 는 CUSTOM 한정, threshold 는 어떤 프로파일에서도 override.</td></tr>
+    <tr><td><code id="d40">D40</code></td><td>Testcontainers(PostgreSQL) 통합 테스트 — podman 연결·Ryuk·게이팅으로 실 PG 회귀 검증.</td></tr>
+    <tr><td><code id="d56">D56</code></td><td>정적 파일 API 오탐 수정 — 정적 확장자 하드 veto(<code>DROP_STATIC</code>) + 정적 리소스 파일명 감점(<code>img.php</code> 류). <code>.php</code> 는 veto 아님(감점만).</td></tr>
+  </tbody>
+</table>
+
+<!-- ============================================================= -->
+<h2 id="gloss">별첨 B — 용어 설명</h2>
+<p>본문에 쓰인 약어·전문 용어의 뜻이다. 각 용어가 처음 나오는 곳에서 이 표로 이동할 수 있다.</p>
+<table>
+  <thead><tr><th>용어</th><th>뜻과 설명</th></tr></thead>
+  <tbody>
+    <tr id="g-endpoint"><td>엔드포인트<br/>(endpoint)</td><td>클라이언트가 호출하는 하나의 API 지점. <code>method + host + 경로 템플릿</code>으로 식별한다(정규화로 <code>/users/1</code>·<code>/users/2</code> 는 한 엔드포인트로 묶임). 인벤토리·분류의 기본 단위.</td></tr>
+    <tr id="g-watermark"><td>watermark<br/>(워터마크·수집 커서)</td><td>도메인별로 "로그를 여기까지 읽었다"를 기록하는 커서(마지막 성공 조회 구간의 끝점). 다음 스캔은 이 지점부터 신규 구간만 읽어(증분 수집) 중복·누락을 막는다. 앞으로만 전진.</td></tr>
+    <tr id="g-edge"><td>엣지<br/>(edge)</td><td>도메인 트래픽이 거쳐 가며 access log 를 남기는 <b>WAAP/nginx 프론트 노드</b>(중계 서버). Loki 의 <code>hostname</code> 라벨로 식별(예 <code>AORV1</code>). 그룹(Master/Slave)으로 운용되고, 로그 수집은 엣지 단위로 스코프한다.</td></tr>
+  </tbody>
+</table>
+
 
 </div>
 </body>

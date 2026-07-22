@@ -51,6 +51,11 @@
 - **문서 작성 규칙 5 추가**: mermaid 그래프·도식은 확대/축소(zoom) 가능해야 함. `memory/doc-writing-rules.md` 갱신. (나머지 매뉴얼엔 mermaid 없음 → zoom 추가 대상 없음.)
 - 검증: 6매뉴얼 태그 균형·직역투 0·조사 오류 0·api-discovery 죽은 내부링크 0·g-2pass 앵커 존재.
 
+### 한 일 (추가) — api-discovery 용어/수식 보강 + 전 매뉴얼 별첨 통일
+- **api-discovery 세부**: ① "소비"→"사용"(29곳, 범례가 사용/미사용 쌍으로 정리) ② §4.1 수식 기호 풀이(Σ·wᵢ·𝟙 지시함수·clamp·판정) ③ 용어집에 엣지·엔드포인트·게이트(DROP_* 설명)·CT(Content-Type) 추가 + 본문 링크 ④ §3.2 전체필드표에 8.3 확장 필드(24~30) 행 추가 + §8.4 링크(DORMANT 표기) ⑤ "미사용·자리"→"미사용·자리 채움"+범례 명확화 ⑥ 약어 병기(WAAP·CORS·HLL·KLL·ReDoS·SQLi·HA·SDK·CLI·XHR·SPA·ETag·ACRM) ⑦ §4.3 가중치·프로파일·임계 수정 방법 콜아웃(REST·CUSTOM·api-rest §2.5 링크) ⑧ 2-pass(2단계 대조) 용어+§5 링크 ⑨ '실데이터 보정의 흔적' 콜아웃 삭제.
+- **전 6개 매뉴얼 별첨 통일**(스크립트 `unify_appendix.py`): scan-tick·domain-status·api-rest·collection-ops·db-schema·deploy-verify 에 **별첨 A(참조 결정 요약)**+**별첨 B(용어 설명)** 삽입, 본문 D* → #dNN·용어 첫 등장 → #g-xxx 링크, TOC 항목·`.dref` 스타일 추가. 결정 요약은 api-discovery 별첨 A + 보충(D11·40·42·43·44·45·47·54)에서 생성. 파서 기반 링크로 code/pre/a/script/style·mermaid 내부 제외.
+- 검증: **7개 매뉴얼 전부** 태그 균형·죽은 내부링크 0·mermaid 오염 0·직역투 0·별첨 A/B 존재.
+
 ### 다음 단계
 - ghost 게이트 수렴 관찰 계속(scannable 추이) / full eTLD+1 서비스 수 정밀화(사용자 결정 대기, 7-21 항목).
 

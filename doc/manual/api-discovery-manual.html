@@ -187,7 +187,7 @@
     <tr><td><span class="pill" style="background:#eef2f7;color:#334">Unused</span></td><td>문서엔 있으나 트래픽이 관측되지 않은 API</td><td><code>S \ D</code> — 차집합: S 에서 D 를 뺀 것(문서엔 있지만 미관측)</td></tr>
   </tbody>
 </table>
-<p class="legend">D = 로그에서 관측된 엔드포인트 집합(Discovered), S = 스펙 문서의 엔드포인트 집합(Spec).</p>
+<p class="legend">D = 로그에서 관측된 <a href="#g-endpoint">엔드포인트</a> 집합(Discovered), S = 스펙 문서의 엔드포인트 집합(Spec).</p>
 
 <div class="callout note">
   <span class="ct">핵심 어려움</span>
@@ -231,7 +231,7 @@ flowchart TD
 
 <h3 id="s2-1">2.1 현재 스캔 정책 — 무엇이·얼마나 자주 수집되어 판독에 도달하나</h3>
 <p class="src-ref">운영 상세: <code>doc/manual/scan-tick-manual.html</code> · 도메인 상태(enabled vs activity_status): <code>doc/manual/domain-status-ops-manual.html</code> · 근거: DECISIONS <a class="dref" href="#d58">D58</a>~<a class="dref" href="#d83">D83</a></p>
-<p>위 파이프라인의 <strong>① 수집</strong> 단계가 어떤 로그를·얼마나·어느 엣지에서 가져오는지는 운영 정책으로 정해진다. 판독 정확도는 결국 <em>"판독기에 도달한 데이터"</em>에 묶이므로 현재 정책을 먼저 이해해야 한다(각 항목이 무엇을 버리는지는 <a href="#s7-7">7.7</a>). 초기의 "전 도메인·전 엣지·전 구간 전수 크롤"은 활성 수요(~2만 조회창/h)가 운영 Loki 예산(6k/h)을 크게 초과해 워터마크(수집 커서)가 실시간을 못 따라가고 밀림이 계속 커졌고(실측), 아래 정책들로 <strong>실시간성과 부하를 맞추는 표본형</strong>으로 전환했다.</p>
+<p>위 파이프라인의 <strong>① 수집</strong> 단계가 어떤 로그를·얼마나·어느 <a href="#g-edge">엣지</a>에서 가져오는지는 운영 정책으로 정해진다. 판독 정확도는 결국 <em>"판독기에 도달한 데이터"</em>에 묶이므로 현재 정책을 먼저 이해해야 한다(각 항목이 무엇을 버리는지는 <a href="#s7-7">7.7</a>). 초기의 "전 도메인·전 엣지·전 구간 전수 크롤"은 활성 수요(~2만 조회창/h)가 운영 Loki 예산(6k/h)을 크게 초과해 워터마크(수집 커서)가 실시간을 못 따라가고 밀림이 계속 커졌고(실측), 아래 정책들로 <strong>실시간성과 부하를 맞추는 표본형</strong>으로 전환했다.</p>
 <table>
   <thead><tr><th>정책 (결정)</th><th>현재 값 / 동작</th><th>판독에 미치는 영향</th></tr></thead>
   <tbody>
@@ -324,7 +324,7 @@ for (int attempt = 0; attempt &lt; MAX_ATTEMPTS; attempt++) {   // MAX_ATTEMPTS 
 
 <details>
   <summary>참고 — 전체 필드 정의 (코어 24필드, 인덱스 0~23) 펼치기</summary>
-  <p class="legend">✅ 소비 = 파서가 실제로 읽는 필드(위치가 정확해야 함) · ⬚ 미사용 = 파서가 읽지 않는 필드. 그중 <strong>'자리 채움'</strong>으로 표시한 것은 값이 무의미해도 <strong>뒤 필드의 인덱스 번호를 맞추려 자리만 차지</strong>하는 필드라, 빼면 그 뒤 필드의 인덱스가 한 칸씩 밀린다(지우면 안 됨). 8.3 확장 필드(24~30)는 <a href="#s8-4">§8.4</a> 참조.</p>
+  <p class="legend">✅ 사용 = 파서가 실제로 읽는 필드(위치가 정확해야 함) · ⬚ 미사용 = 파서가 읽지 않는 필드. 그중 <strong>'자리 채움'</strong>으로 표시한 것은 값이 무의미해도 <strong>뒤 필드의 인덱스 번호를 맞추려 자리만 차지</strong>하는 필드라, 빼면 그 뒤 필드의 인덱스가 한 칸씩 밀린다(지우면 안 됨). 8.3 확장 필드(24~30)는 <a href="#s8-4">§8.4</a> 참조.</p>
   <table>
     <thead><tr><th>idx</th><th>nginx 변수</th><th>파서</th><th>APIDiscover 용도</th></tr></thead>
     <tbody>
@@ -352,9 +352,17 @@ for (int attempt = 0; attempt &lt; MAX_ATTEMPTS; attempt++) {   // MAX_ATTEMPTS 
       <tr><td>21</td><td>(예약, 관측='0')</td><td>⬚</td><td>(미사용·자리 채움)</td></tr>
       <tr><td>22</td><td>(예약, 관측='0')</td><td>⬚</td><td>(미사용·자리 채움)</td></tr>
       <tr><td>23</td><td><code>$request_id</code></td><td>✅</td><td><strong>dedup(중복 제거) 키(32 hex)</strong></td></tr>
+      <tr><td colspan="4" style="background:#f3eefe;"><strong>— 이하 8.3 확장 필드(append 24~30) —</strong> 기본 <strong>DORMANT</strong>(인덱스 <code>-1</code>)이라 파서가 안 읽는다. <a href="#s8-4">§8.4</a> 에서 nginx <code>log_format</code> 에 추가하고 인덱스를 설정해야 '설정 시 ✅'가 실제 사용된다(그 전까지 현행 판정 동일).</td></tr>
+      <tr><td>24</td><td><code>$sent_http_content_type</code></td><td>설정 시 ✅</td><td>응답 <a href="#g-ct">CT(Content-Type)</a> → <code>endpoint_kind</code> 결정(2xx·과반)</td></tr>
+      <tr><td>25</td><td><code>$content_type</code></td><td>⬚</td><td>요청 CT — 예약·미사용(자리 채움)</td></tr>
+      <tr><td>26</td><td><code>$http_accept</code></td><td>설정 시 ✅</td><td>신호 <code>acceptJson</code></td></tr>
+      <tr><td>27</td><td><code>$http_x_requested_with</code></td><td>설정 시 ✅</td><td>신호 <code>xRequestedWith</code></td></tr>
+      <tr><td>28</td><td><code>$http_access_control_request_method</code></td><td>설정 시 ✅</td><td>CORS preflight(ACRM = Access-Control-Request-Method)</td></tr>
+      <tr><td>29</td><td><code>$http_origin</code></td><td>설정 시 ✅</td><td>신호 <code>originHeader</code></td></tr>
+      <tr><td>30</td><td><code>$auth_scheme</code></td><td>설정 시 ✅</td><td>신호 <code>authScheme</code>(토큰 값 제외·스킴만)</td></tr>
     </tbody>
   </table>
-  <p class="legend"><code>$http_client_real_ip</code>·<code>$real_host</code>·<code>$type</code> 은 리치 엣지가 내보내는 커스텀 변수다. idx 20~22 는 파서가 안 읽으므로 값은 자유지만 정확히 3개여야 <code>$request_id</code> 가 idx 23 에 온다.</p>
+  <p class="legend"><code>$http_client_real_ip</code>·<code>$real_host</code>·<code>$type</code> 은 리치 엣지가 내보내는 커스텀 변수다. idx 20~22 는 파서가 안 읽으므로 값은 자유지만 정확히 3개여야 <code>$request_id</code> 가 idx 23 에 온다. <strong>idx 24~30(8.3 확장)</strong>의 추가·활성화 방법과 각 신호 가중치는 <a href="#s8-4">§8.4</a>·<a href="#s8-1">§8.1</a> 참조.</p>
 </details>
 
 <pre><code>// LogLineParser.parse() — 핵심
@@ -534,8 +542,16 @@ return UNKNOWN (0.0);</code></pre>
 
 <div class="formula">
 api_confidence <span class="op">=</span> clamp<sub>[0,1]</sub> ( <span class="hl">Σ</span> w<sub>i</sub> · 𝟙(signal<sub>i</sub> 작동) )
-<br>판정: api_confidence <span class="op">≥</span> threshold(프로파일) <span class="op">→</span> <span class="hl">API 로 확정(ADMIT)</span>
+<br>판정 — api_confidence <span class="op">≥</span> threshold(프로파일) <span class="op">→</span> <span class="hl">API 로 확정(ADMIT)</span>
 </div>
+<p class="legend">기호 풀이 — 위 식은 "<strong>작동한 신호들의 가중치를 더해 0~1 점수를 만든다</strong>"는 뜻이다.</p>
+<ul>
+  <li><strong>Σ</strong> (시그마·합) — 뒤에 오는 항들을 <strong>모두 더한다</strong>.</li>
+  <li><code>w<sub>i</sub></code> — <em>i</em>번째 신호의 <strong>가중치</strong>(§4.3 preset 표의 값). 양수면 가점, <code>staticAssetPenalty</code> 같은 음수면 감점.</li>
+  <li><code>𝟙(signal<sub>i</sub> 작동)</code> — <strong>지시 함수(indicator function)</strong>: 그 신호의 작동 조건(§4.2)이 충족되면 <strong>1</strong>, 아니면 <strong>0</strong>. 곱한 결과가 <code>w<sub>i</sub>·1</code>(작동) 또는 <code>w<sub>i</sub>·0</code>(미작동)이라, 결국 <strong>작동한 신호의 가중치만</strong> 합에 들어간다.</li>
+  <li><code>clamp<sub>[0,1]</sub></code> — 합이 0 미만이면 0, 1 초과면 1로 <strong>잘라</strong> 최종 점수를 항상 <strong>0~1</strong> 범위로 만든다.</li>
+  <li><strong>판정</strong> — 그 점수가 도메인 프로파일의 <strong>임계값(threshold) 이상이면 API 로 확정(ADMIT)</strong>, 미만이면 버린다.</li>
+</ul>
 
 <p>점수 자체는 "후보성(API 일 가능성)"이고, Shadow/Zombie 의 "실재성(confidence)"과는 역할이 분리돼 있다. 즉 게이트를 통과한 뒤에야 매칭·분류가 일어난다.</p>
 
@@ -1029,7 +1045,7 @@ base <span class="op">=</span> 0.5 · <span class="hl">log₁₀(hits+1)/3</span
 <table>
   <thead><tr><th>버림 지점</th><th>대상</th><th>노출 메트릭</th></tr></thead>
   <tbody>
-    <tr><td>게이트 <code>DROP_STATIC</code> (<a class="dref" href="#d55">D55</a>)</td><td>정적 자원(.css/.js/.png/.webp… 또는 <code>$type=library</code>) — 점수·키워드 무관 하드 veto</td><td><code>droppedNonApi.staticFile</code></td></tr>
+    <tr><td><a href="#g-gate">게이트</a> <code>DROP_STATIC</code> (<a class="dref" href="#d55">D55</a>)</td><td>정적 자원(.css/.js/.png/.webp… 또는 <code>$type=library</code>) — 점수·키워드 무관 하드 veto</td><td><code>droppedNonApi.staticFile</code></td></tr>
     <tr><td>게이트 <code>DROP_WEB_FORM</code></td><td>웹페이지 폼 제출(강 API 신호 없는 <code>WEB_PAGE</code> 쓰기 메서드)</td><td><code>droppedNonApi.webForm</code></td></tr>
     <tr><td>게이트 <code>DROP_LOW_SCORE</code></td><td>API 점수가 임계 미달</td><td><code>droppedNonApi.lowScore</code></td></tr>
     <tr><td>게이트 <code>DROP_EXCLUDED</code></td><td>운영자 명시 제외 경로(<code>ApiHintMatcher</code>)</td><td><code>droppedNonApi.excluded</code></td></tr>
@@ -1046,9 +1062,9 @@ base <span class="op">=</span> 0.5 · <span class="hl">log₁₀(hits+1)/3</span
 </div>
 
 <!-- ============================================================= -->
-<h2 id="s8">8. 한계 개선 — nginx access log 추가 항목 (소비 구현 완료·활성 대기)</h2>
+<h2 id="s8">8. 한계 개선 — nginx access log 추가 항목 (사용 구현 완료·활성 대기)</h2>
 
-<p>7장 한계의 상당수는 "<strong>로그에 담긴 신호가 부족</strong>"하기 때문이다. nginx 는 <code>log_format</code> 에 다양한 내장 변수를 추가로 남길 수 있다. 아래 항목 중 판별력이 확인된 것들의 <strong>소비 로직은 이미 구현·머지되어 있고</strong>(PR #73 / <code>05c17aa</code>, <a class="dref" href="#d79">D79</a> — 파서·<code>EndpointKindClassifier</code>·<code>ApiScorer</code>), 지금은 <strong>DORMANT(휴면)</strong> 상태로 대기한다. 운영자가 nginx <code>log_format</code> 에 필드를 추가하고 해당 인덱스를 설정하면(§8.4) 판정기가 그 신호를 소비하기 시작한다.</p>
+<p>7장 한계의 상당수는 "<strong>로그에 담긴 신호가 부족</strong>"하기 때문이다. nginx 는 <code>log_format</code> 에 다양한 내장 변수를 추가로 남길 수 있다. 아래 항목 중 판별력이 확인된 것들의 <strong>사용 로직은 이미 구현·머지되어 있고</strong>(PR #73 / <code>05c17aa</code>, <a class="dref" href="#d79">D79</a> — 파서·<code>EndpointKindClassifier</code>·<code>ApiScorer</code>), 지금은 <strong>DORMANT(휴면)</strong> 상태로 대기한다. 운영자가 nginx <code>log_format</code> 에 필드를 추가하고 해당 인덱스를 설정하면(§8.4) 판정기가 그 신호를 사용하기 시작한다.</p>
 
 <div class="callout ok">
   <span class="ct">동작 불변 — 지금은 현행 판정 100% 동일</span>
@@ -1057,21 +1073,21 @@ base <span class="op">=</span> 0.5 · <span class="hl">log₁₀(hits+1)/3</span
 
 <div class="callout ok">
   <span class="ct">최우선 단 한 항목 — 응답 Content-Type</span>
-  <code>$sent_http_content_type</code>(응답 <code>Content-Type</code> 헤더) 하나만 추가해도 한계 <strong>7.2($type 신호 부재)</strong> 와 <strong>7.3(동일출처 www JSON API 분리)</strong> 가 거의 해소된다. 응답이 <code>application/json</code>·<code>application/xml</code>·<code>application/grpc</code> 면 — api 서브도메인이나 CORS 가 없어도 — <strong>결정적으로 API</strong> 이고, <code>text/html</code> 이면 웹페이지, <code>image/*</code>·<code>text/css</code>·<code>application/javascript</code> 면 정적이다. 현재 의존하는 nginx <code>$type</code>(document/library, 실데이터에서 API 값 거의 0건)을 <strong>실제 응답 타입</strong>으로 대체한다. 단, 응답 CT 는 오도될 수 있어(에러 html·WAF·3xx) <strong>완화 가드</strong>와 함께 소비한다(§8.3).
+  <code>$sent_http_content_type</code>(응답 <code>Content-Type</code> 헤더) 하나만 추가해도 한계 <strong>7.2($type 신호 부재)</strong> 와 <strong>7.3(동일출처 www JSON API 분리)</strong> 가 거의 해소된다. 응답이 <code>application/json</code>·<code>application/xml</code>·<code>application/grpc</code> 면 — api 서브도메인이나 CORS 가 없어도 — <strong>결정적으로 API</strong> 이고, <code>text/html</code> 이면 웹페이지, <code>image/*</code>·<code>text/css</code>·<code>application/javascript</code> 면 정적이다. 현재 의존하는 nginx <code>$type</code>(document/library, 실데이터에서 API 값 거의 0건)을 <strong>실제 응답 타입</strong>으로 대체한다. 단, 응답 <a href="#g-ct">CT</a> 는 오도될 수 있어(에러 html·WAF·3xx) <strong>완화 가드</strong>와 함께 사용한다(§8.3).
 </div>
 
-<h3 id="s8-1">8.1 추가 항목과 실제 소비 (구현 확정 기준)</h3>
-<p>아래 표의 <strong>소비/구현</strong> 열이 실제 코드가 무엇을 소비하는지의 단일 기준이다. <span class="pill pill-admit">소비</span> = 구현되어 활성화 시 소비, <span class="pill pill-drop">미채택</span> = 판별력 미미로 제외. 인덱스는 §8.4 log_format append 순서(24~30)와 <code>ParseProperties</code> 설정 키에 정합한다.</p>
+<h3 id="s8-1">8.1 추가 항목과 실제 사용 (구현 확정 기준)</h3>
+<p>아래 표의 <strong>사용/구현</strong> 열이 실제 코드가 무엇을 사용하는지의 단일 기준이다. <span class="pill pill-admit">사용</span> = 구현되어 활성화 시 사용, <span class="pill pill-drop">미채택</span> = 판별력 미미로 제외. 인덱스는 §8.4 log_format append 순서(24~30)와 <code>ParseProperties</code> 설정 키에 정합한다.</p>
 <table>
-  <thead><tr><th>nginx 변수</th><th>캡처 내용</th><th>검출 개선 효과</th><th>관련 한계</th><th>소비/구현</th></tr></thead>
+  <thead><tr><th>nginx 변수</th><th>캡처 내용</th><th>검출 개선 효과</th><th>관련 한계</th><th>사용/구현</th></tr></thead>
   <tbody>
-    <tr><td><code>$sent_http_content_type</code></td><td>응답 Content-Type</td><td>json/xml/grpc → API, text/html → 웹페이지, image·css·js → 정적. endpoint_kind 결정적 판정</td><td>7.2 · 7.3 · 6장</td><td><span class="pill pill-admit">소비</span> idx 24 · <code>endpoint_kind</code> 결정(별개 경로)</td></tr>
+    <tr><td><code>$sent_http_content_type</code></td><td>응답 Content-Type</td><td>json/xml/grpc → API, text/html → 웹페이지, image·css·js → 정적. endpoint_kind 결정적 판정</td><td>7.2 · 7.3 · 6장</td><td><span class="pill pill-admit">사용</span> idx 24 · <code>endpoint_kind</code> 결정(별개 경로)</td></tr>
     <tr><td><code>$content_type</code><br/>(=<code>$http_content_type</code>)</td><td>요청 본문 Content-Type</td><td>향후 web-form 억제(DROP_WEB_FORM) 정밀화용 — <strong>현재 판정에 미반영</strong></td><td>7.5 · 7.1(부분)</td><td><span class="pill pill-drop">예약</span> idx 25 · 로깅만·미사용(파서 인덱스 미부여)</td></tr>
-    <tr><td><code>$http_access_control_request_method</code></td><td>CORS preflight 요청 메서드(ACRM)</td><td>값이 있으면 <strong>확정적 preflight</strong> → 진짜 OPTIONS 와 구분(Unused 오판 제거)</td><td>7.5</td><td><span class="pill pill-admit">소비</span> idx 28 · 기구현(M3/<a class="dref" href="#d50">D50</a>, 기존 게이트)</td></tr>
-    <tr><td><code>$http_accept</code></td><td>요청 Accept 헤더</td><td>클라이언트가 <code>application/json</code> 기대 → API 호출 의도</td><td>7.3</td><td><span class="pill pill-admit">소비</span> idx 26 · <code>acceptJson</code>(가중치 0.20)</td></tr>
-    <tr><td><code>$http_x_requested_with</code></td><td>XHR(XMLHttpRequest) 표식</td><td><code>XMLHttpRequest</code> → AJAX/SPA(Single Page Application, 단일 페이지 앱) 의 API 호출 신호</td><td>7.3</td><td><span class="pill pill-admit">소비</span> idx 27 · <code>xRequestedWith</code>(0.28)</td></tr>
-    <tr><td><code>$http_origin</code></td><td>CORS Origin 헤더</td><td>cross-origin 호출 → API 컨텍스트(ACRM 보강)</td><td>7.5 · 7.3</td><td><span class="pill pill-admit">소비</span> idx 29 · <code>originHeader</code>(0.15)</td></tr>
-    <tr><td><code>$auth_scheme</code><br/>(<code>$http_authorization</code>에서 map 추출)</td><td>인증 스킴(bearer/basic 등) <strong>존재 여부만</strong></td><td>토큰 기반 인증 사용 → API 신호. ⚠️ 토큰 값은 절대 로깅 금지</td><td>7.1(부분)</td><td><span class="pill pill-admit">소비</span> idx 30 · <code>authScheme</code>(0.28)</td></tr>
+    <tr><td><code>$http_access_control_request_method</code></td><td>CORS preflight 요청 메서드(ACRM)</td><td>값이 있으면 <strong>확정적 preflight</strong> → 진짜 OPTIONS 와 구분(Unused 오판 제거)</td><td>7.5</td><td><span class="pill pill-admit">사용</span> idx 28 · 기구현(M3/<a class="dref" href="#d50">D50</a>, 기존 게이트)</td></tr>
+    <tr><td><code>$http_accept</code></td><td>요청 Accept 헤더</td><td>클라이언트가 <code>application/json</code> 기대 → API 호출 의도</td><td>7.3</td><td><span class="pill pill-admit">사용</span> idx 26 · <code>acceptJson</code>(가중치 0.20)</td></tr>
+    <tr><td><code>$http_x_requested_with</code></td><td>XHR(XMLHttpRequest) 표식</td><td><code>XMLHttpRequest</code> → AJAX/SPA(Single Page Application, 단일 페이지 앱) 의 API 호출 신호</td><td>7.3</td><td><span class="pill pill-admit">사용</span> idx 27 · <code>xRequestedWith</code>(0.28)</td></tr>
+    <tr><td><code>$http_origin</code></td><td>CORS Origin 헤더</td><td>cross-origin 호출 → API 컨텍스트(ACRM 보강)</td><td>7.5 · 7.3</td><td><span class="pill pill-admit">사용</span> idx 29 · <code>originHeader</code>(0.15)</td></tr>
+    <tr><td><code>$auth_scheme</code><br/>(<code>$http_authorization</code>에서 map 추출)</td><td>인증 스킴(bearer/basic 등) <strong>존재 여부만</strong></td><td>토큰 기반 인증 사용 → API 신호. ⚠️ 토큰 값은 절대 로깅 금지</td><td>7.1(부분)</td><td><span class="pill pill-admit">사용</span> idx 30 · <code>authScheme</code>(0.28)</td></tr>
     <tr><td><code>$server_protocol</code></td><td>HTTP 버전</td><td>HTTP/2 + <code>application/grpc</code> → gRPC 식별 보조 — 응답 CT(grpc)로 이미 판정 가능해 추가 판별력 미미</td><td>—</td><td><span class="pill pill-drop">미채택</span> 판별력 미미(사용자 결정)</td></tr>
     <tr><td><code>$upstream_addr</code></td><td>요청을 처리한 백엔드</td><td>백엔드 단위 군집(인벤토리 그룹핑 보조) — 판정 정확도엔 무관</td><td>—</td><td><span class="pill pill-drop">미채택</span> 판별력 미미(사용자 결정)</td></tr>
     <tr><td><code>$request_length</code></td><td>요청 전체 길이</td><td>큰 본문 = 업로드/쓰기 API 보조 신호(약함)</td><td>—</td><td><span class="pill pill-drop">미채택</span> 범위 밖</td></tr>
@@ -1080,10 +1096,10 @@ base <span class="op">=</span> 0.5 · <span class="hl">log₁₀(hits+1)/3</span
 </table>
 
 <h3 id="s8-2">8.2 왜 '스코어링 가중치'로 추가된 것은 4개뿐인가</h3>
-<p>활성화 시 소비되는 신호는 6개(sent_ct·accept·xhr·origin·auth·ACRM)이지만, <strong>새로 늘어난 스코어링 가중치(스칼라 신호)는 4개뿐</strong>이다(<code>acceptJson</code>·<code>xRequestedWith</code>·<code>originHeader</code>·<code>authScheme</code>). 나머지는 <em>가중치가 아닌 다른 경로</em>로 소비되기 때문이다.</p>
+<p>활성화 시 사용되는 신호는 6개(sent_ct·accept·xhr·origin·auth·ACRM)이지만, <strong>새로 늘어난 스코어링 가중치(스칼라 신호)는 4개뿐</strong>이다(<code>acceptJson</code>·<code>xRequestedWith</code>·<code>originHeader</code>·<code>authScheme</code>). 나머지는 <em>가중치가 아닌 다른 경로</em>로 사용되기 때문이다.</p>
 
 <table>
-  <thead><tr><th>소비 신호</th><th>소비 경로</th><th>새 가중치?</th></tr></thead>
+  <thead><tr><th>사용 신호</th><th>사용 경로</th><th>새 가중치?</th></tr></thead>
   <tbody>
     <tr><td><code>$sent_http_content_type</code></td><td><code>endpoint_kind</code> <strong>최우선 결정</strong>(§8.3) — 응답 CT 로 API/WEB_PAGE/STATIC 을 직접 분기. 기존 <code>responseTypeApi</code> 신호의 더 정확한 소스로도 기능한다.</td><td><span class="pill pill-drop">아니오</span> 스칼라 가중치가 아니라 kind 분기</td></tr>
     <tr><td><code>$http_access_control_request_method</code></td><td><strong>기존 preflight 게이트</strong>(<code>corsPreflight</code> 신호는 이미 존재) — M3/<a class="dref" href="#d50">D50</a> 으로 이미 구현. 로그 필드·인덱스 설정만 하면 활성.</td><td><span class="pill pill-drop">아니오</span> 기존 신호·게이트 재사용</td></tr>
@@ -1114,7 +1130,7 @@ base <span class="op">=</span> 0.5 · <span class="hl">log₁₀(hits+1)/3</span
   4신호는 모두 <strong>기여 ≥ 0</strong>(작동 시 가산, 부재 시 0). 점수는 이 신호들에 대해 단조 비감소이므로, 이미 <code>score ≥ threshold</code> 인 현행 API 는 활성화 후에도 여전히 통과한다 — <strong>API→비-API 격하는 점수 경로에서 발생하지 않는다.</strong> 유일한 변화 방향은 경계 아래(&lt;0.70)의 <em>진짜 API 신호를 가진</em> 케이스가 상향(비-API→API)되는 것이다. 시뮬레이션(운영 PG 전수 재계산): 단일신호 최대 승격 상한 31,391건(전체 1.06%)이고 그 89.5%가 이미 API 구조 신호(host=api·<code>/api/</code>·graphql·version·cors)를 보유 = 정당한 교정(doc/40 §5.1). <span class="legend">(단, 응답 CT→kind 경로는 별개 — §8.3 참조.)</span>
 </div>
 
-<h3 id="s8-3">8.3 endpoint_kind 판정 개선과 오도 CT 완화 가드</h3>
+<h3 id="s8-3">8.3 endpoint_kind 판정 개선과 오도 CT(Content-Type) 완화 가드</h3>
 <p>현재(6장)는 nginx <code>$type</code> 에 의존해 API 값(xhr/fetch/…)이 거의 안 잡힌다. 응답 <code>Content-Type</code> 을 1순위 신호로 쓰면 판정이 결정적으로 바뀐다.</p>
 
 <div class="grid2">
@@ -1142,7 +1158,7 @@ flowchart TD
   </div>
 </div>
 
-<p>단, 응답 CT 는 항상 신뢰할 수 있는 게 아니다 — 실제 API 가 에러·인증실패 시 <code>text/html</code> 에러페이지를 반환하거나, WAF 차단·nginx 기본 에러페이지·3xx redirect 본문이 <code>text/html</code> 로 찍힌다. 이런 <strong>오도 CT</strong> 로 진짜 API 가 WEB_PAGE/STATIC 으로 오분류(격하)되지 않도록 다음 <strong>완화 가드</strong>와 함께 소비한다(구현 반영).</p>
+<p>단, 응답 CT 는 항상 신뢰할 수 있는 게 아니다 — 실제 API 가 에러·인증실패 시 <code>text/html</code> 에러페이지를 반환하거나, WAF 차단·nginx 기본 에러페이지·3xx redirect 본문이 <code>text/html</code> 로 찍힌다. 이런 <strong>오도 CT</strong> 로 진짜 API 가 WEB_PAGE/STATIC 으로 오분류(격하)되지 않도록 다음 <strong>완화 가드</strong>와 함께 사용한다(구현 반영).</p>
 
 <table>
   <thead><tr><th>가드</th><th>동작</th><th>효과</th></tr></thead>
@@ -1183,11 +1199,11 @@ log_format api_discovery
 
 access_log /var/log/nginx/access.log api_discovery;</code></pre>
 
-<p class="legend">위 변수는 모두 nginx 기본/표준 모듈이 제공한다. <code>$sent_http_<em>name</em></code> 은 임의 응답 헤더, <code>$http_<em>name</em></code> 은 임의 요청 헤더를 가리키며 헤더명의 <code>-</code> 는 <code>_</code> 로, 대문자는 소문자로 바뀐다(예: <code>Access-Control-Request-Method</code> → <code>$http_access_control_request_method</code>). <code>$content_type</code>(25)은 현재 소비하지 않지만, <strong>빼면 뒤 필드 인덱스가 한 칸씩 밀리므로</strong> 슬롯 정렬을 위해 그대로 둔다(파서는 25 에 인덱스를 부여하지 않아 무시).</p>
+<p class="legend">위 변수는 모두 nginx 기본/표준 모듈이 제공한다. <code>$sent_http_<em>name</em></code> 은 임의 응답 헤더, <code>$http_<em>name</em></code> 은 임의 요청 헤더를 가리키며 헤더명의 <code>-</code> 는 <code>_</code> 로, 대문자는 소문자로 바뀐다(예: <code>Access-Control-Request-Method</code> → <code>$http_access_control_request_method</code>). <code>$content_type</code>(25)은 현재 사용하지 않지만, <strong>빼면 뒤 필드 인덱스가 한 칸씩 밀리므로</strong> 슬롯 정렬을 위해 그대로 둔다(파서는 25 에 인덱스를 부여하지 않아 무시).</p>
 
 <div class="callout note">
   <span class="ct">활성화 — 코드 배포 후 별도 운영 단계</span>
-  위 <code>log_format</code> 을 적용해도, 판정기가 소비하려면 배포 설정(<code>adc.yaml</code> 또는 <code>application.yml</code>)의 <code>apidiscover.parse.*</code> 인덱스를 함께 세팅해야 한다. 미설정 = <code>-1</code> = DORMANT(동작 불변).
+  위 <code>log_format</code> 을 적용해도, 판정기가 사용하려면 배포 설정(<code>adc.yaml</code> 또는 <code>application.yml</code>)의 <code>apidiscover.parse.*</code> 인덱스를 함께 세팅해야 한다. 미설정 = <code>-1</code> = DORMANT(동작 불변).
   <pre style="margin:8px 0 0;"><code>apidiscover:
   parse:
     response-content-type-field-index: 24   # $sent_http_content_type (★요청측 $content_type[25] 아님)
@@ -1242,11 +1258,11 @@ access_log /var/log/nginx/access.log api_discovery;</code></pre>
 <table>
   <thead><tr><th>한계(7장)</th><th>추가하면 효과적인 nginx 항목</th><th>상태</th></tr></thead>
   <tbody>
-    <tr><td>7.2 <code>$type</code> API 신호 부재</td><td><code>$sent_http_content_type</code> (응답 타입으로 대체)</td><td><span class="pill pill-admit">소비</span></td></tr>
-    <tr><td>7.3 동일출처 www JSON API 분리</td><td><code>$sent_http_content_type</code> · <code>$http_accept</code> · <code>$http_x_requested_with</code></td><td><span class="pill pill-admit">소비</span></td></tr>
-    <tr><td>7.5 preflight vs 진짜 OPTIONS</td><td><code>$http_access_control_request_method</code> · <code>$http_origin</code></td><td><span class="pill pill-admit">소비</span></td></tr>
+    <tr><td>7.2 <code>$type</code> API 신호 부재</td><td><code>$sent_http_content_type</code> (응답 타입으로 대체)</td><td><span class="pill pill-admit">사용</span></td></tr>
+    <tr><td>7.3 동일출처 www JSON API 분리</td><td><code>$sent_http_content_type</code> · <code>$http_accept</code> · <code>$http_x_requested_with</code></td><td><span class="pill pill-admit">사용</span></td></tr>
+    <tr><td>7.5 preflight vs 진짜 OPTIONS</td><td><code>$http_access_control_request_method</code> · <code>$http_origin</code></td><td><span class="pill pill-admit">사용</span></td></tr>
     <tr><td>7.5 web-form(POST) 억제 정밀화</td><td><code>$content_type</code> (요청 본문 타입)</td><td><span class="pill pill-drop">예약</span> 미사용</td></tr>
-    <tr><td>7.1 인증 방식 부재(부분)</td><td><code>$auth_scheme</code> (스킴만, 토큰 금지)</td><td><span class="pill pill-admit">소비</span></td></tr>
+    <tr><td>7.1 인증 방식 부재(부분)</td><td><code>$auth_scheme</code> (스킴만, 토큰 금지)</td><td><span class="pill pill-admit">사용</span></td></tr>
     <tr><td>인벤토리 그룹핑(보조)</td><td><code>$upstream_addr</code> · <code>$server_protocol</code></td><td><span class="pill pill-drop">미채택</span> 판별력 미미(§8.1)</td></tr>
   </tbody>
 </table>
@@ -1309,7 +1325,7 @@ access_log /var/log/nginx/access.log api_discovery;</code></pre>
     <tr><td><code id="d76">D76</code></td><td><code>discovered_endpoint</code> autovacuum 튜닝(per-table scale 0.05) + 초기 <code>VACUUM</code>(dead 0).</td></tr>
     <tr><td><code id="d77">D77</code></td><td>컨테이너 <code>/dev/shm</code> 확대 시도 → SELinux relabel 실패·롤백, 비병렬 <code>REINDEX</code> 로 대체(shm 불요).</td></tr>
     <tr><td><code id="d78">D78</code></td><td>스코어링 정책 조회 강화 — 전역 GET 에 effective 노출 + threshold 최상위 분리 + 신호 설명(ko/en). API-only.</td></tr>
-    <tr><td><code id="d79">D79</code></td><td>8.3 로그변수 소비 범위·가중치·시뮬레이션 — 응답 CT→<code>endpoint_kind</code> + 요청 4신호(accept/xhr/origin/auth) 양성 가중치. DORMANT 동작 불변·과승격 상한 1.06%.</td></tr>
+    <tr><td><code id="d79">D79</code></td><td>8.3 로그변수 사용 범위·가중치·시뮬레이션 — 응답 CT→<code>endpoint_kind</code> + 요청 4신호(accept/xhr/origin/auth) 양성 가중치. DORMANT 동작 불변·과승격 상한 1.06%.</td></tr>
     <tr><td><code id="d80">D80</code></td><td>8.3 활성화 전제 = 엣지 nginx <code>log_format</code> 24필드 표준화(파서는 전역 단일 인덱스, 규약 <code>doc/41</code>).</td></tr>
     <tr><td><code id="d81">D81</code></td><td>스캔 due/워터마크 밀림 누적 대응 — 유령 도메인 억제 A(<code>NEW-PAJ*</code> 제외)+C(404·470-only 등록 배제) + 하드 정리(31,985 삭제·due −62%).</td></tr>
     <tr><td><code id="d82">D82</code></td><td>무접속 도메인 상태 관리 — 7일 무요청 → <code>activity_status=INACTIVE</code>(sweep) → 스캔 제외. <code>enabled</code> 과 별도 축, 경로 제외(<code>.cloudbric</code>)·재활성.</td></tr>
@@ -1335,6 +1351,10 @@ access_log /var/log/nginx/access.log api_discovery;</code></pre>
     <tr id="g-pii"><td>PII<br/>(Personally Identifiable Information, 개인식별정보)</td><td>이름·이메일·주민번호 등 <strong>개인을 식별할 수 있는 정보</strong>. 본 시스템은 요청/응답 본문과 쿼리 값을 수집하지 않아(이름·길이버킷만 보관) PII 를 애초에 담지 않는 것이 설계 경계다.</td></tr>
     <tr id="g-dedup"><td><code>dedup</code><br/>(deduplication, 중복 제거)</td><td>같은 요청이 윈도우 겹침·재시도로 두 번 이상 수집될 때 하나만 남기는 것. 본 시스템은 <code>request_id</code>(32 hex)가 있으면 처음 본 것만 통과시킨다.</td></tr>
     <tr id="g-2pass"><td><code>2-pass</code><br/>(2단계 대조)</td><td>분류(§5)를 두 번(pass)에 나눠 도는 방식. <strong>1차(관찰 측, D)</strong>는 로그에서 관측된 엔드포인트를 하나씩 스펙과 대조해 — 매칭되면 근거를 모으고(2차에서 Active/Zombie 판정), 미매칭이면 API 게이트를 거쳐 Shadow 후보로 삼는다. <strong>2차(문서 측, S)</strong>는 스펙 문서의 엔드포인트를 훑어 deprecated·관측 여부로 Active/Zombie/Unused 를 가른다. 관찰 집합(D)과 문서 집합(S)을 각각 한 번씩 훑어 두 집합의 교집합·차집합을 빠짐없이 분류한다.</td></tr>
+    <tr id="g-endpoint"><td>엔드포인트<br/>(endpoint)</td><td>클라이언트가 호출하는 하나의 API 지점. 본 시스템은 <strong><code>method + host + 경로 템플릿</code></strong>(예: <code>GET api.example.com /users/{id}</code>)을 한 엔드포인트로 본다(정규화로 <code>/users/1</code>·<code>/users/2</code> 는 같은 엔드포인트로 묶임). 인벤토리·분류의 기본 단위.</td></tr>
+    <tr id="g-edge"><td>엣지<br/>(edge)</td><td>도메인 트래픽이 실제로 거쳐 가며 access log 를 남기는 <strong>WAAP/nginx 프론트 노드</strong>(중계 서버). Loki 의 <code>hostname</code> 라벨로 식별한다(예: <code>AORV1</code>). 한 도메인이 여러 엣지에 걸릴 수 있고, 엣지는 그룹(Master/Slave)으로 운용된다(§2.1 Main-only·D65). 로그 수집은 엣지 단위로 스코프한다.</td></tr>
+    <tr id="g-gate"><td>게이트<br/>(gate)</td><td>관측된 경로 하나가 API 인지 판정하는 <strong>관문</strong>(<code>ApiScorer.evaluate</code>, §4.6). 문(門)처럼 통과/탈락을 가른다 — 결과는 <strong>통과(<code>ADMIT</code>)</strong> 또는 탈락 사유 하나다. 탈락은 <code>DROP_*</code> 로 이름 붙는다: <code>DROP_STATIC</code>(정적 파일이라 버림)·<code>DROP_WEB_FORM</code>(웹폼 추정)·<code>DROP_LOW_SCORE</code>(점수 미달)·<code>DROP_EXCLUDED</code>(운영자 제외)·<code>DROP_OVERSIZE</code>(초장문 경로). 즉 "<code>DROP_STATIC</code>"은 "정적 파일로 판정해 비-API 로 버렸다"는 뜻.</td></tr>
+    <tr id="g-ct"><td>CT<br/>(Content-Type, 콘텐츠 타입)</td><td>HTTP 요청/응답 <strong>본문의 형식</strong>을 나타내는 헤더값(<code>application/json</code>·<code>text/html</code>·<code>image/*</code> 등). 응답 CT(<code>$sent_http_content_type</code>)가 있으면 endpoint_kind 를 결정적으로 가를 수 있다(§8.3). 단 에러·WAF·리다이렉트 때 실제와 다른 값('오도 CT')이 찍힐 수 있어 완화 가드와 함께 쓴다.</td></tr>
   </tbody>
 </table>
 

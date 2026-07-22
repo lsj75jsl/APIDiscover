@@ -25,6 +25,7 @@
   .callout.w { border-color:var(--warn); background:#fff8c555; }
   ol li,ul li { margin:5px 0; }
   .step { background:#f6f8fa; border:1px solid var(--line); border-radius:8px; padding:4px 16px; margin:12px 0; }
+  a.dref{border-bottom:1px dotted currentColor;}
 </style>
 </head>
 <body>
@@ -68,7 +69,7 @@ podman pod ps && podman ps --pod        # adc pod 의 db·app Running</code></pr
 <tr><td>wait-for-db 동작</td><td><code>podman logs adc-app | grep wait-for-db</code></td><td class="ok">…대기 → DB 도달 → 앱 기동</td></tr>
 <tr><td><b>Loki 수집(핵심)</b></td><td><code>podman logs adc-app | grep 'domain discovery:'</code></td><td class="ok">bootstrap=… <b>vector=N inserted=M</b> (timeout 아님)</td></tr>
 <tr><td>도메인 적재</td><td><code>podman exec -e PGPASSWORD=adc adc-db psql -U adc -d adc -tAc "select count(*) from domain_config;"</code></td><td class="ok">&gt; 0</td></tr>
-<tr><td>도메인+엣지</td><td colspan="2"><code>… "select dc.host, count(dh.hostname) from domain_config dc left join domain_hostnames dh on dh.host=dc.host group by dc.host order by 2 desc limit 10;"</code></td></tr>
+<tr><td>도메인+<a href="#g-edge">엣지</a></td><td colspan="2"><code>… "select dc.host, count(dh.hostname) from domain_config dc left join domain_hostnames dh on dh.host=dc.host group by dc.host order by 2 desc limit 10;"</code></td></tr>
 </table>
 <p class="muted">디스커버리 첫 실행은 <code>apidiscover.discovery.initial-delay</code>(기본 2분) 후. 이후 <code>interval</code>(기본 10분) 롤링. 빈 도메인 DB 면 첫 실행은 <code>bootstrap-window</code>(기본 1h).</p>
 
@@ -81,17 +82,17 @@ podman pod ps && podman ps --pod        # adc pod 의 db·app Running</code></pr
   <li>exit: <code>0</code> 성공 / <code>2</code> 도메인 미지정 / <code>3</code> 도메인 미존재·검출 0건 / <code>4</code> 쓰기 실패.</li>
   <li>CSV 15열+헤더: host·method·path_template·status·source·confidence·severity·estimated·spec_ref·preflight_ambiguous·low_confidence·param_query·param_path·first_seen·last_seen. (score 는 범위 밖.)</li>
 </ul>
-<div class="callout">CSV 에 <b>내용</b>이 나오려면 도메인별 <b>엔드포인트 스캔</b>(별도 스케줄, 기본 <code>PT1H</code>)이 <code>discovered_endpoint</code> 를 채운 뒤여야 한다. 갓 디스커버리된 도메인은 다음 스캔 사이클 전까지 "검출 0건"(exit 3)이 정상.</div>
+<div class="callout">CSV 에 <b>내용</b>이 나오려면 도메인별 <b><a href="#g-endpoint">엔드포인트</a> 스캔</b>(별도 스케줄, 기본 <code>PT1H</code>)이 <code>discovered_endpoint</code> 를 채운 뒤여야 한다. 갓 디스커버리된 도메인은 다음 스캔 사이클 전까지 "검출 0건"(exit 3)이 정상.</div>
 
 <h2>5. 종료/정리</h2>
 <div class="step"><pre><code>podman pod stop adc && podman pod rm adc   # /opt/adc(PGDATA)·/opt/adc-exports·/opt/adc-log 는 hostPath 라 보존</code></pre></div>
 
-<h2>6. 트러블슈팅 — 실배포에서 겪은 결함 (D44)</h2>
+<h2>6. 트러블슈팅 — 실배포에서 겪은 결함 (<a class="dref" href="#d44">D44</a>)</h2>
 <table>
 <tr><th>증상</th><th>원인</th><th>해결</th></tr>
 <tr><td>adc-app 무한 재시작(RestartCount 폭증), java 고CPU</td><td>결합 <code>podman save</code> → load 태그 collision(postgres 태그가 app 가리킴) → app 이 존재하지 않는 DB 접속 <span class="err">Connection refused</span></td><td>이미지 <b>개별 tar</b> 전송, 로드후 ID 분리 검증(§1)</td></tr>
 <tr><td>기동 직후 <code>BatchDataSourceScriptDatabaseInitializer … Connection refused</code></td><td>pod 동시 기동 시 postgres initdb 지연 중 app 이 먼저 접속</td><td><code>wait-for-db.sh</code> 가 DB 준비 대기 후 기동(ENTRYPOINT)</td></tr>
-<tr><td>기동 직후 <code>/opt/adc-log</code> 쓰기 <span class="err">Permission denied</span> → app 크래시 루프</td><td>el8 SELinux Enforcing 에서 hostPath <code>/opt/adc-log</code>(D58 파일 로그) 미생성·미relabel</td><td><code>mkdir -p /opt/adc-log && chcon -Rt container_file_t /opt/adc-log</code>(§0)</td></tr>
+<tr><td>기동 직후 <code>/opt/adc-log</code> 쓰기 <span class="err">Permission denied</span> → app 크래시 루프</td><td>el8 SELinux Enforcing 에서 hostPath <code>/opt/adc-log</code>(<a class="dref" href="#d58">D58</a> 파일 로그) 미생성·미relabel</td><td><code>mkdir -p /opt/adc-log && chcon -Rt container_file_t /opt/adc-log</code>(§0)</td></tr>
 <tr><td>디스커버리 <code>HttpConnectTimeoutException</code> (Loki 미도달)</td><td>기본 bridge pod 는 LAN Loki(192.168.8.100) egress 불가</td><td><code>adc.yaml hostNetwork: true</code></td></tr>
 <tr><td>디스커버리 <code>HttpTimeoutException: request timed out</code> (Loki 도달은 됨)</td><td>서버측 <code>label_format</code> coalesce(Go 템플릿)가 라인마다 평가돼 ~10배 느림 → query-timeout(30s) 초과</td><td>coalesce 를 <b>클라이언트(Java)</b>로 이전(LogQL 에서 <code>label_format</code> 제거)</td></tr>
 <tr><td>CLI 실행 시 <code>Consider defining a bean of type 'HttpSecurity'</code></td><td>CLI(web=NONE)에서 <code>SecurityConfig</code>(웹 전용 빈) 로드 실패</td><td><code>SecurityConfig</code> 에 <code>@ConditionalOnWebApplication</code></td></tr>
@@ -99,19 +100,48 @@ podman pod ps && podman ps --pod        # adc pod 의 db·app Running</code></pr
 
 <h2>7. 한계 / 주의</h2>
 <ul>
-  <li><b><code>max-domains-per-run</code></b> — 1회 run 등록 도메인 캡. <b>현재 <code>0</code>(무제한·전수 등록)</b>이라 롱테일 드롭 없음(과거 기본 200 → 0 으로 상향). 대상 축소는 대신 <code>excluded-hostnames</code>(AAJ·P* 계열 엣지 제외, D62/D69)로 한다. 캡은 DB 업서트량만 제한(Loki 부하 아님 — 벡터는 이미 수신).</li>
+  <li><b><code>max-domains-per-run</code></b> — 1회 run 등록 도메인 캡. <b>현재 <code>0</code>(무제한·전수 등록)</b>이라 롱테일 드롭 없음(과거 기본 200 → 0 으로 상향). 대상 축소는 대신 <code>excluded-hostnames</code>(AAJ·P* 계열 엣지 제외, <a class="dref" href="#d62">D62</a>/<a class="dref" href="#d69">D69</a>)로 한다. 캡은 DB 업서트량만 제한(Loki 부하 아님 — 벡터는 이미 수신).</li>
   <li><b>hostNetwork</b> — postgres 5432(adc/adc)가 VM 인터페이스에 노출된다. 내부 테스트 VM 범위에선 수용 가능하나, VM 공유/노출 시 host 방화벽·<code>listen_addresses</code> 하드닝을 고려.</li>
-  <li><b>운영 Loki</b> — 스캔·디스커버리는 운영 Loki 를 호출한다. LokiClient 의 부하보호(윈도우·page-limit·throttle·동시성·백오프)를 우회하지 말 것. 대용량 확인은 off-peak.</li>
+  <li><b>운영 Loki</b> — 스캔·디스커버리는 운영 Loki 를 호출한다. LokiClient 의 부하보호(윈도우·page-limit·throttle·동시성·<a href="#g-backoff">백오프</a>)를 우회하지 말 것. 대용량 확인은 off-peak.</li>
 </ul>
 
-<h2>8. DB 성능 유지보수 (D75~D77)</h2>
+<h2>8. DB 성능 유지보수 (<a class="dref" href="#d75">D75</a>~<a class="dref" href="#d77">D77</a>)</h2>
 <table>
 <tr><th>항목</th><th>내용</th><th>fresh DB 조치</th></tr>
-<tr><td><code>domain_hostnames.host</code> 인덱스 (D75)</td><td><code>@ElementCollection(EAGER)</code> 라 도메인 로드마다 <code>where host=?</code> 조회 — 인덱스 없으면 전체 seq scan 으로 <b>PG 백엔드 CPU 포화</b>(FK 는 자식 인덱스 자동생성 안 함)</td><td class="ok">소스 <code>@Index</code> 로 <code>ddl-auto</code> 자동 생성 — 조치 불요</td></tr>
-<tr><td><code>discovered_endpoint</code> autovacuum (D76)</td><td>수백만 행·고빈도 upsert — 전역 임계(50+0.2×행)에서야 작동 → 대형 vacuum CPU 스파이크</td><td class="warn">DB-레벨(소스 표현 불가) — <b>fresh DB 에 1회 재적용</b>: <code>ALTER TABLE discovered_endpoint SET (autovacuum_vacuum_scale_factor=0.05, autovacuum_vacuum_threshold=10000, autovacuum_analyze_scale_factor=0.05, autovacuum_analyze_threshold=10000);</code></td></tr>
-<tr><td>bloat 정리 (D76/D77)</td><td>never-vacuum 시 dead tuple·인덱스 bloat 누적</td><td>필요 시 <code>VACUUM (ANALYZE, PARALLEL 0) discovered_endpoint;</code> · 인덱스 <code>SET max_parallel_maintenance_workers=0; REINDEX INDEX CONCURRENTLY &lt;idx&gt;;</code></td></tr>
+<tr><td><code>domain_hostnames.host</code> 인덱스 (<a class="dref" href="#d75">D75</a>)</td><td><code>@ElementCollection(EAGER)</code> 라 도메인 로드마다 <code>where host=?</code> 조회 — 인덱스 없으면 전체 seq scan 으로 <b>PG 백엔드 CPU 포화</b>(FK 는 자식 인덱스 자동생성 안 함)</td><td class="ok">소스 <code>@Index</code> 로 <code>ddl-auto</code> 자동 생성 — 조치 불요</td></tr>
+<tr><td><code>discovered_endpoint</code> autovacuum (<a class="dref" href="#d76">D76</a>)</td><td>수백만 행·고빈도 upsert — 전역 임계(50+0.2×행)에서야 작동 → 대형 vacuum CPU 스파이크</td><td class="warn">DB-레벨(소스 표현 불가) — <b>fresh DB 에 1회 재적용</b>: <code>ALTER TABLE discovered_endpoint SET (autovacuum_vacuum_scale_factor=0.05, autovacuum_vacuum_threshold=10000, autovacuum_analyze_scale_factor=0.05, autovacuum_analyze_threshold=10000);</code></td></tr>
+<tr><td>bloat 정리 (<a class="dref" href="#d76">D76</a>/<a class="dref" href="#d77">D77</a>)</td><td>never-vacuum 시 dead tuple·인덱스 bloat 누적</td><td>필요 시 <code>VACUUM (ANALYZE, PARALLEL 0) discovered_endpoint;</code> · 인덱스 <code>SET max_parallel_maintenance_workers=0; REINDEX INDEX CONCURRENTLY &lt;idx&gt;;</code></td></tr>
 </table>
-<div class="callout w"><b>⚠️ 병렬 유지보수와 /dev/shm.</b> 컨테이너 기본 <code>/dev/shm</code>(64MB)은 <b>병렬</b> VACUUM/REINDEX 의 동적 공유메모리에 부족해 실패한다(<code>could not resize shared memory … No space left on device</code>). <b>비병렬로 회피</b>: <code>VACUUM (PARALLEL 0)</code> / <code>SET max_parallel_maintenance_workers=0</code> 후 REINDEX. autovacuum 은 병렬을 안 써서 무관. <code>emptyDir(medium:Memory)</code> 로 /dev/shm 확대는 el8 SELinux 가 tmpfs 를 relabel 하지 않아 PG 크래시루프 → 사용 금지(D77).</div>
+<div class="callout w"><b>⚠️ 병렬 유지보수와 /dev/shm.</b> 컨테이너 기본 <code>/dev/shm</code>(64MB)은 <b>병렬</b> VACUUM/REINDEX 의 동적 공유메모리에 부족해 실패한다(<code>could not resize shared memory … No space left on device</code>). <b>비병렬로 회피</b>: <code>VACUUM (PARALLEL 0)</code> / <code>SET max_parallel_maintenance_workers=0</code> 후 REINDEX. autovacuum 은 병렬을 안 써서 무관. <code>emptyDir(medium:Memory)</code> 로 /dev/shm 확대는 el8 SELinux 가 tmpfs 를 relabel 하지 않아 PG 크래시루프 → 사용 금지(<a class="dref" href="#d77">D77</a>).</div>
+
+<!-- ============================================================= -->
+<h2 id="appx">별첨 A — 참조 결정(DECISIONS) 요약</h2>
+<p>이 문서가 인용하는 결정들의 한 줄 요약이다. 권위 있는 전문·근거는 <code>doc/DECISIONS.md</code> 이며, 본문의 <code>D*</code> 표기를 누르면 이 표로 이동한다.</p>
+<table>
+  <thead><tr><th>결정</th><th>한 줄 요약</th></tr></thead>
+  <tbody>
+    <tr><td><code id="d44">D44</code></td><td>테스트 배포 운영 수정 — 실 VM 배포에서 드러난 결함 5종 수정.</td></tr>
+    <tr><td><code id="d58">D58</code></td><td>Loki 부하 안정화 — 버스트 기본값 복귀 + IO 타임아웃 적응형 감속·예산 계상 + 외부 파일 로깅(일별·gz·30일 보관).</td></tr>
+    <tr><td><code id="d62">D62</code></td><td>대상 제외 엣지(AAJ 23개) — 등록·출석·조회 모두 제외, 전부 제외면 스캔 skip(전 스트림 폴백 금지).</td></tr>
+    <tr><td><code id="d69">D69</code></td><td><code>P*</code> 엣지 제외 — <code>excluded-hostnames</code> 접두 와일드카드(신규 P 엣지에도 자동 적용).</td></tr>
+    <tr><td><code id="d75">D75</code></td><td><code>domain_hostnames.host</code> 인덱스 추가 — <code>@ElementCollection</code> FK seq scan N+1 로 인한 PG CPU 포화 해소(~180배).</td></tr>
+    <tr><td><code id="d76">D76</code></td><td><code>discovered_endpoint</code> autovacuum 튜닝(per-table scale 0.05) + 초기 <code>VACUUM</code>(dead 0).</td></tr>
+    <tr><td><code id="d77">D77</code></td><td>컨테이너 <code>/dev/shm</code> 확대 시도 → SELinux relabel 실패·롤백, 비병렬 <code>REINDEX</code> 로 대체(shm 불요).</td></tr>
+  </tbody>
+</table>
+
+<!-- ============================================================= -->
+<h2 id="gloss">별첨 B — 용어 설명</h2>
+<p>본문에 쓰인 약어·전문 용어의 뜻이다. 각 용어가 처음 나오는 곳에서 이 표로 이동할 수 있다.</p>
+<table>
+  <thead><tr><th>용어</th><th>뜻과 설명</th></tr></thead>
+  <tbody>
+    <tr id="g-endpoint"><td>엔드포인트<br/>(endpoint)</td><td>클라이언트가 호출하는 하나의 API 지점. <code>method + host + 경로 템플릿</code>으로 식별한다(정규화로 <code>/users/1</code>·<code>/users/2</code> 는 한 엔드포인트로 묶임). 인벤토리·분류의 기본 단위.</td></tr>
+    <tr id="g-edge"><td>엣지<br/>(edge)</td><td>도메인 트래픽이 거쳐 가며 access log 를 남기는 <b>WAAP/nginx 프론트 노드</b>(중계 서버). Loki 의 <code>hostname</code> 라벨로 식별(예 <code>AORV1</code>). 그룹(Master/Slave)으로 운용되고, 로그 수집은 엣지 단위로 스코프한다.</td></tr>
+    <tr id="g-backoff"><td>백오프<br/>(back-off)</td><td>요청 실패(429·5xx) 시 <b>재시도 간격을 실패할수록 지수적으로 늘리는</b> 방식(base×2<sup>시도</sup>). 힘든 서버에 몰아붓지 않으려는 것. 최대 4회.</td></tr>
+  </tbody>
+</table>
+
 
 </div>
 </body>
