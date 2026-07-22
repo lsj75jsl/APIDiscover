@@ -94,7 +94,8 @@ class ScanControllerTest {
         assertThat(resp.getHeaders().getETag()).isEqualTo("\"v9\""); // ETag=report version 유지
         JsonNode body = objectMapper.readTree(resp.getBody());
         assertThat(body.get("host").asText()).isEqualTo("api.example.com"); // report_json 기존 필드 불변
-        JsonNode matched = body.get("findings").get(0);
+        assertThat(body.get("findings").get("count").asInt()).isEqualTo(2);  // 배열 {count,items} 래핑(사용자 요청)
+        JsonNode matched = body.get("findings").get("items").get(0);
         assertThat(matched.get("confidence").asDouble()).isEqualTo(1.0);        // 기존 finding 필드 불변
         assertThat(matched.get("classification").asText()).isEqualTo("ACTIVE"); // ⓒ 인라인
         assertThat(matched.get("reason").asText()).isEqualTo("문서 매칭");        // reason 보존
@@ -102,7 +103,7 @@ class ScanControllerTest {
         // reason 은 classification 뒤로 재배치(사용자 요청 순서)
         List<String> order = fieldOrder(matched);
         assertThat(order.indexOf("reason")).isGreaterThan(order.indexOf("classification"));
-        JsonNode unmatched = body.get("findings").get(1);
+        JsonNode unmatched = body.get("findings").get("items").get(1);
         assertThat(unmatched.has("basis")).isFalse();                           // 매칭 없으면 미가산
         assertThat(body.has("rationale")).isFalse();                            // 별도 배열 제거(인라인 대체)
     }

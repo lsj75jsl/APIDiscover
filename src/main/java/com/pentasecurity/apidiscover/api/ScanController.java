@@ -101,7 +101,7 @@ public class ScanController {
                     String method = asText(f, "method");
                     String h = asText(f, "host");
                     String path = asText(f, "pathTemplate");
-                    String label = method + " [https://" + h + path + "]"; // scheme 미저장 → https 고정
+                    String label = ApiLists.label(method, h, path); // scheme 미저장 → https 고정
                     discovered.add(label);
                     EndpointRationale er = byKey.get(EndpointIdentity.key(method, h, path));
                     if (er != null) {
@@ -185,7 +185,7 @@ public class ScanController {
                     }
                 }
             }
-            return objectMapper.writeValueAsString(node);
+            return objectMapper.writeValueAsString(ArrayCountJson.wrap(node)); // 모든 배열 {count,items} (사용자 요청, String 경로는 어드바이스 우회)
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("failed to inline basis into report for host=" + host, e);
         }

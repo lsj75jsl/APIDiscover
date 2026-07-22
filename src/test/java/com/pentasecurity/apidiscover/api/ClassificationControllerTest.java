@@ -128,7 +128,7 @@ class ClassificationControllerTest {
                 .andExpect(jsonPath("$.effective.profile").value("CUSTOM"))           // 도메인 null → 전역 CUSTOM 상속
                 .andExpect(jsonPath("$.effective.weights.apiSegment").value(0.9))     // 전역
                 .andExpect(jsonPath("$.effective.weights.query").value(0.7))          // 도메인 승
-                .andExpect(jsonPath("$.effective.matcher.apiPathPrefixes[0]").value("/svc"));
+                .andExpect(jsonPath("$.effective.matcher.apiPathPrefixes.items[0]").value("/svc"));
     }
 
     @Test
@@ -153,7 +153,7 @@ class ClassificationControllerTest {
         registerDomain("shop.example.com");
         mvc.perform(get("/api/v1/domains/shop.example.com/classification"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.effective.matcher.optionsOperationPrefixes[0]").value("/api/widgets"));
+                .andExpect(jsonPath("$.effective.matcher.optionsOperationPrefixes.items[0]").value("/api/widgets"));
     }
 
     @Test
@@ -326,7 +326,7 @@ class ClassificationControllerTest {
                 .andExpect(status().isOk());
         mvc.perform(get("/api/v1/classification"))
                 .andExpect(jsonPath("$.customWeights.apiSegment").value(0.9))
-                .andExpect(jsonPath("$.matcher.apiPathPrefixes[0]").value("/svc"));
+                .andExpect(jsonPath("$.matcher.apiPathPrefixes.items[0]").value("/svc"));
 
         // 2차: weights/matcher 생략(null) → 해당 항목 clear (PATCH 아님)
         mvc.perform(put("/api/v1/classification").contentType(MediaType.APPLICATION_JSON)
@@ -353,8 +353,8 @@ class ClassificationControllerTest {
                 .andExpect(jsonPath("$.profile").value("CUSTOM"))
                 .andExpect(jsonPath("$.customWeights.apiSegment").value(0.9))
                 .andExpect(jsonPath("$.customWeights.query").value(0.5))
-                .andExpect(jsonPath("$.matcher.apiPathPrefixes[0]").value("/api"))
-                .andExpect(jsonPath("$.matcher.excludePathPrefixes[0]").value("/legacy"))
+                .andExpect(jsonPath("$.matcher.apiPathPrefixes.items[0]").value("/api"))
+                .andExpect(jsonPath("$.matcher.excludePathPrefixes.items[0]").value("/legacy"))
                 .andExpect(jsonPath("$.matcher.includeWebForms").value(false)); // 저장값 그대로 echo(정규화 전)
     }
 

@@ -352,11 +352,19 @@ class PostgresIntegrationTest {
         d.setNonBrowserUa(true);
         discoveredRepo.save(d);
 
+        // /discovery = 요약(summary+apis, findings 없음)
         mvc.perform(get("/api/v1/domains/{host}/discovery", host))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.host").value(host))
-                .andExpect(jsonPath("$.findings").isArray())
-                .andExpect(jsonPath("$.findings[*].pathTemplate", hasItem("/api/orders/{id}")));
+                .andExpect(jsonPath("$.summary.discovered").isNumber())
+                .andExpect(jsonPath("$.apis.discovered.items", hasItem("POST [https://" + host + "/api/orders/{id}]")))
+                .andExpect(jsonPath("$.findings").doesNotExist());
+        // /discovery/detail = 상세(findings·rationale)
+        mvc.perform(get("/api/v1/domains/{host}/discovery/detail", host))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.host").value(host))
+                .andExpect(jsonPath("$.findings.items").isArray())
+                .andExpect(jsonPath("$.findings.items[*].pathTemplate", hasItem("/api/orders/{id}")));
     }
 
     // --- M2/M4/M6 메타조회 projection 실 PG 회귀가드 (auto-commit·heavy 컬럼 미로드, doc/28·37 §7) ---
@@ -382,8 +390,8 @@ class PostgresIntegrationTest {
         // M6 GET /spec — projection → 200·List(filename 포함).
         mvc.perform(get("/api/v1/domains/{host}/spec", host))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].filename").value("users-api.yaml"))
-                .andExpect(jsonPath("$[0].endpointCount").value(3));
+                .andExpect(jsonPath("$.items[0].filename").value("users-api.yaml"))
+                .andExpect(jsonPath("$.items[0].endpointCount").value(3));
 
         // M2 GET /domains/{host} — spec 메타 projection → 200(spec.filename 포함).
         mvc.perform(get("/api/v1/domains/{host}", host))
@@ -433,10 +441,11 @@ class PostgresIntegrationTest {
         d.setNonBrowserUa(true);
         discoveredRepo.save(d);
 
-        // /discovery — forHost: activeRecords/loadActiveCanonical 엔티티 로드를 readOnly tx 로 감싸 → 200
-        mvc.perform(get("/api/v1/domains/{host}/discovery", host))
+        // /discovery/detail — forHost: activeRecords/loadActiveCanonical 엔티티 로드를 readOnly tx 로 감싸 → 200. finding 에 classification 인라인.
+        mvc.perform(get("/api/v1/domains/{host}/discovery/detail", host))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.findings").isArray());
+                .andExpect(jsonPath("$.findings.items").isArray())
+                .andExpect(jsonPath("$.findings.items[0].classification").exists());
 
         // /result(M5, ⓒ) — serve-time 판단근거를 각 finding 에 인라인. forHost 경유(readOnly tx)로 oid 안전 + basis 가산.
         ScanResult r = new ScanResult();
@@ -449,8 +458,8 @@ class PostgresIntegrationTest {
         mvc.perform(get("/api/v1/domains/{host}/scan-result/detail", host))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.summary").value("ok"))                        // report 기존 필드 불변
-                .andExpect(jsonPath("$.findings[0].classification").value("SHADOW"))  // ⓒ 인라인(스펙 미매칭→SHADOW)
-                .andExpect(jsonPath("$.findings[0].basis.type").value("score"))
+                .andExpect(jsonPath("$.findings.items[0].classification").value("SHADOW"))  // ⓒ 인라인(스펙 미매칭→SHADOW)
+                .andExpect(jsonPath("$.findings.items[0].basis.type").value("score"))
                 .andExpect(jsonPath("$.rationale").doesNotExist());                  // 별도 배열 제거(인라인 대체)
     }
 
@@ -465,8 +474,8 @@ class PostgresIntegrationTest {
 
         mvc.perform(get("/api/v1/domains/{host}/spec", host))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].filename").value("a-null.yaml")) // null specName 우선(nulls first)
-                .andExpect(jsonPath("$[1].filename").value("b-zzz.yaml"));
+                .andExpect(jsonPath("$.items[0].filename").value("a-null.yaml")) // null specName 우선(nulls first)
+                .andExpect(jsonPath("$.items[1].filename").value("b-zzz.yaml"));
     }
 
     private static SpecRecord activeSpec(String host, String specName, String filename, long version) {
@@ -506,7 +515,7 @@ class PostgresIntegrationTest {
         // 재업로드가 reconcile → 신규 엔드포인트(/v2/orders/{id}) ADDED 로 인벤토리 반영
         mvc.perform(get("/api/v1/domains/{host}/spec/apis", host).param("specName", "users.yaml"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[?(@.pathTemplate=='/v2/orders/{id}')].lastChange").value(hasItem("ADDED")));
+                .andExpect(jsonPath("$.items[?(@.pathTemplate=='/v2/orders/{id}')].lastChange").value(hasItem("ADDED")));
     }
 
     // --- 영속 API 인벤토리 reconcile + /apis + DELETED→Zombie 결합 (doc/37 §9). 전부 MockMvc 실 HTTP(auto-commit) 경로 ---
@@ -522,18 +531,18 @@ class PostgresIntegrationTest {
         // ① A 의 API ACTIVE/ADDED + params 보존
         mvc.perform(get("/api/v1/domains/{host}/spec/apis", host).param("specName", "a.csv"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(2))
-                .andExpect(jsonPath("$[?(@.pathTemplate=='/a/{id}')].status").value(hasItem("ACTIVE")))
-                .andExpect(jsonPath("$[?(@.pathTemplate=='/a/{id}')].lastChange").value(hasItem("ADDED")))
-                .andExpect(jsonPath("$[?(@.pathTemplate=='/a/{id}')].params[?(@.name=='id')].in").value(hasItem("PATH")));
+                .andExpect(jsonPath("$.count").value(2))
+                .andExpect(jsonPath("$.items[?(@.pathTemplate=='/a/{id}')].status").value(hasItem("ACTIVE")))
+                .andExpect(jsonPath("$.items[?(@.pathTemplate=='/a/{id}')].lastChange").value(hasItem("ADDED")))
+                .andExpect(jsonPath("$.items[?(@.pathTemplate=='/a/{id}')].params.items[?(@.name=='id')].in").value(hasItem("PATH")));
         // ② 다른 specName 문서 B 업로드 → union
         putSpec(host, "b.csv", csv("GET,/b,false,v1,"));
         mvc.perform(get("/api/v1/domains/{host}/spec/apis", host))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(3))                       // A2 + B1
-                .andExpect(jsonPath("$[0].specName").value("a.csv"))              // ⑥ 결정적 정렬(specName asc)
+                .andExpect(jsonPath("$.count").value(3))                       // A2 + B1
+                .andExpect(jsonPath("$.items[0].specName").value("a.csv"))              // ⑥ 결정적 정렬(specName asc)
                 // ④ ★격리: B 업로드가 A 의 API 를 DELETED 로 만들지 않음(WHERE spec_name 한정). 위반 시 RED.
-                .andExpect(jsonPath("$[?(@.specName=='a.csv')].status",
+                .andExpect(jsonPath("$.items[?(@.specName=='a.csv')].status",
                         everyItem(org.hamcrest.Matchers.is("ACTIVE"))));
     }
 
@@ -553,11 +562,11 @@ class PostgresIntegrationTest {
                 "GET,/same,false,v1,k:query:false:string"));
         mvc.perform(get("/api/v1/domains/{host}/spec/apis", host).param("specName", "s.csv"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[?(@.pathTemplate=='/x/{id}')].lastChange").value(hasItem("UPDATED")))
-                .andExpect(jsonPath("$[?(@.pathTemplate=='/x/{id}')].params[?(@.name=='q')].type").value(hasItem("integer")))
-                .andExpect(jsonPath("$[?(@.pathTemplate=='/drop')].status").value(hasItem("DELETED")))
-                .andExpect(jsonPath("$[?(@.pathTemplate=='/new')].lastChange").value(hasItem("ADDED")))
-                .andExpect(jsonPath("$[?(@.pathTemplate=='/same')].lastChange").value(hasItem("UNCHANGED")));
+                .andExpect(jsonPath("$.items[?(@.pathTemplate=='/x/{id}')].lastChange").value(hasItem("UPDATED")))
+                .andExpect(jsonPath("$.items[?(@.pathTemplate=='/x/{id}')].params.items[?(@.name=='q')].type").value(hasItem("integer")))
+                .andExpect(jsonPath("$.items[?(@.pathTemplate=='/drop')].status").value(hasItem("DELETED")))
+                .andExpect(jsonPath("$.items[?(@.pathTemplate=='/new')].lastChange").value(hasItem("ADDED")))
+                .andExpect(jsonPath("$.items[?(@.pathTemplate=='/same')].lastChange").value(hasItem("UNCHANGED")));
     }
 
     @Test
@@ -569,7 +578,7 @@ class PostgresIntegrationTest {
         putSpec(host, "z.csv", csv("GET,/other,false,v1,"));            // v2: /legacy/{id} 제거 → DELETED
         mvc.perform(get("/api/v1/domains/{host}/spec/apis", host).param("status", "DELETED"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[?(@.pathTemplate=='/legacy/{id}')].status").value(hasItem("DELETED")));
+                .andExpect(jsonPath("$.items[?(@.pathTemplate=='/legacy/{id}')].status").value(hasItem("DELETED")));
 
         DiscoveredEndpointRecord d = new DiscoveredEndpointRecord();    // 관측 트래픽 지속(/legacy/{id})
         d.setHost(host);
@@ -587,12 +596,12 @@ class PostgresIntegrationTest {
         d.setNonBrowserUa(true);
         discoveredRepo.save(d);
 
-        // /discovery → /legacy/{id} = Zombie(deleted-from-spec, confidence 0.8). specRef="deleted-from-spec" 는 이 경로 고유
+        // /discovery/detail → /legacy/{id} = Zombie(deleted-from-spec, confidence 0.8). specRef="deleted-from-spec" 는 이 경로 고유
         // (Shadow=specRef 없음·deprecated/version Zombie=스펙 sourceRef). 결합 제거 시 SHADOW/drop → 단언 RED.
-        mvc.perform(get("/api/v1/domains/{host}/discovery", host))
+        mvc.perform(get("/api/v1/domains/{host}/discovery/detail", host))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.findings[?(@.pathTemplate=='/legacy/{id}')].specRef").value(hasItem("deleted-from-spec")))
-                .andExpect(jsonPath("$.findings[?(@.pathTemplate=='/legacy/{id}')].confidence").value(hasItem(0.8)));
+                .andExpect(jsonPath("$.findings.items[?(@.pathTemplate=='/legacy/{id}')].specRef").value(hasItem("deleted-from-spec")))
+                .andExpect(jsonPath("$.findings.items[?(@.pathTemplate=='/legacy/{id}')].confidence").value(hasItem(0.8)));
     }
 
     // --- P2-3 풍부한 param diff + breaking 판정 (doc/38 §3·§6) ---
@@ -621,24 +630,24 @@ class PostgresIntegrationTest {
 
         var r = mvc.perform(get("/api/v1/domains/{host}/spec/apis", host).param("specName", "b.csv"))
                 .andExpect(status().isOk());
-        r.andExpect(jsonPath("$[?(@.pathTemplate=='/req-add')].lastChangeBreaking").value(hasItem(true)));
-        r.andExpect(jsonPath("$[?(@.pathTemplate=='/opt-add')].lastChangeBreaking").value(hasItem(false)));
-        r.andExpect(jsonPath("$[?(@.pathTemplate=='/opt-rm')].lastChangeBreaking").value(hasItem(true)));
-        r.andExpect(jsonPath("$[?(@.pathTemplate=='/opt2req')].lastChangeBreaking").value(hasItem(true)));
-        r.andExpect(jsonPath("$[?(@.pathTemplate=='/req2opt')].lastChangeBreaking").value(hasItem(false)));
-        r.andExpect(jsonPath("$[?(@.pathTemplate=='/typechg')].lastChangeBreaking").value(hasItem(true)));
-        r.andExpect(jsonPath("$[?(@.pathTemplate=='/widen')].lastChangeBreaking").value(hasItem(false)));
+        r.andExpect(jsonPath("$.items[?(@.pathTemplate=='/req-add')].lastChangeBreaking").value(hasItem(true)));
+        r.andExpect(jsonPath("$.items[?(@.pathTemplate=='/opt-add')].lastChangeBreaking").value(hasItem(false)));
+        r.andExpect(jsonPath("$.items[?(@.pathTemplate=='/opt-rm')].lastChangeBreaking").value(hasItem(true)));
+        r.andExpect(jsonPath("$.items[?(@.pathTemplate=='/opt2req')].lastChangeBreaking").value(hasItem(true)));
+        r.andExpect(jsonPath("$.items[?(@.pathTemplate=='/req2opt')].lastChangeBreaking").value(hasItem(false)));
+        r.andExpect(jsonPath("$.items[?(@.pathTemplate=='/typechg')].lastChangeBreaking").value(hasItem(true)));
+        r.andExpect(jsonPath("$.items[?(@.pathTemplate=='/widen')].lastChangeBreaking").value(hasItem(false)));
         // changedParams 영속·노출(대표): added/removed/modified
-        r.andExpect(jsonPath("$[?(@.pathTemplate=='/req-add')].changedParams.added[*].name").value(hasItem("x")));
-        r.andExpect(jsonPath("$[?(@.pathTemplate=='/opt-rm')].changedParams.removed[*].name").value(hasItem("q")));
-        r.andExpect(jsonPath("$[?(@.pathTemplate=='/typechg')].changedParams.modified[*].toType").value(hasItem("integer")));
-        r.andExpect(jsonPath("$[?(@.pathTemplate=='/widen')].changedParams.modified[*].fromType").value(hasItem("integer")));
+        r.andExpect(jsonPath("$.items[?(@.pathTemplate=='/req-add')].changedParams.added.items[*].name").value(hasItem("x")));
+        r.andExpect(jsonPath("$.items[?(@.pathTemplate=='/opt-rm')].changedParams.removed.items[*].name").value(hasItem("q")));
+        r.andExpect(jsonPath("$.items[?(@.pathTemplate=='/typechg')].changedParams.modified.items[*].toType").value(hasItem("integer")));
+        r.andExpect(jsonPath("$.items[?(@.pathTemplate=='/widen')].changedParams.modified.items[*].fromType").value(hasItem("integer")));
 
         // ?breaking=true → breaking UPDATED 만(req-add·opt-rm·opt2req·typechg=4)
         mvc.perform(get("/api/v1/domains/{host}/spec/apis", host).param("specName", "b.csv").param("breaking", "true"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(4))
-                .andExpect(jsonPath("$[*].lastChangeBreaking", everyItem(org.hamcrest.Matchers.is(true))));
+                .andExpect(jsonPath("$.count").value(4))
+                .andExpect(jsonPath("$.items[*].lastChangeBreaking", everyItem(org.hamcrest.Matchers.is(true))));
     }
 
     // --- P2-4 도메인-merged 뷰 (doc/38 §4·§6) ---
@@ -657,17 +666,17 @@ class PostgresIntegrationTest {
 
         mvc.perform(get("/api/v1/domains/{host}/spec/apis", host).param("view", "merged"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(3))                                   // /shared 1행(병합)+/a-only+/b-only
-                .andExpect(jsonPath("$[?(@.pathTemplate=='/shared')].status").value(hasItem("ACTIVE")))
-                .andExpect(jsonPath("$[?(@.pathTemplate=='/shared')].deprecated").value(hasItem(true)))   // OR
-                .andExpect(jsonPath("$[?(@.pathTemplate=='/shared')].version").value(hasItem("v2")))       // latest-wins
-                .andExpect(jsonPath("$[?(@.pathTemplate=='/shared')].params[*].type").value(hasItem("integer"))) // latest-active params
-                .andExpect(jsonPath("$[?(@.pathTemplate=='/shared')].contributingSpecNames.length()").value(hasItem(2)));
+                .andExpect(jsonPath("$.count").value(3))                                   // /shared 1행(병합)+/a-only+/b-only
+                .andExpect(jsonPath("$.items[?(@.pathTemplate=='/shared')].status").value(hasItem("ACTIVE")))
+                .andExpect(jsonPath("$.items[?(@.pathTemplate=='/shared')].deprecated").value(hasItem(true)))   // OR
+                .andExpect(jsonPath("$.items[?(@.pathTemplate=='/shared')].version").value(hasItem("v2")))       // latest-wins
+                .andExpect(jsonPath("$.items[?(@.pathTemplate=='/shared')].params.items[*].type").value(hasItem("integer"))) // latest-active params
+                .andExpect(jsonPath("$.items[?(@.pathTemplate=='/shared')].contributingSpecNames.count").value(hasItem(2)));
         // 비-merged(현행 기본)와 공존 — per-document 행(specName 보유, /shared 는 문서별 2행)
         mvc.perform(get("/api/v1/domains/{host}/spec/apis", host))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(4))                                   // a.csv 2 + b.csv 2
-                .andExpect(jsonPath("$[?(@.pathTemplate=='/shared')].specName")
+                .andExpect(jsonPath("$.count").value(4))                                   // a.csv 2 + b.csv 2
+                .andExpect(jsonPath("$.items[?(@.pathTemplate=='/shared')].specName")
                         .value(org.hamcrest.Matchers.containsInAnyOrder("a.csv", "b.csv")));
     }
 
@@ -684,15 +693,15 @@ class PostgresIntegrationTest {
         mvc.perform(get("/api/v1/domains/{host}/spec/apis", host).param("view", "merged"))
                 .andExpect(status().isOk())
                 // /alldel: c 전용·DELETED → 전부 DELETED → DELETED
-                .andExpect(jsonPath("$[?(@.pathTemplate=='/alldel')].status").value(hasItem("DELETED")))
+                .andExpect(jsonPath("$.items[?(@.pathTemplate=='/alldel')].status").value(hasItem("DELETED")))
                 // /mixed: c=DELETED·d=ACTIVE → 혼합 → ACTIVE
-                .andExpect(jsonPath("$[?(@.pathTemplate=='/mixed')].status").value(hasItem("ACTIVE")))
-                .andExpect(jsonPath("$[?(@.pathTemplate=='/mixed')].contributingSpecNames.length()").value(hasItem(2)));
+                .andExpect(jsonPath("$.items[?(@.pathTemplate=='/mixed')].status").value(hasItem("ACTIVE")))
+                .andExpect(jsonPath("$.items[?(@.pathTemplate=='/mixed')].contributingSpecNames.count").value(hasItem(2)));
         // status 필터(병합 후) — DELETED 만
         mvc.perform(get("/api/v1/domains/{host}/spec/apis", host).param("view", "merged").param("status", "DELETED"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[*].pathTemplate").value(hasItem("/alldel")))
-                .andExpect(jsonPath("$[*].status", everyItem(org.hamcrest.Matchers.is("DELETED"))));
+                .andExpect(jsonPath("$.items[*].pathTemplate").value(hasItem("/alldel")))
+                .andExpect(jsonPath("$.items[*].status", everyItem(org.hamcrest.Matchers.is("DELETED"))));
     }
 
     @Test
@@ -707,10 +716,10 @@ class PostgresIntegrationTest {
 
         mvc.perform(get("/api/v1/domains/{host}/spec/apis", host).param("view", "merged"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[?(@.pathTemplate=='/shared')].status").value(hasItem("ACTIVE")))
-                .andExpect(jsonPath("$[?(@.pathTemplate=='/shared')].version").value(hasItem("1.0.0")))      // ★ACTIVE 문서값(삭제 문서 2.0.0 아님)
-                .andExpect(jsonPath("$[?(@.pathTemplate=='/shared')].sourceSpecVersion").value(hasItem(1)))   // ACTIVE pool 기준(삭제 행 2 아님)
-                .andExpect(jsonPath("$[?(@.pathTemplate=='/shared')].contributingSpecNames.length()").value(hasItem(2)));
+                .andExpect(jsonPath("$.items[?(@.pathTemplate=='/shared')].status").value(hasItem("ACTIVE")))
+                .andExpect(jsonPath("$.items[?(@.pathTemplate=='/shared')].version").value(hasItem("1.0.0")))      // ★ACTIVE 문서값(삭제 문서 2.0.0 아님)
+                .andExpect(jsonPath("$.items[?(@.pathTemplate=='/shared')].sourceSpecVersion").value(hasItem(1)))   // ACTIVE pool 기준(삭제 행 2 아님)
+                .andExpect(jsonPath("$.items[?(@.pathTemplate=='/shared')].contributingSpecNames.count").value(hasItem(2)));
     }
 
     private void putSpec(String host, String filename, byte[] content) throws Exception {
@@ -975,21 +984,21 @@ class PostgresIntegrationTest {
         // 기동 시 기본값 seed — 확장자/토큰 목록 조회(link 기본 토큰·css 확장자 포함)
         mvc.perform(get("/api/v1/config/static-classify"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.extensions", hasItem(".css")))
-                .andExpect(jsonPath("$.nameTokens", hasItem("link")));
+                .andExpect(jsonPath("$.extensions.items", hasItem(".css")))
+                .andExpect(jsonPath("$.nameTokens.items", hasItem("link")));
 
         // 신규 토큰 추가 → 201 + 즉시 재적용(목록 반영)
         mvc.perform(post("/api/v1/config/static-classify")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"kind\":\"NAME_TOKEN\",\"value\":\"zzztoken\"}"))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.nameTokens", hasItem("zzztoken")));
+                .andExpect(jsonPath("$.nameTokens.items", hasItem("zzztoken")));
 
         // 삭제 → 204, 목록에서 제거(자기정리)
         mvc.perform(delete("/api/v1/config/static-classify/NAME_TOKEN/zzztoken"))
                 .andExpect(status().isNoContent());
         mvc.perform(get("/api/v1/config/static-classify"))
-                .andExpect(jsonPath("$.nameTokens", not(hasItem("zzztoken"))));
+                .andExpect(jsonPath("$.nameTokens.items", not(hasItem("zzztoken"))));
 
         // 잘못된 kind → 400
         mvc.perform(post("/api/v1/config/static-classify")
