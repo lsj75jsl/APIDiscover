@@ -730,6 +730,20 @@ gap-free 크롤은 활성 수요(~22.6k 윈도우/h) vs 예산 용량(D65 후 ~7
 - **배포(2026-07-22)**: PR #77 squash-merge `main dafbb69` + 매뉴얼 반영 → 이미지 `100606f00f38` `.197` 배포·health UP·롤백 `prev-d84`(a2b31a1c8c4b). 실측 검증: `/scan-result` apis 정상(shadow 105=summary.shadow)·`/scan-result/detail` reason 이 classification 뒤·구 경로 `/scan-status`·`/result` 404.
 - **관련**: D55(/result 인라인), doc/07 §3.2/§3.3, doc/35 M4/M5.
 
+### D85. /discovery 요약·상세 분리 + Finding 에 classification 직렬화 (2026-07-23, 사용자 요청)
+- **배경**: `/discovery` 가 full CombinedDiscovery(findings **type-erased**·classification 은 별도 `rationale[]` 병렬 배열)라 (1) 요약으로 보기 불편 (2) **각 finding 에 유형(shadow/zombie) 미표시**. 사용자: `/scan-result` 처럼 요약 + **각 API 유형 노출** 요구.
+- **결정 ①(분리)**: `GET /discovery` = **요약**(`DiscoverySummaryView`: host·summary·apis) — forHost findings 를 `classification()` 로 유형별 카운트+목록(`ApiLists`, `/scan-result` 와 동형·창 무관 누적). `GET /discovery/detail` = 기존 full CombinedDiscovery(findings+rationale+effectiveClassification). `ApiLists.label()` 공용 추출(scan-result·discovery 공유). `summary.discovered`=전체 finding 수.
+- **결정 ②(근본)**: `Finding.classification()` 에 `@JsonProperty` 추가 → **findings[] 가 유형을 인라인 직렬화**. 그동안 Finding 에 타입 판별자가 없어 미직렬화됐고(`/scan-result` 는 serve-time `inlineBasis` 로 보완), `/discovery` findings 엔 유형이 없었다. 이제 `/discovery/detail`·scan-now·report_json 의 모든 finding 이 self-describing. report_json 은 **additive**(기존 소비 무파괴)·ETag 는 새 스캔부터 반영. `/scan-result/detail` 은 `inlineBasis` 가 여전히 serve-time 재계산 우선(reason 순서·basis 유지, 무회귀).
+- **영향**: `/discovery` **breaking**(응답이 요약으로 축소·findings 제거) → 상세 필요 시 `/discovery/detail`. 중앙/매뉴얼 반영 필요. build green **575**(CombinedDiscoveryControllerTest 요약/상세 + 통합테스트 /discovery 요약·/discovery/detail classification).
+- **관련**: D84(scan-result·apis), doc/34(rationale/basis), doc/26(결합 뷰).
+
+### D86. 응답 배열 전역 {count, items} 래핑 (2026-07-23, 사용자 요청)
+- **배경**: 소비자(파서)가 배열 원소 개수를 함께 받고 싶어함. 후보였던 `<name>Count` 형제 필드는 **배열마다 count 필드명이 달라져 파서가 번거롭다**(사용자 지적) → 사용자 선택: 배열을 `{count, items}` 로 감싸 **어디서든 `.count`·`.items` 두 키로 일관 접근**.
+- **결정**: 모든 API JSON 응답의 **모든 배열**(필드값·최상위·중첩·배열 원소 내부)을 `{"count":n,"items":[...]}` 로 재귀 변환. `ArrayCountJson.wrap`(순수 재귀 트리 변환) + `ArrayCountResponseAdvice`(`@RestControllerAdvice(basePackages="..api")` ResponseBodyAdvice) 로 **전역 적용**(DTO→valueToTree→wrap). `/scan-result/detail` 은 String 본문(report_json 재직렬화)이라 어드바이스 우회 → `inlineBasis` 에서 직접 `wrap`.
+- **스코프**: api 패키지 컨트롤러만(actuator 등 타 패키지 무영향). String(이미 래핑)·null(204/202)·비-JSON 은 통과. 요청 body(입력)는 대상 아님(응답만).
+- **영향**: **breaking**(배열→객체, 소비자 `.items` 접근 필요). 단위테스트(컨트롤러 직접호출)는 무영향, MockMvc 통합/컨트롤러 테스트(Postgres·Classification)·`inlineBasis` 단위테스트는 `.items`/`.count` 로 갱신. build green **575**. 매뉴얼 전역 콜아웃+전 예시 배열 래핑.
+- **관련**: D84·D85(scan-result·discovery apis·finding classification), doc/07.
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.

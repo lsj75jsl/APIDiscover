@@ -21,7 +21,8 @@ public sealed interface Finding
     record Shadow(String host, String method, String pathTemplate, double confidence, String reason,
                   ParamCandidates params)
             implements Finding {
-        @Override public Classification classification() { return Classification.SHADOW; }
+        @Override @JsonProperty("classification")
+        public Classification classification() { return Classification.SHADOW; }
 
         /** 파생 — confidence < 임계 (doc/25 §A.3). 별도 섹션 아닌 플래그(findings 계약 불변). */
         @JsonProperty("low_confidence")
@@ -43,7 +44,8 @@ public sealed interface Finding
                     ParamCandidates.EMPTY);
         }
 
-        @Override public Classification classification() { return Classification.ZOMBIE; }
+        @Override @JsonProperty("classification")
+        public Classification classification() { return Classification.ZOMBIE; }
 
         /** 파생 — confidence < 임계 (doc/25 §A.3). */
         @JsonProperty("low_confidence")
@@ -58,7 +60,8 @@ public sealed interface Finding
             this(host, method, pathTemplate, specRef, ParamCandidates.EMPTY);
         }
 
-        @Override public Classification classification() { return Classification.ACTIVE; }
+        @Override @JsonProperty("classification")
+        public Classification classification() { return Classification.ACTIVE; }
     }
 
     /**
@@ -72,12 +75,14 @@ public sealed interface Finding
             this(host, method, pathTemplate, specRef, false);
         }
 
-        @Override public Classification classification() { return Classification.UNUSED; }
+        @Override @JsonProperty("classification")
+        public Classification classification() { return Classification.UNUSED; }
     }
 
     /** 미문서 경로가 사실은 웹 페이지(비 API) (doc/04 §4.1.1). */
     record WebPage(String host, String method, String pathTemplate, double kindConfidence)
             implements Finding {
-        @Override public Classification classification() { return Classification.UNDOCUMENTED_WEB_PAGE; }
+        @Override @JsonProperty("classification")
+        public Classification classification() { return Classification.UNDOCUMENTED_WEB_PAGE; }
     }
 }

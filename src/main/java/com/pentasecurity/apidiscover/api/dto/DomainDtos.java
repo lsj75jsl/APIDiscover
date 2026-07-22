@@ -113,5 +113,20 @@ public final class DomainDtos {
             List<String> shadow,
             List<String> zombie,
             List<String> unused
+    ) {
+        /** finding 표시 라벨 — {@code "METHOD [https://host/pathTemplate]"}. scheme 미저장 → https 고정(WAAP API 트래픽 전제). scan-result·discovery 공용. */
+        public static String label(String method, String host, String pathTemplate) {
+            return method + " [https://" + host + pathTemplate + "]";
+        }
+    }
+
+    /**
+     * /discovery 요약 (사용자 요청) — 총 알려진 API(누적 검출∪스펙 카탈로그)의 유형별 카운트+목록.
+     * per-scan {@link ScanStatusView} 의 summary+apis 와 동형(단, 창 무관 누적). 상세(findings·rationale·effectiveClassification)는 /discovery/detail.
+     */
+    public record DiscoverySummaryView(
+            String host,
+            SummaryView summary,   // 누적 카탈로그 분류 카운트(discovered=전체 finding 수)
+            ApiLists apis          // 유형별 API 목록
     ) {}
 }
