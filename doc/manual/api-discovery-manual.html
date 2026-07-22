@@ -149,7 +149,7 @@
     <li><a href="#s4">API 로 확정하는 판단 기준 (ApiScorer)</a>
       <ol>
         <li><a href="#s4-1">점수 모델 개념과 수식</a></li>
-        <li><a href="#s4-2">14개 신호와 발화 조건</a></li>
+        <li><a href="#s4-2">14개 신호와 작동 조건</a></li>
         <li><a href="#s4-3">가중치 · 프로파일(임계값) preset · 점수 내역 읽는 법</a></li>
         <li><a href="#s4-4">도메인별 분류설정 override</a></li>
         <li><a href="#s4-5">핵심 코드 — score()</a></li>
@@ -176,7 +176,7 @@
 <!-- ============================================================= -->
 <h2 id="s1">1. 개요 — 무엇을, 왜 탐지하는가</h2>
 
-<p>APIDiscover 는 방화벽(WAAP) 앞단 nginx 의 <strong>access log</strong> 만으로 API 인벤토리를 만들고, 문서(OpenAPI/Postman/CSV 스펙)와 대조해 <strong>관리되지 않는 API</strong> 를 찾아낸다. 로그에는 요청/응답의 <em>본문(body)·헤더가 없으므로</em>, "어떤 경로가 호출됐는가" 라는 관측 사실에서 출발한다.</p>
+<p>APIDiscover 는 방화벽(WAAP, Web Application and API Protection — 웹 애플리케이션·API 보호) 앞단 nginx 의 <strong>access log</strong> 만으로 API 인벤토리를 만들고, 문서(OpenAPI/Postman/CSV 스펙)와 대조해 <strong>관리되지 않는 API</strong> 를 찾아낸다. 로그에는 요청/응답의 <em>본문(body)·헤더가 없으므로</em>, "어떤 경로가 호출됐는가" 라는 관측 사실에서 출발한다.</p>
 
 <table>
   <thead><tr><th>구분</th><th>정의</th><th>집합식</th></tr></thead>
@@ -315,7 +315,7 @@ for (int attempt = 0; attempt &lt; MAX_ATTEMPTS; attempt++) {   // MAX_ATTEMPTS 
     <tr><td>request_uri</td><td>[8]</td><td>경로 + 쿼리스트링 (쿼리는 분리 보관)</td></tr>
     <tr><td>status</td><td>[9]</td><td>200 / 404 / 500 … (실재성·Zombie 신호)</td></tr>
     <tr><td>referer</td><td>[13]</td><td>endpoint_kind 보조 신호 (nullable)</td></tr>
-    <tr><td>user_agent</td><td>[14]</td><td>SDK/CLI 판정 (non_browser_ua)</td></tr>
+    <tr><td>user_agent</td><td>[14]</td><td>SDK(Software Development Kit)/CLI(Command-Line Interface) 판정 (non_browser_ua)</td></tr>
     <tr><td>host</td><td>[15] / [16]</td><td>대상 도메인</td></tr>
     <tr><td><strong>$type</strong></td><td>[19]</td><td><strong>endpoint_kind 핵심 신호</strong> — document/library 등 (nullable)</td></tr>
     <tr><td><strong>request_id</strong></td><td>[23]</td><td><strong>dedup(중복 제거) 1순위 키</strong> — 32 hex (nullable)</td></tr>
@@ -330,27 +330,27 @@ for (int attempt = 0; attempt &lt; MAX_ATTEMPTS; attempt++) {   // MAX_ATTEMPTS 
     <tbody>
       <tr><td>0</td><td><code>$http_client_real_ip</code></td><td>✅</td><td>client_ip(우선)</td></tr>
       <tr><td>1</td><td><code>$remote_addr</code></td><td>✅</td><td>client_ip(fallback)</td></tr>
-      <tr><td>2</td><td><code>$remote_port</code></td><td>⬚</td><td>(미소비·자리)</td></tr>
+      <tr><td>2</td><td><code>$remote_port</code></td><td>⬚</td><td>(미사용·자리)</td></tr>
       <tr><td>3</td><td><code>$time_iso8601</code></td><td>✅</td><td>타임스탬프</td></tr>
-      <tr><td>4</td><td><code>$upstream_cache_status</code></td><td>⬚</td><td>(미소비)</td></tr>
+      <tr><td>4</td><td><code>$upstream_cache_status</code></td><td>⬚</td><td>(미사용)</td></tr>
       <tr><td>5</td><td><code>$request</code></td><td>✅</td><td>method 추출(첫 토큰)</td></tr>
-      <tr><td>6</td><td><code>$request_completion</code></td><td>⬚</td><td>(미소비)</td></tr>
+      <tr><td>6</td><td><code>$request_completion</code></td><td>⬚</td><td>(미사용)</td></tr>
       <tr><td>7</td><td><code>$response_time</code></td><td>✅</td><td>응답시간</td></tr>
       <tr><td>8</td><td><code>$request_uri</code></td><td>✅</td><td>경로 + 쿼리키</td></tr>
       <tr><td>9</td><td><code>$status</code></td><td>✅</td><td>HTTP 상태</td></tr>
       <tr><td>10</td><td><code>$body_bytes_sent</code></td><td>✅</td><td>응답 바이트</td></tr>
-      <tr><td>11</td><td><code>$connection</code></td><td>⬚</td><td>(미소비)</td></tr>
+      <tr><td>11</td><td><code>$connection</code></td><td>⬚</td><td>(미사용)</td></tr>
       <tr><td>12</td><td><code>$https</code></td><td>✅</td><td>on/off</td></tr>
       <tr><td>13</td><td><code>$http_referer</code></td><td>✅</td><td>referer(kind 보조)</td></tr>
       <tr><td>14</td><td><code>$http_user_agent</code></td><td>✅</td><td>UA(user-agent, 봇 식별)</td></tr>
       <tr><td>15</td><td><code>$host</code></td><td>✅</td><td>host(우선)</td></tr>
       <tr><td>16</td><td><code>$real_host</code></td><td>✅</td><td>host(fallback)</td></tr>
-      <tr><td>17</td><td><code>$server_addr</code></td><td>⬚</td><td>(미소비)</td></tr>
-      <tr><td>18</td><td><code>$server_port</code></td><td>⬚</td><td>(미소비)</td></tr>
+      <tr><td>17</td><td><code>$server_addr</code></td><td>⬚</td><td>(미사용)</td></tr>
+      <tr><td>18</td><td><code>$server_port</code></td><td>⬚</td><td>(미사용)</td></tr>
       <tr><td>19</td><td><code>$type</code></td><td>✅</td><td><strong>endpoint_kind($type)</strong></td></tr>
-      <tr><td>20</td><td>(geo country, 예: <code>$geoip_country_code</code>)</td><td>⬚</td><td>(미소비·자리)</td></tr>
-      <tr><td>21</td><td>(예약, 관측='0')</td><td>⬚</td><td>(미소비·자리)</td></tr>
-      <tr><td>22</td><td>(예약, 관측='0')</td><td>⬚</td><td>(미소비·자리)</td></tr>
+      <tr><td>20</td><td>(geo country, 예: <code>$geoip_country_code</code>)</td><td>⬚</td><td>(미사용·자리)</td></tr>
+      <tr><td>21</td><td>(예약, 관측='0')</td><td>⬚</td><td>(미사용·자리)</td></tr>
+      <tr><td>22</td><td>(예약, 관측='0')</td><td>⬚</td><td>(미사용·자리)</td></tr>
       <tr><td>23</td><td><code>$request_id</code></td><td>✅</td><td><strong>dedup(중복 제거) 키(32 hex)</strong></td></tr>
     </tbody>
   </table>
@@ -463,8 +463,8 @@ flowchart TD
     <tr><td><code>statusBuckets[4]</code> + <code>status404</code></td><td>2xx/3xx/4xx/5xx 분포 + <strong>404 전용</strong> 카운터(401/403 보호)</td></tr>
     <tr><td><code>typeDist</code></td><td>$type 분포(document/library/…) — endpoint_kind 입력</td></tr>
     <tr><td><code>hadQuery</code> / <code>sdkUaCount</code></td><td>쿼리스트링 관측 여부 / 비브라우저 UA 수</td></tr>
-    <tr><td><code>clientHll</code> / <code>respKll</code></td><td>고유 client IP 근사(HLL) / 응답시간 분위수(KLL p50·p95)</td></tr>
-    <tr><td><code>acrmPresentCount</code></td><td>CORS preflight 결정 신호(Access-Control-Request-Method)</td></tr>
+    <tr><td><code>clientHll</code> / <code>respKll</code></td><td>고유 client IP 근사(HLL = HyperLogLog) / 응답시간 분위수(KLL = Karnin–Lang–Liberty sketch, p50·p95)</td></tr>
+    <tr><td><code>acrmPresentCount</code></td><td>CORS(Cross-Origin Resource Sharing, 교차 출처 리소스 공유) preflight 결정 신호(ACRM = Access-Control-Request-Method)</td></tr>
   </tbody>
 </table>
 
@@ -530,21 +530,21 @@ return UNKNOWN (0.0);</code></pre>
 <p>스펙에 매칭되지 않은 관측 경로가 "보고할 만한 API(Shadow)"인지, 아니면 웹페이지/정적/노이즈로 버릴지를 <strong>가중 점수(api_confidence)</strong> 로 결정한다. 설계 철학은 <em>"로그에 실제로 있는 신호만 쓰는 린(lean) 모델"</em> — 본문/헤더가 없으니 Content-Type·AJAX 같은 강신호는 애초에 못 쓴다.</p>
 
 <h3 id="s4-1">4.1 점수 모델 개념과 수식</h3>
-<p>각 신호가 양수/음수 가중치를 가지며, 발화한 신호의 가중치를 단순 합산해 <code>[0,1]</code> 로 clamp 한다(소수 3자리 반올림).</p>
+<p>각 신호가 양수/음수 가중치를 가지며, 작동한 신호의 가중치를 단순 합산해 <code>[0,1]</code> 로 clamp 한다(소수 3자리 반올림).</p>
 
 <div class="formula">
-api_confidence <span class="op">=</span> clamp<sub>[0,1]</sub> ( <span class="hl">Σ</span> w<sub>i</sub> · 𝟙(signal<sub>i</sub> 발화) )
+api_confidence <span class="op">=</span> clamp<sub>[0,1]</sub> ( <span class="hl">Σ</span> w<sub>i</sub> · 𝟙(signal<sub>i</sub> 작동) )
 <br>판정: api_confidence <span class="op">≥</span> threshold(프로파일) <span class="op">→</span> <span class="hl">API 로 확정(ADMIT)</span>
 </div>
 
 <p>점수 자체는 "후보성(API 일 가능성)"이고, Shadow/Zombie 의 "실재성(confidence)"과는 역할이 분리돼 있다. 즉 게이트를 통과한 뒤에야 매칭·분류가 일어난다.</p>
 
-<h3 id="s4-2">4.2 14개 신호와 발화 조건</h3>
+<h3 id="s4-2">4.2 14개 신호와 작동 조건</h3>
 <p>신호는 두 모드로 조합된다. operator 가 명시 경로 힌트를 설정하면 <strong>explicit-hint 모드</strong>가 되어 내장 path-shape 신호 대신 <code>pathHint</code> 하나만 쓴다(아래 4.7).</p>
 <p>각 신호가 <strong>로그의 어느 데이터에서 확인되는지</strong>를 <code>o</code> 로 표시했다(데이터 컬럼은 §3.2 의 로그 필드에 대응).</p>
 
 <table>
-  <thead><tr><th>#</th><th>신호</th><th class="c">host</th><th class="c">method</th><th class="c">path</th><th class="c">query</th><th class="c">UA</th><th class="c">$type</th><th class="c">hits</th><th>발화 조건</th><th>모드</th></tr></thead>
+  <thead><tr><th>#</th><th>신호</th><th class="c">host</th><th class="c">method</th><th class="c">path</th><th class="c">query</th><th class="c">UA</th><th class="c">$type</th><th class="c">hits</th><th>작동 조건</th><th>모드</th></tr></thead>
   <tbody>
     <tr><td>1</td><td><code>hostApiSubdomain</code></td><td class="c">o</td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td>host 가 <code>api.</code> / <code>*-api.</code> / <code>api-*.</code> 형태</td><td>공통</td></tr>
     <tr><td>2</td><td><code>corsPreflight</code></td><td class="c"></td><td class="c">o</td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td>같은 host+template 이 OPTIONS 로도 관측됨</td><td>공통</td></tr>
@@ -619,14 +619,10 @@ api_confidence <span class="op">=</span> clamp<sub>[0,1]</sub> ( <span class="hl
   </tbody>
 </table>
 
-<div class="callout note">
-  <span class="ct">실데이터 보정의 흔적</span>
-  초기 설계에 있던 "<code>$type=document</code> → html 감점"은 <strong>제거</strong>됐다(JSON API 응답에도 document 가 붙어 진짜 API 를 0점화하는 실데이터 문제). 대신 access log 기반 최강 양성 신호인 <code>hostApiSubdomain(0.40)</code>·<code>corsPreflight(0.30)</code> 를 추가했다. 실 호스트 보정에서 API 호스트 0.82~1.00 vs 웹 호스트 ≤0.27 로 임계 0.70 기준 깨끗이 분리됐다.
-</div>
 
 <h4>실제 점수 내역 읽는 법 — <code>GET /api/v1/domains/{host}/discovery</code></h4>
 <p>위 preset 표는 <strong>기준값</strong>이다. 특정 도메인에 <em>실제로</em> 어떤 설정이 적용됐고, 각 엔드포인트가 <strong>어떤 신호에 몇 점</strong>을 받아 어떻게 판정됐는지는 도메인 Discovery 조회 응답에서 직접 확인한다. 응답에 <code>effectiveClassification</code>(도메인 현재 설정)과 <code>rationale[]</code>(엔드포인트별 판단 근거)가 함께 내려온다.</p>
-<p class="legend">이 두 필드는 <code>/discovery</code> <strong>전용</strong>이며 <strong>조회 시점의 effective 설정으로 재계산</strong>된다(operator 가 preset 을 바꾸면 근거도 즉시 갱신). 스캔 결과 <code>/result</code>(<code>report_json</code>·ETag)는 불변이라 영향이 없다(근거 설계 doc/34, <a class="dref" href="#d49">D49</a>).</p>
+<p class="legend">이 두 필드는 <code>/discovery</code> <strong>전용</strong>이며 <strong>조회 시점의 effective 설정으로 재계산</strong>된다(operator 가 preset 을 바꾸면 근거도 즉시 갱신). 스캔 결과 <code>/result</code>(<code>report_json</code>·ETag[Entity Tag, HTTP 캐시 검증 태그])는 불변이라 영향이 없다(근거 설계 doc/34, <a class="dref" href="#d49">D49</a>).</p>
 
 <h4>① 도메인 effective 설정 확인 — <code>effectiveClassification</code></h4>
 <p>그 도메인에 <strong>현재 실제로 적용된</strong> preset·임계·가중치다. 어떻게 합쳐지는지(도메인 → 전역 → MIDDLE)는 <a href="#s4-4">§4.4</a> 를 본다.</p>
@@ -654,7 +650,7 @@ api_confidence <span class="op">=</span> clamp<sub>[0,1]</sub> ( <span class="hl
     "type":"score",                         // 점수 게이트가 근거 (Shadow 한정)
     "mode":"pathless",                       // pathless(=§4.2 strict) | explicit_hint(=§4.2 explicit)
     "apiScore":0.94, "threshold":0.70, "gate":"ADMIT",
-    "signals":[                              // §4.3 신호별 — effective weight·발화·기여
+    "signals":[                              // §4.3 신호별 — effective weight·작동·기여
       {"key":"hostApiSubdomain", "weight":0.40, "fired":true,  "contribution":0.40},
       {"key":"corsPreflight",    "weight":0.30, "fired":true,  "contribution":0.30},
       {"key":"query",            "weight":0.12, "fired":true,  "contribution":0.12},
@@ -669,7 +665,7 @@ api_confidence <span class="op">=</span> clamp<sub>[0,1]</sub> ( <span class="hl
   <tbody>
     <tr><td><code>signals[].key</code></td><td>§4.2/§4.3 의 신호명과 1:1 — 이 엔드포인트에서 <strong>평가된</strong> 신호.</td></tr>
     <tr><td><code>signals[].weight</code></td><td>그 신호의 effective 가중치(= <code>effectiveClassification.weights[key]</code>).</td></tr>
-    <tr><td><code>signals[].fired</code></td><td>발화 여부(§4.2 발화 조건 충족 = <code>true</code>).</td></tr>
+    <tr><td><code>signals[].fired</code></td><td>작동 여부(§4.2 작동 조건 충족 = <code>true</code>).</td></tr>
     <tr><td><code>signals[].contribution</code></td><td><code>fired</code> 면 <code>weight</code>(<code>staticAssetPenalty</code> 는 음수), 아니면 <code>0</code>. <strong>전부 더하면 <code>apiScore</code></strong>.</td></tr>
     <tr><td><code>apiScore</code></td><td><code>contribution</code> 합을 <code>[0,1]</code> clamp·소수 3자리 반올림(§4.1).</td></tr>
     <tr><td><code>threshold</code></td><td>그 도메인 effective 임계(= <code>effectiveClassification.threshold</code>).</td></tr>
@@ -705,7 +701,7 @@ api_confidence <span class="op">=</span> clamp<sub>[0,1]</sub> ( <span class="hl
 </div>
 
 <h3 id="s4-4">4.4 도메인별 분류설정 override</h3>
-<p>§4.3 의 preset 은 <strong>전역 기본값일 뿐</strong>이다. 운영자는 도메인마다 <code>profile</code>·<code>threshold</code>(임계값)·<code>weights</code>(가중치)·<code>matcher</code>(힌트)를 개별 <strong>override</strong> 할 수 있다. 미설정 도메인은 전역(전역도 없으면 MIDDLE)을 상속하므로, 아무 설정이 없어도 현행과 100% 동일하다(무회귀).</p>
+<p>§4.3 의 preset 은 <strong>전역 기본값일 뿐</strong>이다. 운영자는 도메인마다 <code>profile</code>·<code>threshold</code>(임계값)·<code>weights</code>(가중치)·<code>matcher</code>(힌트)를 개별 <strong>override</strong> 할 수 있다. 미설정 도메인은 전역(전역도 없으면 MIDDLE)을 상속하므로, 아무 설정이 없어도 현행과 100% 동일하다(동작 불변).</p>
 
 <h4>병합 우선순위</h4>
 <p>한 호스트의 <em>effective(실효)</em> 설정은 <strong>도메인 override → (없으면) 전역 → (없으면) preset/MIDDLE</strong> 순으로 합쳐진다(<code>EffectiveClassificationResolver</code>).</p>
@@ -744,13 +740,13 @@ profile   <span class="op">=</span> <span class="hl">도메인</span> ?? <span c
 </div>
 
 <div class="callout ok">
-  <span class="ct">무회귀 — 미설정 = 현행</span>
+  <span class="ct">동작 불변 — 미설정 = 현행</span>
   도메인·전역 설정이 모두 없으면 effective = MIDDLE preset + 무억제(<code>ApiHintMatcher.NONE</code>)로, 설정 기능 도입 이전 동작과 <strong>100% 동치</strong>다. 저장된 설정이 손상된 경우(out-of-band DB 쓰기 등)는 조용히 기본값으로 떨어지지 않고 fail-fast(예외)한다.
 </div>
 <p class="legend">근거 설계: doc/10(분류설정 DB 저장, <a class="dref" href="#d17">D17</a>) · doc/11(중앙 REST + effective 캐시, <a class="dref" href="#d18">D18</a>). 엔티티 <code>DomainClassificationConfig</code>(host PK, <code>profile</code>/<code>thresholdOverride</code>/<code>customWeightsJson</code>/<code>matcherJson</code> 전부 nullable = 상속).</p>
 
 <h3 id="s4-5">4.5 핵심 코드 — score()</h3>
-<p>발화한 신호의 가중치를 더하는 단순·투명한 구조다. explicit-hint 모드 분기를 제외하면 모든 신호가 한 메서드에서 가산된다.</p>
+<p>작동한 신호의 가중치를 더하는 단순·투명한 구조다. explicit-hint 모드 분기를 제외하면 모든 신호가 한 메서드에서 가산된다.</p>
 
 <pre><code>public double score(DiscoveredEndpoint d, boolean corsPreflight, ApiHintMatcher hints) {
     double s = 0.0;
@@ -838,7 +834,7 @@ flowchart TD
   <li><strong>api 힌트</strong>(<code>apiPathPrefixes</code>/<code>apiPathRegexes</code>) — 매치 시 <strong>임계와 무관하게 강제 API 확정</strong>(hard-admit).</li>
   <li><strong>exclude</strong>(<code>excludePathPrefixes</code>/<code>excludePathRegexes</code>) — 매치 시 <strong>강제 제외</strong>(게이트 내 최우선).</li>
   <li>api 힌트가 하나라도 설정되면 explicit-hint 모드 → 내장 path-shape 신호 비활성, <code>pathHint</code> 만 사용.</li>
-  <li>ReDoS 방어: prefix 200개·regex 50개·패턴 200자·입력 4096자 상한 + 매칭당 50ms deadline.</li>
+  <li>ReDoS(Regular expression Denial of Service, 정규식 서비스 거부 공격) 방어: prefix 200개·regex 50개·패턴 200자·입력 4096자 상한 + 매칭당 50ms deadline.</li>
 </ul>
 
 <!-- ============================================================= -->
@@ -950,7 +946,7 @@ base <span class="op">=</span> 0.5 · <span class="hl">log₁₀(hits+1)/3</span
 
 <h3>7.6 운영·확장성</h3>
 <ul>
-  <li><strong>HA 다중 실행 미보장</strong> — 현재 단일 <code>@Scheduled</code> 만 사용. 다중 인스턴스 배포 시 같은 도메인을 중복 스캔할 수 있다(ShedLock/Quartz 클러스터 도입은 후속).</li>
+  <li><strong>HA(High Availability, 고가용성) 다중 실행 미보장</strong> — 현재 단일 <code>@Scheduled</code> 만 사용. 다중 인스턴스 배포 시 같은 도메인을 중복 스캔할 수 있다(ShedLock/Quartz 클러스터 도입은 후속).</li>
   <li>Spring Batch JobRepository 실연결 미완(<code>batch.job.enabled=false</code>, 스케줄러만 트리거).</li>
   <li>중앙 서버 연동의 <strong>서비스 간 인증 미구현</strong>(<code>SecurityConfig</code> permitAll) — 외부 연동은 자체 기능 안정화 후 진행 예정.</li>
   <li>재방문 주기는 <strong>티어(활성/기본/비활성/dormant)</strong> 로 자동 결정된다(<a class="dref" href="#d48">D48</a>, <code>nextScanDueAt</code> collapse). 도메인별 <code>intervalOverride</code> 도 이 커서에 반영된다. <span class="pill">갱신됨</span> (구 매뉴얼의 "전역 간격만 적용" 기술은 폐기).</li>
@@ -1025,7 +1021,7 @@ base <span class="op">=</span> 0.5 · <span class="hl">log₁₀(hits+1)/3</span
     <tr><td>게이트 <code>DROP_WEB_FORM</code></td><td>웹페이지 폼 제출(강 API 신호 없는 <code>WEB_PAGE</code> 쓰기 메서드)</td><td><code>droppedNonApi.webForm</code></td></tr>
     <tr><td>게이트 <code>DROP_LOW_SCORE</code></td><td>API 점수가 임계 미달</td><td><code>droppedNonApi.lowScore</code></td></tr>
     <tr><td>게이트 <code>DROP_EXCLUDED</code></td><td>운영자 명시 제외 경로(<code>ApiHintMatcher</code>)</td><td><code>droppedNonApi.excluded</code></td></tr>
-    <tr><td><strong>게이트 <code>DROP_OVERSIZE</code> (<a class="dref" href="#d68">D68</a>)</strong></td><td><strong>초장문 경로(&gt;2,048자)</strong> — 대개 SQLi 등 공격 페이로드. <code>discovered_endpoint</code> unique btree 인덱스 행 한계(압축 후 ~2.7KB) 초과라 저장 자체가 불가한 크기</td><td><code>droppedNonApi.oversizePath</code></td></tr>
+    <tr><td><strong>게이트 <code>DROP_OVERSIZE</code> (<a class="dref" href="#d68">D68</a>)</strong></td><td><strong>초장문 경로(&gt;2,048자)</strong> — 대개 SQLi(SQL Injection, SQL 삽입) 등 공격 페이로드. <code>discovered_endpoint</code> unique btree 인덱스 행 한계(압축 후 ~2.7KB) 초과라 저장 자체가 불가한 크기</td><td><code>droppedNonApi.oversizePath</code></td></tr>
     <tr><td>실재성 필터</td><td>전부 4xx/404 인 "존재하지 않는 경로"(스캐너 노이즈)</td><td><code>droppedNonExistent</code></td></tr>
     <tr><td>template 상한(5000)</td><td>host 당 distinct template 초과분 — hits 낮은 순 폐기(<a href="#s7">7.5</a>)</td><td><code>droppedByLimit</code></td></tr>
   </tbody>
@@ -1043,8 +1039,8 @@ base <span class="op">=</span> 0.5 · <span class="hl">log₁₀(hits+1)/3</span
 <p>7장 한계의 상당수는 "<strong>로그에 담긴 신호가 부족</strong>"하기 때문이다. nginx 는 <code>log_format</code> 에 다양한 내장 변수를 추가로 남길 수 있다. 아래 항목 중 판별력이 확인된 것들의 <strong>소비 로직은 이미 구현·머지되어 있고</strong>(PR #73 / <code>05c17aa</code>, <a class="dref" href="#d79">D79</a> — 파서·<code>EndpointKindClassifier</code>·<code>ApiScorer</code>), 지금은 <strong>DORMANT(휴면)</strong> 상태로 대기한다. 운영자가 nginx <code>log_format</code> 에 필드를 추가하고 해당 인덱스를 설정하면(§8.4) 판정기가 그 신호를 소비하기 시작한다.</p>
 
 <div class="callout ok">
-  <span class="ct">무회귀 — 지금은 현행 판정 100% 동일</span>
-  모든 신규 필드 인덱스의 기본값은 <code>-1</code>(미사용)이다. 즉 파서가 해당 필드를 <strong>읽지 않으므로</strong> 전 신규 신호가 부재(0 기여)이고, 점수·<code>endpoint_kind</code> 판정은 <strong>기존과 완전히 동일하다.</strong> 신규 코드가 배포돼 있어도 <code>log_format</code> 을 바꾸지 않는 한 아무 것도 달라지지 않는다(ACRM 과 동일한 "있으면 읽는" 안전 설계). <strong>활성화(nginx <code>log_format</code> 변경 + 인덱스 설정)는 별도의 운영 단계다</strong>(§8.4).
+  <span class="ct">동작 불변 — 지금은 현행 판정 100% 동일</span>
+  모든 신규 필드 인덱스의 기본값은 <code>-1</code>(미사용)이다. 즉 파서가 해당 필드를 <strong>읽지 않으므로</strong> 전 신규 신호가 부재(0 기여)이고, 점수·<code>endpoint_kind</code> 판정은 <strong>기존과 완전히 동일하다.</strong> 신규 코드가 배포돼 있어도 <code>log_format</code> 을 바꾸지 않는 한 아무 것도 달라지지 않는다(ACRM[Access-Control-Request-Method] 과 동일한 "있으면 읽는" 안전 설계). <strong>활성화(nginx <code>log_format</code> 변경 + 인덱스 설정)는 별도의 운영 단계다</strong>(§8.4).
 </div>
 
 <div class="callout ok">
@@ -1058,10 +1054,10 @@ base <span class="op">=</span> 0.5 · <span class="hl">log₁₀(hits+1)/3</span
   <thead><tr><th>nginx 변수</th><th>캡처 내용</th><th>검출 개선 효과</th><th>관련 한계</th><th>소비/구현</th></tr></thead>
   <tbody>
     <tr><td><code>$sent_http_content_type</code></td><td>응답 Content-Type</td><td>json/xml/grpc → API, text/html → 웹페이지, image·css·js → 정적. endpoint_kind 결정적 판정</td><td>7.2 · 7.3 · 6장</td><td><span class="pill pill-admit">소비</span> idx 24 · <code>endpoint_kind</code> 결정(별개 경로)</td></tr>
-    <tr><td><code>$content_type</code><br/>(=<code>$http_content_type</code>)</td><td>요청 본문 Content-Type</td><td>향후 web-form 억제(DROP_WEB_FORM) 정밀화용 — <strong>현재 판정에 미반영</strong></td><td>7.5 · 7.1(부분)</td><td><span class="pill pill-drop">예약</span> idx 25 · 로깅만·미소비(파서 인덱스 미부여)</td></tr>
+    <tr><td><code>$content_type</code><br/>(=<code>$http_content_type</code>)</td><td>요청 본문 Content-Type</td><td>향후 web-form 억제(DROP_WEB_FORM) 정밀화용 — <strong>현재 판정에 미반영</strong></td><td>7.5 · 7.1(부분)</td><td><span class="pill pill-drop">예약</span> idx 25 · 로깅만·미사용(파서 인덱스 미부여)</td></tr>
     <tr><td><code>$http_access_control_request_method</code></td><td>CORS preflight 요청 메서드(ACRM)</td><td>값이 있으면 <strong>확정적 preflight</strong> → 진짜 OPTIONS 와 구분(Unused 오판 제거)</td><td>7.5</td><td><span class="pill pill-admit">소비</span> idx 28 · 기구현(M3/<a class="dref" href="#d50">D50</a>, 기존 게이트)</td></tr>
     <tr><td><code>$http_accept</code></td><td>요청 Accept 헤더</td><td>클라이언트가 <code>application/json</code> 기대 → API 호출 의도</td><td>7.3</td><td><span class="pill pill-admit">소비</span> idx 26 · <code>acceptJson</code>(가중치 0.20)</td></tr>
-    <tr><td><code>$http_x_requested_with</code></td><td>XHR 표식</td><td><code>XMLHttpRequest</code> → AJAX/SPA 의 API 호출 신호</td><td>7.3</td><td><span class="pill pill-admit">소비</span> idx 27 · <code>xRequestedWith</code>(0.28)</td></tr>
+    <tr><td><code>$http_x_requested_with</code></td><td>XHR(XMLHttpRequest) 표식</td><td><code>XMLHttpRequest</code> → AJAX/SPA(Single Page Application, 단일 페이지 앱) 의 API 호출 신호</td><td>7.3</td><td><span class="pill pill-admit">소비</span> idx 27 · <code>xRequestedWith</code>(0.28)</td></tr>
     <tr><td><code>$http_origin</code></td><td>CORS Origin 헤더</td><td>cross-origin 호출 → API 컨텍스트(ACRM 보강)</td><td>7.5 · 7.3</td><td><span class="pill pill-admit">소비</span> idx 29 · <code>originHeader</code>(0.15)</td></tr>
     <tr><td><code>$auth_scheme</code><br/>(<code>$http_authorization</code>에서 map 추출)</td><td>인증 스킴(bearer/basic 등) <strong>존재 여부만</strong></td><td>토큰 기반 인증 사용 → API 신호. ⚠️ 토큰 값은 절대 로깅 금지</td><td>7.1(부분)</td><td><span class="pill pill-admit">소비</span> idx 30 · <code>authScheme</code>(0.28)</td></tr>
     <tr><td><code>$server_protocol</code></td><td>HTTP 버전</td><td>HTTP/2 + <code>application/grpc</code> → gRPC 식별 보조 — 응답 CT(grpc)로 이미 판정 가능해 추가 판별력 미미</td><td>—</td><td><span class="pill pill-drop">미채택</span> 판별력 미미(사용자 결정)</td></tr>
@@ -1080,16 +1076,16 @@ base <span class="op">=</span> 0.5 · <span class="hl">log₁₀(hits+1)/3</span
     <tr><td><code>$sent_http_content_type</code></td><td><code>endpoint_kind</code> <strong>최우선 결정</strong>(§8.3) — 응답 CT 로 API/WEB_PAGE/STATIC 을 직접 분기. 기존 <code>responseTypeApi</code> 신호의 더 정확한 소스로도 기능한다.</td><td><span class="pill pill-drop">아니오</span> 스칼라 가중치가 아니라 kind 분기</td></tr>
     <tr><td><code>$http_access_control_request_method</code></td><td><strong>기존 preflight 게이트</strong>(<code>corsPreflight</code> 신호는 이미 존재) — M3/<a class="dref" href="#d50">D50</a> 으로 이미 구현. 로그 필드·인덱스 설정만 하면 활성.</td><td><span class="pill pill-drop">아니오</span> 기존 신호·게이트 재사용</td></tr>
     <tr><td><code>$http_accept</code> · <code>$http_x_requested_with</code> · <code>$http_origin</code> · <code>$auth_scheme</code></td><td><code>ApiScorer</code> 양성 가중치 신호(아래 표)</td><td><span class="pill pill-admit">예 — 4개</span></td></tr>
-    <tr><td><code>$content_type</code>(요청)</td><td><strong>미소비</strong>(예약) — 향후 web-form 정밀화용, 현재 판정에 미반영</td><td><span class="pill pill-drop">아니오</span></td></tr>
+    <tr><td><code>$content_type</code>(요청)</td><td><strong>미사용</strong>(예약) — 향후 web-form 정밀화용, 현재 판정에 미반영</td><td><span class="pill pill-drop">아니오</span></td></tr>
     <tr><td><code>$server_protocol</code> · <code>$upstream_addr</code></td><td><strong>제외</strong> — 판별력 미미(사용자 결정). §8.1·§8.6 참조</td><td><span class="pill pill-drop">미채택</span></td></tr>
   </tbody>
 </table>
 
-<p><strong>신규 4신호 가중치(양성 가산만)</strong> — 프로파일별. HIGH=엄격(낮음) &lt; MIDDLE(기본) &lt; LOW=느슨(높음). 점수 = 발화 신호 가중치 합, <code>score ≥ threshold</code>(MIDDLE 0.70) → API 후보.</p>
+<p><strong>신규 4신호 가중치(양성 가산만)</strong> — 프로파일별. HIGH=엄격(낮음) &lt; MIDDLE(기본) &lt; LOW=느슨(높음). 점수 = 작동 신호 가중치 합, <code>score ≥ threshold</code>(MIDDLE 0.70) → API 후보.</p>
 <table>
-  <thead><tr><th>신호</th><th>발화 조건(다수결)</th><th>MIDDLE</th><th>HIGH</th><th>LOW</th><th>근거(a-priori)</th></tr></thead>
+  <thead><tr><th>신호</th><th>작동 조건(다수결)</th><th>MIDDLE</th><th>HIGH</th><th>LOW</th><th>근거(a-priori)</th></tr></thead>
   <tbody>
-    <tr><td><code>acceptJson</code></td><td><code>Accept</code> 에 <code>application/json</code> 또는 <code>+json</code> 포함(<code>*/*</code> 는 미발화)</td><td>0.20</td><td>0.15</td><td>0.28</td><td>클라이언트가 JSON 기대 = API 의도. 브라우저도 종종 섞어 보냄 → 중간(<code>responseTypeApi</code> 0.25 유사 티어)</td></tr>
+    <tr><td><code>acceptJson</code></td><td><code>Accept</code> 에 <code>application/json</code> 또는 <code>+json</code> 포함(<code>*/*</code> 는 미작동)</td><td>0.20</td><td>0.15</td><td>0.28</td><td>클라이언트가 JSON 기대 = API 의도. 브라우저도 종종 섞어 보냄 → 중간(<code>responseTypeApi</code> 0.25 유사 티어)</td></tr>
     <tr><td><code>xRequestedWith</code></td><td><code>X-Requested-With: XMLHttpRequest</code></td><td>0.28</td><td>0.22</td><td>0.34</td><td>명확한 AJAX/XHR = SPA API 호출(<code>corsPreflight</code> 0.30 급 강신호)</td></tr>
     <tr><td><code>originHeader</code></td><td><code>Origin</code> 헤더 존재</td><td>0.15</td><td>0.10</td><td>0.20</td><td>cross-origin 맥락(API 보강)이나 폼 POST 에도 붙음 → 약~중</td></tr>
     <tr><td><code>authScheme</code></td><td><code>Authorization</code> 스킴 존재(bearer/basic…)</td><td>0.28</td><td>0.22</td><td>0.34</td><td>토큰 인증 = 강한 API 신호(특히 bearer)</td></tr>
@@ -1097,13 +1093,13 @@ base <span class="op">=</span> 0.5 · <span class="hl">log₁₀(hits+1)/3</span
 </table>
 
 <div class="callout note">
-  <span class="ct">발화 조건 = 다수결 (<code>count*2 ≥ hits</code>)</span>
-  4신호 모두 <strong>클라이언트가 제어하는 요청 헤더</strong>다. "한 번이라도 보였으면 발화(presence&gt;0)"로 하면 스캐너/크롤러가 단발 요청 하나(<code>Accept: json</code>+XRW+Origin+Auth 동시 송신)만으로 임의 엔드포인트에 최대 <code>+0.91</code> 을 영구 발화시킬 수 있다(살포 위험). 그래서 <strong>해당 엔드포인트 트래픽의 과반(<code>count*2 ≥ hits</code>)</strong>일 때만 발화한다(<code>nonBrowserUa</code> 의 <code>sdkUaCount*2 ≥ hits</code> 선례). 단발 flip 이 차단되고 발화가 엔드포인트 지배 트래픽에 묶인다.
+  <span class="ct">작동 조건 = 다수결 (<code>count*2 ≥ hits</code>)</span>
+  4신호 모두 <strong>클라이언트가 제어하는 요청 헤더</strong>다. "한 번이라도 보였으면 작동(presence&gt;0)"로 하면 스캐너/크롤러가 단발 요청 하나(<code>Accept: json</code>+XRW+Origin+Auth 동시 송신)만으로 임의 엔드포인트에 최대 <code>+0.91</code> 을 영구 작동시킬 수 있다(살포 위험). 그래서 <strong>해당 엔드포인트 트래픽의 과반(<code>count*2 ≥ hits</code>)</strong>일 때만 작동한다(<code>nonBrowserUa</code> 의 <code>sdkUaCount*2 ≥ hits</code> 선례). 단발 flip 이 차단되고 작동이 엔드포인트 지배 트래픽에 묶인다.
 </div>
 
 <div class="callout ok">
   <span class="ct">양성 가산만 → 점수 경로 격하 0%</span>
-  4신호는 모두 <strong>기여 ≥ 0</strong>(발화 시 가산, 부재 시 0). 점수는 이 신호들에 대해 단조 비감소이므로, 이미 <code>score ≥ threshold</code> 인 현행 API 는 활성화 후에도 여전히 통과한다 — <strong>API→비-API 격하는 점수 경로에서 발생하지 않는다.</strong> 유일한 변화 방향은 경계 아래(&lt;0.70)의 <em>진짜 API 신호를 가진</em> 케이스가 상향(비-API→API)되는 것이다. 시뮬레이션(운영 PG 전수 재계산): 단일신호 최대 승격 상한 31,391건(전체 1.06%)이고 그 89.5%가 이미 API 구조 신호(host=api·<code>/api/</code>·graphql·version·cors)를 보유 = 정당한 교정(doc/40 §5.1). <span class="legend">(단, 응답 CT→kind 경로는 별개 — §8.3 참조.)</span>
+  4신호는 모두 <strong>기여 ≥ 0</strong>(작동 시 가산, 부재 시 0). 점수는 이 신호들에 대해 단조 비감소이므로, 이미 <code>score ≥ threshold</code> 인 현행 API 는 활성화 후에도 여전히 통과한다 — <strong>API→비-API 격하는 점수 경로에서 발생하지 않는다.</strong> 유일한 변화 방향은 경계 아래(&lt;0.70)의 <em>진짜 API 신호를 가진</em> 케이스가 상향(비-API→API)되는 것이다. 시뮬레이션(운영 PG 전수 재계산): 단일신호 최대 승격 상한 31,391건(전체 1.06%)이고 그 89.5%가 이미 API 구조 신호(host=api·<code>/api/</code>·graphql·version·cors)를 보유 = 정당한 교정(doc/40 §5.1). <span class="legend">(단, 응답 CT→kind 경로는 별개 — §8.3 참조.)</span>
 </div>
 
 <h3 id="s8-3">8.3 endpoint_kind 판정 개선과 오도 CT 완화 가드</h3>
@@ -1166,7 +1162,7 @@ map $http_authorization $auth_scheme {
 log_format api_discovery
     '... 기존 24개 필드 0~23 (client_ip ~ request_id) ...'
     '^|^$sent_http_content_type'               # [24] 응답 Content-Type      ← 최우선(endpoint_kind)
-    '^|^$content_type'                         # [25] 요청 본문 CT           (예약·미소비 — 슬롯 정렬용)
+    '^|^$content_type'                         # [25] 요청 본문 CT           (예약·미사용 — 슬롯 정렬용)
     '^|^$http_accept'                          # [26] 요청 Accept            → acceptJson
     '^|^$http_x_requested_with'                # [27] XHR 여부               → xRequestedWith
     '^|^$http_access_control_request_method'   # [28] CORS preflight (ACRM)
@@ -1179,7 +1175,7 @@ access_log /var/log/nginx/access.log api_discovery;</code></pre>
 
 <div class="callout note">
   <span class="ct">활성화 — 코드 배포 후 별도 운영 단계</span>
-  위 <code>log_format</code> 을 적용해도, 판정기가 소비하려면 배포 설정(<code>adc.yaml</code> 또는 <code>application.yml</code>)의 <code>apidiscover.parse.*</code> 인덱스를 함께 세팅해야 한다. 미설정 = <code>-1</code> = DORMANT(무회귀).
+  위 <code>log_format</code> 을 적용해도, 판정기가 소비하려면 배포 설정(<code>adc.yaml</code> 또는 <code>application.yml</code>)의 <code>apidiscover.parse.*</code> 인덱스를 함께 세팅해야 한다. 미설정 = <code>-1</code> = DORMANT(동작 불변).
   <pre style="margin:8px 0 0;"><code>apidiscover:
   parse:
     response-content-type-field-index: 24   # $sent_http_content_type (★요청측 $content_type[25] 아님)
@@ -1237,7 +1233,7 @@ access_log /var/log/nginx/access.log api_discovery;</code></pre>
     <tr><td>7.2 <code>$type</code> API 신호 부재</td><td><code>$sent_http_content_type</code> (응답 타입으로 대체)</td><td><span class="pill pill-admit">소비</span></td></tr>
     <tr><td>7.3 동일출처 www JSON API 분리</td><td><code>$sent_http_content_type</code> · <code>$http_accept</code> · <code>$http_x_requested_with</code></td><td><span class="pill pill-admit">소비</span></td></tr>
     <tr><td>7.5 preflight vs 진짜 OPTIONS</td><td><code>$http_access_control_request_method</code> · <code>$http_origin</code></td><td><span class="pill pill-admit">소비</span></td></tr>
-    <tr><td>7.5 web-form(POST) 억제 정밀화</td><td><code>$content_type</code> (요청 본문 타입)</td><td><span class="pill pill-drop">예약</span> 미소비</td></tr>
+    <tr><td>7.5 web-form(POST) 억제 정밀화</td><td><code>$content_type</code> (요청 본문 타입)</td><td><span class="pill pill-drop">예약</span> 미사용</td></tr>
     <tr><td>7.1 인증 방식 부재(부분)</td><td><code>$auth_scheme</code> (스킴만, 토큰 금지)</td><td><span class="pill pill-admit">소비</span></td></tr>
     <tr><td>인벤토리 그룹핑(보조)</td><td><code>$upstream_addr</code> · <code>$server_protocol</code></td><td><span class="pill pill-drop">미채택</span> 판별력 미미(§8.1)</td></tr>
   </tbody>
@@ -1301,7 +1297,7 @@ access_log /var/log/nginx/access.log api_discovery;</code></pre>
     <tr><td><code id="d76">D76</code></td><td><code>discovered_endpoint</code> autovacuum 튜닝(per-table scale 0.05) + 초기 <code>VACUUM</code>(dead 0).</td></tr>
     <tr><td><code id="d77">D77</code></td><td>컨테이너 <code>/dev/shm</code> 확대 시도 → SELinux relabel 실패·롤백, 비병렬 <code>REINDEX</code> 로 대체(shm 불요).</td></tr>
     <tr><td><code id="d78">D78</code></td><td>스코어링 정책 조회 강화 — 전역 GET 에 effective 노출 + threshold 최상위 분리 + 신호 설명(ko/en). API-only.</td></tr>
-    <tr><td><code id="d79">D79</code></td><td>8.3 로그변수 소비 범위·가중치·시뮬레이션 — 응답 CT→<code>endpoint_kind</code> + 요청 4신호(accept/xhr/origin/auth) 양성 가중치. DORMANT 무회귀·과승격 상한 1.06%.</td></tr>
+    <tr><td><code id="d79">D79</code></td><td>8.3 로그변수 소비 범위·가중치·시뮬레이션 — 응답 CT→<code>endpoint_kind</code> + 요청 4신호(accept/xhr/origin/auth) 양성 가중치. DORMANT 동작 불변·과승격 상한 1.06%.</td></tr>
     <tr><td><code id="d80">D80</code></td><td>8.3 활성화 전제 = 엣지 nginx <code>log_format</code> 24필드 표준화(파서는 전역 단일 인덱스, 규약 <code>doc/41</code>).</td></tr>
     <tr><td><code id="d81">D81</code></td><td>스캔 due/워터마크 밀림 누적 대응 — 유령 도메인 억제 A(<code>NEW-PAJ*</code> 제외)+C(404·470-only 등록 배제) + 하드 정리(31,985 삭제·due −62%).</td></tr>
     <tr><td><code id="d82">D82</code></td><td>무접속 도메인 상태 관리 — 7일 무요청 → <code>activity_status=INACTIVE</code>(sweep) → 스캔 제외. <code>enabled</code> 과 별도 축, 경로 제외(<code>.cloudbric</code>)·재활성.</td></tr>
