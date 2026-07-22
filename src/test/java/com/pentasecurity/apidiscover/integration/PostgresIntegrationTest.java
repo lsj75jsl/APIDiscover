@@ -396,7 +396,7 @@ class PostgresIntegrationTest {
         sr.setVersion("v1");
         sr.setReportJson("{\"summary\":\"ok\"}");
         scanRepo.save(sr);
-        mvc.perform(get("/api/v1/domains/{host}/scan-status", host))
+        mvc.perform(get("/api/v1/domains/{host}/scan-result", host))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.latestSpec.filename").value("users-api.yaml"));
     }
@@ -446,7 +446,7 @@ class PostgresIntegrationTest {
         r.setReportJson("{\"summary\":\"ok\",\"findings\":[{\"host\":\"" + host
                 + "\",\"method\":\"POST\",\"pathTemplate\":\"/api/orders/{id}\",\"confidence\":0.7}]}");
         scanRepo.save(r);
-        mvc.perform(get("/api/v1/domains/{host}/result", host))
+        mvc.perform(get("/api/v1/domains/{host}/scan-result/detail", host))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.summary").value("ok"))                        // report 기존 필드 불변
                 .andExpect(jsonPath("$.findings[0].classification").value("SHADOW"))  // ⓒ 인라인(스펙 미매칭→SHADOW)
@@ -753,14 +753,14 @@ class PostgresIntegrationTest {
         r.setReportJson("{\"summary\":\"ok\"}");
         scanRepo.save(r);
 
-        MvcResult first = mvc.perform(get("/api/v1/domains/{host}/result", host))
+        MvcResult first = mvc.perform(get("/api/v1/domains/{host}/scan-result/detail", host))
                 .andExpect(status().isOk())
                 .andExpect(header().string("ETag", "\"v-abc123\""))
                 .andExpect(jsonPath("$.summary").value("ok")) // @Lob TEXT read 경로
                 .andReturn();
         String etag = first.getResponse().getHeader("ETag");
 
-        mvc.perform(get("/api/v1/domains/{host}/result", host).header("If-None-Match", etag))
+        mvc.perform(get("/api/v1/domains/{host}/scan-result/detail", host).header("If-None-Match", etag))
                 .andExpect(status().isNotModified());
     }
 

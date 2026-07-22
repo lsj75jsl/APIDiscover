@@ -90,7 +90,8 @@ public final class DomainDtos {
             String version,
             SummaryView summary,
             int totalDropped,
-            SpecMetaView latestSpec               // 최근 active 스펙 메타(filename·uploadedAt·endpointCount), 없으면 null
+            SpecMetaView latestSpec,              // 최근 active 스펙 메타(filename·uploadedAt·endpointCount), 없으면 null
+            ApiLists apis                         // 유형별 API 목록(per-scan report_json 기준, summary 와 동일 집합, 사용자 요청)
     ) {}
 
     public record SummaryView(
@@ -99,5 +100,18 @@ public final class DomainDtos {
             int shadow,
             int zombie,
             int unused
+    ) {}
+
+    /**
+     * scan-status 유형별 API 목록 (사용자 요청) — per-scan report_json finding 을 분류별로 나열.
+     * 각 원소 형식은 {@code "GET [https://host/pathTemplate]"}. scheme 은 미저장이라 https 고정(WAAP API 트래픽 전제).
+     * {@code discovered}=전체 finding(분류 무관·webpage 포함), 나머지=classification 별. summary 카운트와 동일 집합.
+     */
+    public record ApiLists(
+            List<String> discovered,
+            List<String> active,
+            List<String> shadow,
+            List<String> zombie,
+            List<String> unused
     ) {}
 }

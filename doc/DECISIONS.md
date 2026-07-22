@@ -720,6 +720,15 @@ gap-free 크롤은 활성 수요(~22.6k 윈도우/h) vs 예산 용량(D65 후 ~7
 - **배포 결과(2026-07-22)**: 첫 게이트 `ghostSuppressed=537` 억제 → scannable 10,729→**10,153**. 실서비스(new-PAJ11 501 등) 보존 확인. 571 테스트 green(실 PG 게이트·markActive 해제). DDL 경고 0.
 - **관련**: doc/42(유령 A/B/C·엣지 제외 한계), D82(activity_status), D81.
 
+### D84. scan-status 유형별 API 목록 + /result reason 필드 재배치 (2026-07-22, 사용자 요청)
+- **배경**: 운영자가 scan-status 에서 유형별 API 목록을 한눈에 보고 싶어 함. `/result` finding 순서는 `classification` 다음에 `reason` 이 오길 원함.
+- **결정 ①(scan-status apis)**: `GET /scan-status` 응답에 `apis{discovered,active,shadow,zombie,unused}` 가산(additive). 각 원소 `"GET [https://host/pathTemplate]"`. **출처=per-scan report_json finding**(summary 와 동일 집합 → 개수 일관, 사용자가 우려한 /result 대비 불일치 없음). ★report_json 의 finding 은 타입 판별자 없이 직렬화(classification 미저장)이라, `/result` 인라인과 **동일한 forHost 판단근거 매칭**(EndpointIdentity.key)으로 분류. `rationaleByKey` 헬퍼로 두 경로 공용화. report_json null(미스캔)=빈 목록·forHost 미호출.
+- **결정 ②(/result 순서)**: inlineBasis 에서 `reason` 을 떼어내 `classification` 직후 재부착(미매칭 finding 은 끝으로). 최종 순서 `…confidence, params, low_confidence, classification, reason, basis`.
+- **트레이드오프**: scan-status 가 forHost 호출로 무거워짐(원래 doc/07 §3.2 "경량 상태 메타"). 사용자 명시 요청이라 채택하되, 중앙이 고빈도 폴링 시 부하 재검토 여지. scheme 미저장 → `https` 고정(WAAP API 트래픽 전제).
+- **영향**: scan-status=additive(무파괴), /result=필드 **순서 변경**(값·ETag 불변). 중앙/매뉴얼(TW) 반영 필요. 미배포·커밋 보류. build green 573.
+- **결정 ③(엔드포인트 경로 개명, 사용자 요청 2차)**: `GET /scan-status` → **`GET /scan-result`**, `GET /result` → **`GET /scan-result/detail`**. `ScanController` @GetMapping 2곳 + 통합테스트 MockMvc 4곳 수정(Java 메서드명 status()/result() 은 유지 — 경로만 변경, 불필요 churn 회피). Spring 경로 매칭 무충돌(`/scan-result` vs `/scan-result/detail` 별개). ★**breaking**(경로 변경) — 중앙/매뉴얼(TW) 필수 반영. build green 573.
+- **관련**: D55(/result 인라인), doc/07 §3.2/§3.3, doc/35 M4/M5.
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.

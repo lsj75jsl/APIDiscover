@@ -80,7 +80,7 @@ class ScanControllerTest {
         ScanResult r = scan();
         // findings: 매칭(/v2/users/{id}) 1건 + 비매칭(/other) 1건 — 매칭만 basis 인라인
         r.setReportJson("{\"host\":\"api.example.com\",\"findings\":["
-                + "{\"host\":\"api.example.com\",\"method\":\"GET\",\"pathTemplate\":\"/v2/users/{id}\",\"confidence\":1.0},"
+                + "{\"host\":\"api.example.com\",\"method\":\"GET\",\"pathTemplate\":\"/v2/users/{id}\",\"confidence\":1.0,\"reason\":\"문서 매칭\"},"
                 + "{\"host\":\"api.example.com\",\"method\":\"GET\",\"pathTemplate\":\"/other\",\"confidence\":0.6}]}");
         r.setVersion("v9");
         when(scanRepo.findById(HOST)).thenReturn(Optional.of(r));
@@ -97,10 +97,52 @@ class ScanControllerTest {
         JsonNode matched = body.get("findings").get(0);
         assertThat(matched.get("confidence").asDouble()).isEqualTo(1.0);        // 기존 finding 필드 불변
         assertThat(matched.get("classification").asText()).isEqualTo("ACTIVE"); // ⓒ 인라인
+        assertThat(matched.get("reason").asText()).isEqualTo("문서 매칭");        // reason 보존
         assertThat(matched.get("basis").get("type").asText()).isEqualTo("spec_match");
+        // reason 은 classification 뒤로 재배치(사용자 요청 순서)
+        List<String> order = fieldOrder(matched);
+        assertThat(order.indexOf("reason")).isGreaterThan(order.indexOf("classification"));
         JsonNode unmatched = body.get("findings").get(1);
         assertThat(unmatched.has("basis")).isFalse();                           // 매칭 없으면 미가산
         assertThat(body.has("rationale")).isFalse();                            // 별도 배열 제거(인라인 대체)
+    }
+
+    // --- scan-status 유형별 API 목록(사용자 요청) ---
+
+    @Test
+    void statusIncludesPerCategoryApiListsFromReportFindings() {
+        ScanResult r = scan();
+        r.setReportJson("{\"host\":\"api.example.com\",\"findings\":["
+                + "{\"host\":\"api.example.com\",\"method\":\"GET\",\"pathTemplate\":\"/stats\",\"confidence\":0.9},"
+                + "{\"host\":\"api.example.com\",\"method\":\"POST\",\"pathTemplate\":\"/v2/users\",\"confidence\":1.0}]}");
+        when(scanRepo.findById(HOST)).thenReturn(Optional.of(r));
+        when(specStore.latestSpecMeta(HOST)).thenReturn(Optional.empty());
+        when(combined.forHost(HOST)).thenReturn(combinedWith(List.of(
+                new EndpointRationale("GET", HOST, "/stats", Classification.SHADOW,
+                        new ApiBasis.SpecMatchBasis("ref", false, false)),
+                new EndpointRationale("POST", HOST, "/v2/users", Classification.ACTIVE,
+                        new ApiBasis.SpecMatchBasis("ref", false, false)))));
+
+        var apis = controller.status(HOST).apis();
+
+        assertThat(apis.discovered()).containsExactly(
+                "GET [https://api.example.com/stats]", "POST [https://api.example.com/v2/users]");
+        assertThat(apis.shadow()).containsExactly("GET [https://api.example.com/stats]");
+        assertThat(apis.active()).containsExactly("POST [https://api.example.com/v2/users]");
+        assertThat(apis.zombie()).isEmpty();
+        assertThat(apis.unused()).isEmpty();
+    }
+
+    @Test
+    void statusApiListsEmptyWhenNoReportAndSkipsForHost() {
+        when(scanRepo.findById(HOST)).thenReturn(Optional.of(scan())); // reportJson null
+        when(specStore.latestSpecMeta(HOST)).thenReturn(Optional.empty());
+
+        var apis = controller.status(HOST).apis();
+
+        assertThat(apis.discovered()).isEmpty();
+        assertThat(apis.shadow()).isEmpty();
+        verify(combined, never()).forHost(any()); // 미스캔=forHost 미호출(경량 유지)
     }
 
     @Test
@@ -199,6 +241,13 @@ class ScanControllerTest {
         assertThatThrownBy(() -> controller.scanNow(HOST, null))
                 .isInstanceOfSatisfying(ResponseStatusException.class,
                         e -> assertThat(e.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY));
+    }
+
+    /** JSON object 필드의 직렬화 순서(순서 검증용). */
+    private static List<String> fieldOrder(JsonNode obj) {
+        List<String> names = new java.util.ArrayList<>();
+        obj.fieldNames().forEachRemaining(names::add);
+        return names;
     }
 
     private static DomainConfig domainConfig() {
