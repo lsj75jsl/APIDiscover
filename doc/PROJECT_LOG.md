@@ -65,6 +65,11 @@
 - **별첨 A 재생성**(`refresh_appendixA.py`): 신규 인용 결정(D57·D75·D79·D81·D82·D83 등)을 각 별첨 A에 반영·D* 링크 재적용. collection-ops 용어집 g-self-endpoint 추가.
 - 검증: **7개 매뉴얼 전부** 태그 균형·죽은 링크 0·직역투 0. 잔존 P3D 2건은 "P3D→P7D" 변경 이력 표기(정상).
 
+### 한 일 (추가) — api-rest 응답 JSON 키 설명 표 (사용자 요청)
+- 각 API 응답 JSON 마다 "응답 키(키·타입·의미)" 표 **14개** 추가: GET /domains(DomainView)·GET /domains/{host}(DomainDetailView 보강분)·scan-status·result(상위 + findings[])·discovery(effectiveClassification + basis/signals[])·GET /spec(스펙 메타)·spec/apis(DocumentedApiView)·?view=merged(MergedApiView)·classification(상위 + effective/matcher)·static-classify·health.
+- POST/PUT(DomainView)·PATCH weights(classification 표)는 동형이라 참조. weights 14 신호 키 의미는 응답 descriptions/판독 매뉴얼 §4.2 로 위임(중복 회피).
+- 신규 용어 링크(g-self-endpoint·g-edge)를 api-rest 용어집에 추가. 검증: 태그 균형·죽은 링크 0.
+
 ### 다음 단계
 - ghost 게이트 수렴 관찰 계속(scannable 추이) / full eTLD+1 서비스 수 정밀화(사용자 결정 대기, 7-21 항목).
 
