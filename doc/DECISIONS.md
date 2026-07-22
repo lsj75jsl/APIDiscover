@@ -712,6 +712,14 @@ gap-free 크롤은 활성 수요(~22.6k 윈도우/h) vs 예산 용량(D65 후 ~7
 - **재활성**: (②) 요청 재개→upsert 가 lastSeenAt+ACTIVE flip→다음 틱 재포함. (③ 확정) **수동 스캔(scan-now/scan)은 즉시 스캔 + activity_status=ACTIVE flip 으로 주기 스캔 대상 승격** — 이후 7일 무요청 시 sweep 이 다시 INACTIVE.
 - **구현·배포 완료(2026-07-20, main `5bced89`, 이미지 `4d876686b814` .197 배포·health UP·롤백 `prev-d82`=a171edf)**. 566 테스트 green(실 PG 포함). ★uri 필터 구현 함정: 이중따옴표 LogQL 문자열은 `\.` 이스케이프 규칙 위반→Loki **400** → **백틱 raw 문자열**로 확정(운영 2분창 status=200 실검증). ★마이그레이션: `columnDefinition default 'ACTIVE'`(D79 boolean 패턴)로 ddl-auto ADD 시 기존 57,566행 ACTIVE(안 그러면 NULL≠ACTIVE 로 스캔 전면 중단). 배포 후 첫 discovery: vector=16,986·Loki 에러 0·**deactivated=37,190**(초기 all-ACTIVE→무접속 7일+ 강등 수렴)·scannable(enabled&ACTIVE)=**20,377**(P3D 시절 selectable ~8.9k 대비 P7D 확대). 잔여=사후 관찰(1~2일).
 
+### D83. endpoint-yield 게이트 — 지속 0-endpoint 유령 억제(ghost_suppressed) (2026-07-22, doc/43 §5, main `c9e93b5`·이미지 `a2b31a1c8c4b`)
+- **배경(3단계 조사)**: ACTIVE(봇 트래픽으로 유지)인데 스캔하면 self-endpoint 0 인 유령 ~1,837(74% 신규 유입). 봇/foreign-host/spoofed Host. **엣지 제외(doc/42 A) 불가** — 최상위 유입 엣지 `new-PAJ11`(947도메인)이 **실서비스 501 + 유령 439 혼합 catch-all** 이라 엣지째 빼면 실서비스 501 손실. (부수 발견: `EdgeExclusions` 대소문자 구분이라 `new-PAJ11`(소문자)이 `NEW-PAJ*` 제외 회피 — 그러나 실서비스 보유라 **제외하면 안 됨**, 대소문자 무시 수정 금지.)
+- **결정**: 엣지가 아니라 **endpoint 산출 기반 가역 억제**. `domain_config.ghost_suppressed`(boolean·ddl-auto default false·D79 패턴) 신설. **"스캔 대상"=enabled AND activity_status=ACTIVE AND NOT ghost_suppressed** (3축).
+- **게이트**(discovery 틱, sweep 후): `scan.ghost-after`(기본 P7D·0=off) — `discoveredAt < now−ghost-after`(지속성) + 스캔이력(last_scan_attempt) + self-endpoint 0 + 무설정(interval_override·base_path_strip·spec_record·documented_api = 안전, doc/42 기준) → `ghost_suppressed=true`. discoveredAt null(수동 등록) 제외.
+- **가역**: 수동 스캔(`markActive`, scan-now/scan)이 `ghost_suppressed=false` 로 해제 → 재스캔·재평가. 봇 트래픽 재관측(upsert)은 해제 안 함(억제 유지). ★자동 복구 없음(GHOST가 실서비스로 변하면 수동 스캔 필요) — doc/42 하드삭제 트레이드오프의 가역 버전.
+- **배포 결과(2026-07-22)**: 첫 게이트 `ghostSuppressed=537` 억제 → scannable 10,729→**10,153**. 실서비스(new-PAJ11 501 등) 보존 확인. 571 테스트 green(실 PG 게이트·markActive 해제). DDL 경고 0.
+- **관련**: doc/42(유령 A/B/C·엣지 제외 한계), D82(activity_status), D81.
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.

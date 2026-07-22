@@ -180,3 +180,22 @@ EPOCH 센티넬 로직 제거). 스캔은 상태 컬럼만 신뢰.
 4. 스테이징 실측(짧은 창): uri 필터 부착 쿼리 지연·Loki 응답(에러 0) 확인 → 부하 안전 판정.
 5. 배포 후: `.cloudbric`-only 도메인 표본의 lastSeenAt 정체 → `activity_status` INACTIVE 전환 관찰,
    실요청/수동 스캔 시 ACTIVE 복귀 + `activity_status_changed_at` 기록 확인.
+
+## 8. 후속 — endpoint-yield 게이트(D83, 유령 억제)
+
+배포 후 운영 관찰에서 도출(3단계 조사). ACTIVE(봇 트래픽으로 유지)인데 스캔하면 self-endpoint 0 인
+유령(봇/foreign-host/spoofed Host)이 스캔 슬롯을 잠식. **엣지 제외로는 못 거른다** — 최상위 유입 엣지
+`new-PAJ11`(947도메인)이 **실서비스 501 + 유령 439 혼합 catch-all** 이라 엣지째 빼면 실서비스 손실.
+
+**결정 = endpoint 산출 기반 가역 억제**(엣지 아님). `domain_config.ghost_suppressed`(boolean, ddl-auto
+default false). **"스캔 대상" = enabled AND activity_status=ACTIVE AND NOT ghost_suppressed**(3축).
+
+- **게이트**(discovery 틱, inactive-sweep 후): `scan.ghost-after`(기본 P7D·0=off). 대상 =
+  `discoveredAt < now−ghost-after`(지속성) + 스캔이력(`last_scan_attempt_at` non-null) + self-endpoint 0
+  + 무설정(`interval_override`·`base_path_strip`·`spec_record`·`documented_api` 없음, 안전기준 doc/42) →
+  `ghost_suppressed=true`. `discoveredAt` null(수동 등록) 제외.
+- **가역**: 수동 스캔(`markActive`, scan-now/scan)이 해제. 봇 재관측(upsert)은 해제 안 함(억제 유지).
+  자동 복구 없음(GHOST→실서비스 전환 시 수동 스캔 필요) — doc/42 하드삭제 트레이드오프의 가역판.
+- **배포 결과(2026-07-22)**: 첫 게이트 `ghostSuppressed=537` → scannable 10,729→10,153, 실서비스 보존.
+- **★대소문자 함정**: `EdgeExclusions` 는 대소문자 구분이라 `new-PAJ11`(소문자)이 `NEW-PAJ*` 제외를
+  회피한다. 그러나 new-PAJ11 은 실서비스 보유 → 제외하면 안 됨. **대소문자 무시 수정 금지**(수정 시 501 손실).

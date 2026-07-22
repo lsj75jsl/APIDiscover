@@ -37,7 +37,9 @@
 <h1>도메인 상태 운영 매뉴얼 — <code>enabled</code> · <code>activity_status</code></h1>
 <p class="muted">도메인의 두 상태 축(<b>enabled</b>=사용자 수동 스위치, <b>activity_status</b>=시스템 자동 활동 게이트)의 의미·차이·DB 확인·변경 방법. 근거 <code>doc/43-inactive-domain-status.md</code>·<code>DECISIONS D82</code>. DB 접속·REST 는 §5·§6.</p>
 
-<div class="callout"><b>핵심 한 줄.</b> 주기 스캔 대상 = <code>enabled = true</code> <b>AND</b> <code>activity_status = 'ACTIVE'</code>. 두 조건을 <b>모두</b> 만족해야 스캔한다.</div>
+<div class="callout"><b>핵심 한 줄.</b> 주기 스캔 대상 = <code>enabled = true</code> <b>AND</b> <code>activity_status = 'ACTIVE'</code> <b>AND</b> <code>NOT ghost_suppressed</code>. 세 조건을 <b>모두</b> 만족해야 스캔한다.</div>
+
+<div class="callout warn"><span class="ct" style="font-weight:700">★ 세 번째 축 — <code>ghost_suppressed</code> (D83)</span>2026-07-22 추가. <b>스캔을 반복해도 self-endpoint 가 0</b>(봇/foreign-host/스푸핑 Host)인 도메인을 자동 억제하는 플래그다. <code>enabled</code>·<code>activity_status</code> 와 <b>별개 축</b>. discovery 틱 게이트가 set(<code>discovered_at</code>이 <code>scan.ghost-after</code>=기본 7일보다 오래 + 스캔이력 + 0-endpoint + 사용자설정/스펙 없음), <b>수동 스캔(scan-now/scan)이 해제</b>(가역). ACTIVE 라도 <code>ghost_suppressed=true</code> 면 스캔 안 한다. 확인: <code>SELECT ... ghost_suppressed FROM domain_config</code>. 해제: <code>POST /scan-now</code>. 근거 <code>DECISIONS D83</code>·<code>doc/43 §8</code>.</div>
 
 <h2>1. 두 상태는 무엇이 다른가</h2>
 <p><code>enabled</code> 와 <code>activity_status</code> 는 <b>다른 주체가·다른 이유로</b> 설정하는 별개 컬럼(축)이다. 하나가 다른 하나를 대체하지 않는다.</p>

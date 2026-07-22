@@ -26,8 +26,14 @@
   - ★기존 `.cloudbric` discovered_endpoint 잔존 5,430행(5,037 host) — **2026-07-22 정리 완료**(사용자 승인·단일테이블 DELETE·앱 가동 중·5,430 삭제·잔존 0·에러/락 없음).
 - **DDL 경고 정리**: `@Column(columnDefinition="varchar not null default")` → `nullable=false + @ColumnDefault`. 재기동 ALTER 경고 0건 확인.
 
+### 한 일 (추가) — 3단계 조사 + endpoint-yield 게이트(D83)
+- **3단계 endpoint 0 드릴다운**: 1,837개(74% 신규 유입)=봇/foreign-host. 최상위 유입 엣지 `new-PAJ11`(947도메인)이 **실서비스 501+유령 439 혼합 catch-all** → 엣지 제외(doc/42 A) 불가. 부수 발견: EdgeExclusions 대소문자 구분으로 new-PAJ11(소문자)이 NEW-PAJ* 회피 — 단 실서비스 보유라 제외 금지(대소문자 무시 수정 시 501 손실).
+- **endpoint-yield 게이트(D83·main `c9e93b5`·이미지 `a2b31a1c8c4b` 배포·롤백 `prev-ghostgate`)**: `ghost_suppressed` boolean + `scan.ghost-after`(P7D). discoveredAt<cutoff+스캔이력+0-endpoint+무설정 → 억제. 수동스캔 해제(가역). 스캔대상=enabled AND ACTIVE AND NOT ghostSuppressed.
+  - 배포 결과: 첫 게이트 **ghostSuppressed=537** → scannable 10,729→**10,153**, 실서비스(new-PAJ11 501 등) 보존. 571 테스트 green·DDL 경고 0·health UP.
+- **full 2단계 예상(분석)**: eTLD+1 근사 실서비스 ~3,160(활성)·IP 540 별도. 등록 ~6k 중 ~2.8k 조용(INACTIVE). SaaS 플랫폼(ksystemace 307 등) 카운팅 규칙이 정밀도 좌우.
+
 ### 다음 단계 (사용자 결정 대기)
-- `.cloudbric` 기존 endpoint 5,430행 정리(승인 시) / 3단계 endpoint 0 드릴다운 / full eTLD+1(PSL·SaaS 카운팅 규칙).
+- ghost 게이트 수렴 관찰(며칠 scannable 추가 하락) / full eTLD+1(PSL·SaaS 규칙) 서비스 수 정밀화.
 
 ---
 
