@@ -5,6 +5,27 @@
 
 ---
 
+## 2026-07-22 세션 — scan-status 유형별 API 목록 + /result reason 재배치 (D84)
+
+### 한 일 (사용자 요청 API 2건)
+- **`GET /scan-status` 에 `apis` 가산** — `discovered/active/shadow/zombie/unused` 5개 문자열 목록, 각 원소 `"GET [https://host/path]"`. per-scan report_json finding 을 serve-time `forHost` 판단근거(classification)로 분류 → **summary 카운트와 동일 집합**(사용자가 우려했던 개수 불일치 없음). report_json 의 finding 은 타입 소거로 classification 미저장이라 `/result` 인라인과 동일한 forHost 매칭 경로를 `rationaleByKey` 로 공용 추출·재사용. report_json 없으면(미스캔) 빈 목록 반환·forHost 미호출.
+- **`GET /result` finding 필드 순서 변경** — `reason` 을 `classification` 뒤로 재배치. inlineBasis 에서 `f.remove("reason")` 후 classification 직후 재부착(미매칭 finding 은 끝으로). 최종: `…confidence, params, low_confidence, classification, reason, basis`.
+- **DTO**: `DomainDtos.ApiLists` 신설 + `ScanStatusView` 끝에 `apis` 가산(additive).
+
+### 결과
+- `./gradlew test` **573 green**(실패 0·skip 2=live Loki 게이트). ScanControllerTest 에 유형별 목록·미스캔 빈목록(forHost 미호출)·reason 순서 검증 3건 추가.
+- 데이터 정합성(scan-status shadow vs /result) — 사용자 확인 결과 **일치**(98=98), 불일치 관측은 착오로 검증 skip.
+
+### 한 일 (2차 — 엔드포인트 개명, 사용자 요청)
+- **경로 개명**: `GET /scan-status`→**`/scan-result`**, `GET /result`→**`/scan-result/detail`**. `ScanController` @GetMapping 2곳 + `PostgresIntegrationTest` MockMvc 4곳. Java 메서드명(status/result)·응답 shape 는 유지, 경로만 변경. `/scan-result` vs `/scan-result/detail` Spring 매칭 무충돌.
+- 재빌드 `./gradlew test` **573 green**(실패 0).
+
+### 다음 단계
+- 미배포·미커밋(커밋 보류). 배포 시 .197 재배포 필요. ★**breaking(경로 변경)** — 중앙 연동·매뉴얼(TW) 필수 반영(신 경로 `/scan-result`·`/scan-result/detail` + scan-result apis 블록 + detail reason 순서).
+- ★scan-result 가 forHost 호출로 무거워짐(원래 경량 메타) — 사용자 명시 요청 트레이드오프. 중앙이 빈번 폴링 시 부하 재검토 여지(D84).
+
+---
+
 ## 2026-07-22 세션 — 스캔 상태 점검 + api-discovery-manual 현행화(D81~D83)
 
 ### 관찰 (14:43 KST 실측, read-only)

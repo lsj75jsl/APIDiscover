@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.pentasecurity.apidiscover.api.dto.DomainDtos.ApiLists;
 import com.pentasecurity.apidiscover.api.dto.DomainDtos.ScanStatusView;
 import com.pentasecurity.apidiscover.api.dto.DomainDtos.SpecMetaView;
 import com.pentasecurity.apidiscover.api.dto.DomainDtos.SummaryView;
@@ -16,13 +17,17 @@ import com.pentasecurity.apidiscover.domain.DomainConfigRepository;
 import com.pentasecurity.apidiscover.domain.ScanResult;
 import com.pentasecurity.apidiscover.domain.ScanResultRepository;
 import com.pentasecurity.apidiscover.ingest.LogWindow;
+import com.pentasecurity.apidiscover.model.Classification;
 import com.pentasecurity.apidiscover.model.CombinedDiscovery;
 import com.pentasecurity.apidiscover.model.EndpointIdentity;
 import com.pentasecurity.apidiscover.model.EndpointRationale;
 import com.pentasecurity.apidiscover.spec.SpecStore;
 import com.pentasecurity.apidiscover.util.DomainNames;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -61,14 +66,66 @@ public class ScanController {
         this.objectMapper = objectMapper;
     }
 
-    /** 가벼운 상태 메타. 중앙이 version/lastScanAt 만 비교해 결과 재조회 여부 결정. latestSpec=최근 active 스펙(filename·API수, doc/35 M4). */
-    @GetMapping("/scan-status")
+    /**
+     * 가벼운 상태 메타. 중앙이 version/lastScanAt 만 비교해 결과 재조회 여부 결정. latestSpec=최근 active 스펙(filename·API수, doc/35 M4).
+     * <p>{@code apis}=유형별 API 목록(사용자 요청) — per-scan report_json finding 을 serve-time 판단근거(forHost)로 분류.
+     * summary 와 동일 per-scan 집합이라 개수 일관. report_json 없으면(미스캔) 전부 빈 목록·forHost 미호출(경량 유지).
+     */
+    @GetMapping("/scan-result")
     public ScanStatusView status(@PathVariable String host) {
         ScanResult r = find(host);
         SpecMetaView latestSpec = specStore.latestSpecMeta(host).map(SpecMetaView::of).orElse(null); // projection(대용량 text 미로드, doc/28)
         return new ScanStatusView(r.getHost(), r.getState(), r.getLastScanAt(), r.getVersion(),
                 new SummaryView(r.getDiscovered(), r.getActive(), r.getShadow(), r.getZombie(), r.getUnused()),
-                r.getTotalDropped(), latestSpec);
+                r.getTotalDropped(), latestSpec, buildApiLists(r, host));
+    }
+
+    /**
+     * scan-status 유형별 API 목록(사용자 요청) — per-scan report_json finding 을 {@code forHost} 판단근거로 분류.
+     * {@code discovered}=전체 finding, 나머지=classification 별. summary 카운트와 동일 집합(per-scan). 각 원소 {@code "GET [https://host/path]"}.
+     * report_json 없으면 전부 빈 목록(forHost 미호출). classification 은 report_json 에 미저장(타입 소거)이라 /result 와 동일하게 forHost 매칭으로 산출.
+     */
+    private ApiLists buildApiLists(ScanResult r, String host) {
+        if (r.getReportJson() == null) {
+            return new ApiLists(List.of(), List.of(), List.of(), List.of(), List.of());
+        }
+        List<String> discovered = new ArrayList<>();
+        Map<Classification, List<String>> byClass = new EnumMap<>(Classification.class);
+        try {
+            Map<String, EndpointRationale> byKey = rationaleByKey(host);
+            if (objectMapper.readTree(r.getReportJson()).get("findings") instanceof ArrayNode findings) {
+                for (JsonNode fn : findings) {
+                    if (!(fn instanceof ObjectNode f)) {
+                        continue;
+                    }
+                    String method = asText(f, "method");
+                    String h = asText(f, "host");
+                    String path = asText(f, "pathTemplate");
+                    String label = method + " [https://" + h + path + "]"; // scheme 미저장 → https 고정
+                    discovered.add(label);
+                    EndpointRationale er = byKey.get(EndpointIdentity.key(method, h, path));
+                    if (er != null) {
+                        byClass.computeIfAbsent(er.classification(), k -> new ArrayList<>()).add(label);
+                    }
+                }
+            }
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("failed to build api lists for host=" + host, e);
+        }
+        return new ApiLists(discovered,
+                byClass.getOrDefault(Classification.ACTIVE, List.of()),
+                byClass.getOrDefault(Classification.SHADOW, List.of()),
+                byClass.getOrDefault(Classification.ZOMBIE, List.of()),
+                byClass.getOrDefault(Classification.UNUSED, List.of()));
+    }
+
+    /** forHost 판단근거를 {@link EndpointIdentity#key}(method,host,pathTemplate) → rationale 로 인덱싱. /result·scan-status 공용. */
+    private Map<String, EndpointRationale> rationaleByKey(String host) {
+        Map<String, EndpointRationale> byKey = new HashMap<>();
+        for (EndpointRationale er : combinedDiscoveryService.forHost(host).rationale()) {
+            byKey.put(EndpointIdentity.key(er.method(), er.host(), er.pathTemplate()), er);
+        }
+        return byKey;
     }
 
     /**
@@ -79,7 +136,7 @@ public class ScanController {
      * ★caveat: report_json findings=스캔시점 vs basis=현재 재계산(현재 effective 기준) → 다를 수 있고, 매칭 없는 finding 은 미가산.
      * 304 캐시 body 의 basis 는 갱신 안 됨(ETag=report 만 추적). 의도된 트레이드오프(doc/34·35 M5).
      */
-    @GetMapping("/result")
+    @GetMapping("/scan-result/detail")
     public ResponseEntity<String> result(
             @PathVariable String host,
             @RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch) {
@@ -105,20 +162,26 @@ public class ScanController {
     private String inlineBasis(String reportJson, String host) {
         try {
             ObjectNode node = (ObjectNode) objectMapper.readTree(reportJson);
-            Map<String, EndpointRationale> byKey = new HashMap<>();
-            for (EndpointRationale er : combinedDiscoveryService.forHost(host).rationale()) {
-                byKey.put(EndpointIdentity.key(er.method(), er.host(), er.pathTemplate()), er);
-            }
+            Map<String, EndpointRationale> byKey = rationaleByKey(host);
             if (node.get("findings") instanceof ArrayNode findings) {
                 for (JsonNode fn : findings) {
                     if (!(fn instanceof ObjectNode f)) {
                         continue;
                     }
+                    // reason 을 classification 뒤로 재배치(사용자 요청 순서) — 먼저 떼어내 뒤에서 재부착
+                    JsonNode reason = f.remove("reason");
                     EndpointRationale er = byKey.get(EndpointIdentity.key(
                             asText(f, "method"), asText(f, "host"), asText(f, "pathTemplate")));
                     if (er != null) {
                         f.put("classification", er.classification().name());
+                        if (reason != null) {
+                            f.set("reason", reason); // classification 직후
+                            reason = null;
+                        }
                         f.set("basis", objectMapper.valueToTree(er.basis()));
+                    }
+                    if (reason != null) {
+                        f.set("reason", reason); // 미매칭 finding: reason 을 끝으로
                     }
                 }
             }
