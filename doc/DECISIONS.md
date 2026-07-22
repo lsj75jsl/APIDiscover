@@ -742,6 +742,7 @@ gap-free 크롤은 활성 수요(~22.6k 윈도우/h) vs 예산 용량(D65 후 ~7
 - **결정**: 모든 API JSON 응답의 **모든 배열**(필드값·최상위·중첩·배열 원소 내부)을 `{"count":n,"items":[...]}` 로 재귀 변환. `ArrayCountJson.wrap`(순수 재귀 트리 변환) + `ArrayCountResponseAdvice`(`@RestControllerAdvice(basePackages="..api")` ResponseBodyAdvice) 로 **전역 적용**(DTO→valueToTree→wrap). `/scan-result/detail` 은 String 본문(report_json 재직렬화)이라 어드바이스 우회 → `inlineBasis` 에서 직접 `wrap`.
 - **스코프**: api 패키지 컨트롤러만(actuator 등 타 패키지 무영향). String(이미 래핑)·null(204/202)·비-JSON 은 통과. 요청 body(입력)는 대상 아님(응답만).
 - **영향**: **breaking**(배열→객체, 소비자 `.items` 접근 필요). 단위테스트(컨트롤러 직접호출)는 무영향, MockMvc 통합/컨트롤러 테스트(Postgres·Classification)·`inlineBasis` 단위테스트는 `.items`/`.count` 로 갱신. build green **575**. 매뉴얼 전역 콜아웃+전 예시 배열 래핑.
+- **배포(2026-07-23, D85 와 함께)**: PR #79 squash-merge `main 944bd0f` → 이미지 `217429868306` `.197` 배포·health UP(~15s)·롤백 `prev-d85`(100606f00f38). 실측: `/scan-result`·`/discovery` `apis.*`={count,items}, `/scan-result/detail`·`/discovery/detail` `findings`={count,items}·중첩(`params.query`·`basis.signals`)도 래핑·finding `classification` 인라인(D85), 루트배열(`/domains`·`/spec`)={count,items}·중첩 `hostnames` 래핑.
 - **관련**: D84·D85(scan-result·discovery apis·finding classification), doc/07.
 
 ### D14. 세션 메모리 문서 운용
