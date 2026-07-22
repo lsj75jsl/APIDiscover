@@ -147,8 +147,10 @@ public class DomainDiscoveryService {
         // D82(doc/43 §4.3): 무접속 sweep — 위 upsert 가 실요청 관측분을 ACTIVE·lastSeenAt=now 로 올린 뒤 실행하므로
         // 방금 관측분은 강등되지 않는다(cutoff=now−inactive-after). inactive-after=0/null=no-op(무회귀).
         int deactivated = sweepInactive(now);
-        log.info("domain discovery: bootstrap={} window={} vector={} inserted={} updated={} rejected={} dropped={} excludedEdge={} excludedDomain={} deactivated={}",
-                bootstrap, window, vector.size(), inserted, updated, rejected, dropped, excluded, excludedDomain, deactivated);
+        // D83: endpoint-yield 게이트 — sweep 후, 스캔했는데 지속 0-endpoint 인 유령(봇/foreign-host)을 ghost_suppressed 로 억제.
+        int ghostSuppressed = ghostGate(now);
+        log.info("domain discovery: bootstrap={} window={} vector={} inserted={} updated={} rejected={} dropped={} excludedEdge={} excludedDomain={} deactivated={} ghostSuppressed={}",
+                bootstrap, window, vector.size(), inserted, updated, rejected, dropped, excluded, excludedDomain, deactivated, ghostSuppressed);
         return new DiscoveryResult(bootstrap, inserted, updated, rejected, dropped);
     }
 
@@ -172,6 +174,15 @@ public class DomainDiscoveryService {
             return 0; // 게이트 비활성(무회귀)
         }
         return repo.deactivateStale(now, now.minus(inactiveAfter));
+    }
+
+    /** D83 endpoint-yield 게이트 — discoveredAt<now−ghost-after 이며 지속 0-endpoint 인 도메인 억제. ghost-after 0/null=off. 반환=억제 건수. */
+    private int ghostGate(Instant now) {
+        Duration ghostAfter = props.scan().ghostAfter();
+        if (ghostAfter == null || ghostAfter.isZero()) {
+            return 0; // 게이트 비활성(무회귀)
+        }
+        return repo.suppressGhosts(now.minus(ghostAfter));
     }
 
     /**

@@ -88,6 +88,14 @@ public class DomainConfig {
     /** 마지막 활동상태 전이 시각(감사·중앙연동용, doc/43 §4.3). flip 시에만 갱신. null=전이 이력 없음. */
     private Instant activityStatusChangedAt;
 
+    /**
+     * D83(doc/43 §5): 유령 억제 플래그 — "스캔 이력 있고 지속적으로 self-endpoint 0"(봇/foreign-host)인 도메인.
+     * {@code enabled}·{@code activityStatus} 와 별도 축(endpoint-yield 게이트). "스캔 대상"=enabled AND ACTIVE AND NOT ghostSuppressed.
+     * discovery 틱 ghost-gate 가 set(true), 수동 스캔(markActive)이 clear(false)=가역. ddl-auto ADD default false(D79 boolean 패턴).
+     */
+    @Column(columnDefinition = "boolean not null default false")
+    private boolean ghostSuppressed;
+
     private Instant createdAt;
     private Instant updatedAt;
 
@@ -193,6 +201,14 @@ public class DomainConfig {
 
     public void setActivityStatusChangedAt(Instant activityStatusChangedAt) {
         this.activityStatusChangedAt = activityStatusChangedAt;
+    }
+
+    public boolean isGhostSuppressed() {
+        return ghostSuppressed;
+    }
+
+    public void setGhostSuppressed(boolean ghostSuppressed) {
+        this.ghostSuppressed = ghostSuppressed;
     }
 
     public Instant getCreatedAt() {

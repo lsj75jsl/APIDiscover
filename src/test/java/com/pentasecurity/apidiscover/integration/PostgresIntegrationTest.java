@@ -882,7 +882,48 @@ class PostgresIntegrationTest {
         assertThat(rest).contains("idle.example.com").doesNotContain("busy.example.com", "fresh.example.com");
     }
 
+    @Test
+    void suppressGhostsGateAndMarkActiveClearsOnRealPg() {
+        // D83 endpoint-yield 게이트(실 PG NOT EXISTS anti-join). 대상=ACTIVE·스캔이력·discoveredAt<cutoff·0-endpoint·무설정.
+        Instant now = Instant.parse("2026-06-26T12:00:00Z");
+        Instant cutoff = now.minus(Duration.ofDays(7));
+        domainRepo.save(ghostCand("ghost.example.com", now.minus(Duration.ofDays(10)), now.minus(Duration.ofHours(1))));  // 대상
+        domainRepo.save(ghostCand("recent.example.com", now.minus(Duration.ofDays(2)), now.minus(Duration.ofHours(1)))); // 신규(age 보호)
+        DomainConfig cfg = ghostCand("cfg.example.com", now.minus(Duration.ofDays(10)), now.minus(Duration.ofHours(1)));
+        cfg.setIntervalOverride("PT1H");                                                                                  // 사용자설정 보호
+        domainRepo.save(cfg);
+        domainRepo.save(ghostCand("real.example.com", now.minus(Duration.ofDays(10)), now.minus(Duration.ofHours(1))));  // endpoint 보유 보호
+        DiscoveredEndpointRecord ep = new DiscoveredEndpointRecord();
+        ep.setHost("real.example.com");
+        ep.setMethod("GET");
+        ep.setPathTemplate("/x");
+        discoveredRepo.save(ep);
+        domainRepo.flush();
+
+        assertThat(domainRepo.suppressGhosts(cutoff)).isEqualTo(1); // ghost 만 억제
+        List<String> due = domainRepo.findDueForScan(now, PageRequest.of(0, 10))
+                .stream().map(DomainConfig::getHost).toList();
+        assertThat(due).contains("recent.example.com", "cfg.example.com", "real.example.com")
+                .doesNotContain("ghost.example.com");
+
+        assertThat(domainRepo.markActive("ghost.example.com", now)).isEqualTo(1); // 수동 스캔 = 억제 해제
+        List<String> due2 = domainRepo.findDueForScan(now, PageRequest.of(0, 10))
+                .stream().map(DomainConfig::getHost).toList();
+        assertThat(due2).contains("ghost.example.com");
+    }
+
     // --- helpers ---
+
+    /** D83: 유령 후보 — enabled·즉시 due(ACTIVE 기본)·discoveredAt·lastScanAttemptAt 지정(0-endpoint 는 미삽입으로 성립). */
+    private DomainConfig ghostCand(String host, Instant discoveredAt, Instant lastScanAttemptAt) {
+        DomainConfig d = new DomainConfig();
+        d.setHost(host);
+        d.setEnabled(true);
+        d.setNextScanDueAt(null);
+        d.setDiscoveredAt(discoveredAt);
+        d.setLastScanAttemptAt(lastScanAttemptAt);
+        return d;
+    }
 
     private DomainConfig due(String host, Instant nextScanDueAt) {
         DomainConfig d = new DomainConfig();

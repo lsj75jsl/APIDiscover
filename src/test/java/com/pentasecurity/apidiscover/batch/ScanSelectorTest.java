@@ -80,6 +80,21 @@ class ScanSelectorTest {
     }
 
     @Test
+    void excludesGhostSuppressedDomains() {
+        // D83: ACTIVE 라도 ghost_suppressed 면 스캔 제외(스캔대상 = enabled AND ACTIVE AND NOT ghostSuppressed).
+        repo.save(domain("real.example.com", null, true));         // ACTIVE·미억제 → 포함
+        DomainConfig ghost = domain("ghost.example.com", null, true);
+        ghost.setGhostSuppressed(true);                            // 유령 억제 → 제외
+        repo.save(ghost);
+
+        ScanSelector selector = new ScanSelector(repo, props(10, 10, "UTC"), fixed(NOON));
+        var hosts = selector.selectForTick().stream().map(DomainConfig::getHost).toList();
+
+        assertThat(hosts).contains("real.example.com");
+        assertThat(hosts).doesNotContain("ghost.example.com");
+    }
+
+    @Test
     void prioritizesDomainsWithNewTrafficOverEarlierDueIdleOnes() {
         // D64: FIFO 라면 idle(더 이른 due)이 먼저지만, busy(워터마크 이후 신규 트래픽)가 우선 선발.
         repo.save(domain("idle.example.com", NOON.minus(Duration.ofMinutes(30)), true, NOON.minus(Duration.ofHours(2))));
@@ -152,6 +167,6 @@ class ScanSelectorTest {
                 new ApiDiscoverProperties.Scan(Duration.ofMinutes(5), domainsPerTick, Duration.ZERO, 0, 0L, true,
                         Duration.ZERO, 0, true, Duration.ofMinutes(30), Duration.ofHours(2), Duration.ofHours(6),
                         Duration.ofHours(24), offPeakDomainsPerTick, Duration.ofHours(24), offPeakZone,
-                        Duration.ofDays(14), Duration.ofDays(1), inactiveAfter, 0, false, Duration.ZERO));
+                        Duration.ofDays(14), Duration.ofDays(1), inactiveAfter, 0, false, Duration.ZERO, Duration.ZERO));
     }
 }

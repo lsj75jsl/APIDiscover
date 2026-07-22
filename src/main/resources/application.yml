@@ -70,6 +70,7 @@ apidiscover:
     query-batch-size: 20           # D63 배칭: 같은 엣지 실조회 도메인 N개를 1쿼리로(0=off). D67: 10→20(실측 쿼리 -13.7%)
     edge-group-main-only: true     # D65: 엣지를 그룹 Master 로 치환 조회(Master 로그=그룹 전체 집계, 활성 매핑 -47%). false=off
     sample-window: "PT10M"         # D66 롤링 샘플링: 주기 스캔을 최신 N분 표본만(0=off=gap-free 크롤). 발산 정지·신선도=재방문주기
+    ghost-after: "P7D"             # D83 endpoint-yield 게이트: discovered_at>이 기간+self-endpoint 0(봇/foreign-host)이면 ghost_suppressed→스캔 제외. 0=off. 수동 스캔 시 해제(가역)
     # off-peak-max-queries-per-hour(쿼리캡 상향)는 범위 밖 — K·max-window 스위치만(doc/33 §5, D48)
     # schedule.off-peak-window("01:00-06:00") 재사용 — off-peak 시각대 판정
   discovery:                       # 도메인 자동 디스커버리 (doc/30, 서버측 집계)

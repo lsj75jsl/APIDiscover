@@ -97,6 +97,6 @@ class LokiBudgetTest {
                 new ApiDiscoverProperties.Discovery(true, Duration.ofMinutes(10), Duration.ofMinutes(12),
                         Duration.ofHours(1), Duration.ofMinutes(2), 0, "^x$", java.util.List.of(), java.util.List.of(), java.util.List.of(), java.util.List.of()),
                 new ApiDiscoverProperties.Scan(Duration.ofMinutes(5), 100, Duration.ZERO,
-                        maxQueries, maxBytes, true, Duration.ZERO, 0, false, Duration.ofMinutes(30), Duration.ofHours(2), Duration.ofHours(6), Duration.ofHours(24), 500, Duration.ofHours(24), "", Duration.ofDays(14), Duration.ofDays(1), Duration.ZERO, 0, false, Duration.ZERO));
+                        maxQueries, maxBytes, true, Duration.ZERO, 0, false, Duration.ofMinutes(30), Duration.ofHours(2), Duration.ofHours(6), Duration.ofHours(24), 500, Duration.ofHours(24), "", Duration.ofDays(14), Duration.ofDays(1), Duration.ZERO, 0, false, Duration.ZERO, Duration.ZERO));
     }
 }

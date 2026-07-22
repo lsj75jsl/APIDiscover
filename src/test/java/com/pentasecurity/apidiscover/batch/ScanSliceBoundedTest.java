@@ -106,6 +106,6 @@ class ScanSliceBoundedTest {
                 new ApiDiscoverProperties.Scan(Duration.ofMinutes(5), 100, Duration.ofMinutes(30),
                         maxQueriesPerHour, 0L, true, Duration.ofMinutes(sliceMin), cap,
                         false, Duration.ofMinutes(30), Duration.ofHours(2), Duration.ofHours(6),
-                        Duration.ofHours(24), 500, Duration.ofHours(24), "", Duration.ofDays(14), Duration.ofDays(1), Duration.ZERO, 0, false, Duration.ZERO));
+                        Duration.ofHours(24), 500, Duration.ofHours(24), "", Duration.ofDays(14), Duration.ofDays(1), Duration.ZERO, 0, false, Duration.ZERO, Duration.ZERO));
     }
 }

@@ -34,6 +34,7 @@ public interface DomainConfigRepository extends JpaRepository<DomainConfig, Stri
     @Query("select d from DomainConfig d where d.enabled = true "
             + "and (d.nextScanDueAt is null or d.nextScanDueAt <= :now) "
             + "and d.activityStatus = com.pentasecurity.apidiscover.domain.ActivityStatus.ACTIVE "
+            + "and d.ghostSuppressed = false "
             + "order by d.nextScanDueAt asc nulls first")
     List<DomainConfig> findDueForScan(@Param("now") Instant now, Pageable pageable);
 
@@ -46,6 +47,7 @@ public interface DomainConfigRepository extends JpaRepository<DomainConfig, Stri
             + "where d.enabled = true "
             + "and (d.nextScanDueAt is null or d.nextScanDueAt <= :now) "
             + "and d.activityStatus = com.pentasecurity.apidiscover.domain.ActivityStatus.ACTIVE "
+            + "and d.ghostSuppressed = false "
             + "and (w.lastEnd is null or d.lastSeenAt > w.lastEnd) "
             + "order by d.nextScanDueAt asc nulls first")
     List<DomainConfig> findDueWithNewTraffic(@Param("now") Instant now, Pageable pageable);
@@ -55,6 +57,7 @@ public interface DomainConfigRepository extends JpaRepository<DomainConfig, Stri
             + "where d.enabled = true "
             + "and (d.nextScanDueAt is null or d.nextScanDueAt <= :now) "
             + "and d.activityStatus = com.pentasecurity.apidiscover.domain.ActivityStatus.ACTIVE "
+            + "and d.ghostSuppressed = false "
             + "and (d.lastSeenAt is null or d.lastSeenAt <= w.lastEnd) "
             + "order by d.nextScanDueAt asc nulls first")
     List<DomainConfig> findDueWithoutNewTraffic(@Param("now") Instant now, Pageable pageable);
@@ -99,7 +102,27 @@ public interface DomainConfigRepository extends JpaRepository<DomainConfig, Stri
     @Modifying
     @Transactional
     @Query("update DomainConfig d set d.activityStatus = com.pentasecurity.apidiscover.domain.ActivityStatus.ACTIVE, "
-            + "d.activityStatusChangedAt = :now "
-            + "where d.host = :host and d.activityStatus <> com.pentasecurity.apidiscover.domain.ActivityStatus.ACTIVE")
+            + "d.activityStatusChangedAt = :now, d.ghostSuppressed = false "
+            + "where d.host = :host and (d.activityStatus <> com.pentasecurity.apidiscover.domain.ActivityStatus.ACTIVE "
+            + "or d.ghostSuppressed = true)")
     int markActive(@Param("host") String host, @Param("now") Instant now);
+
+    /**
+     * D83(doc/43 §5) endpoint-yield 게이트 — 봇/foreign-host 유령 억제. ★엣지 제외 대체(혼합 catch-all 의 실서비스 보존).
+     * 대상: ACTIVE·미억제 + 스캔 이력(last_scan_attempt) + discoveredAt < cutoff(=now−ghost-after, 지속성) + self-endpoint 0
+     * + 사용자/문서 흔적 없음(interval_override·base_path_strip·spec_record·documented_api = 안전, doc/42 기준). 반환=억제 건수.
+     * 가역: 수동 스캔(markActive)이 해제. discoveredAt null(수동 등록)은 제외(NOT NULL 요구).
+     */
+    @Modifying
+    @Transactional
+    @Query("update DomainConfig d set d.ghostSuppressed = true "
+            + "where d.activityStatus = com.pentasecurity.apidiscover.domain.ActivityStatus.ACTIVE "
+            + "and d.ghostSuppressed = false "
+            + "and d.lastScanAttemptAt is not null "
+            + "and d.discoveredAt is not null and d.discoveredAt < :cutoff "
+            + "and d.intervalOverride is null and d.basePathStrip is null "
+            + "and not exists (select 1 from DiscoveredEndpointRecord e where e.host = d.host) "
+            + "and not exists (select 1 from SpecRecord s where s.host = d.host) "
+            + "and not exists (select 1 from DocumentedApiRecord da where da.host = d.host)")
+    int suppressGhosts(@Param("cutoff") Instant cutoff);
 }

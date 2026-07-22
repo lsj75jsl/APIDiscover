@@ -85,6 +85,10 @@ public record ApiDiscoverProperties(Loki loki, Schedule schedule, Central centra
             boolean edgeGroupMainOnly,
             // D66 롤링 샘플링: 주기 스캔 윈도우를 "최신 sample-window 만"으로(과거 백로그 의도적 skip → 발산 정지,
             // 신선도=재방문주기). 0/null=off(gap-free 크롤 무회귀). scan-now/온디맨드는 무관.
-            Duration sampleWindow
+            Duration sampleWindow,
+            // D83(doc/43 §5) endpoint-yield 게이트: discoveredAt 이 이 기간보다 오래됐고(스캔 반복에도) self-endpoint 0 인
+            // 도메인을 ghost_suppressed=true 로 억제(주기 스캔 제외). 봇/foreign-host 억제·실서비스 보존(엣지 제외 대체).
+            // 0/null=게이트 off(무회귀). 기본 P7D(doc/42 유령 지속성 기준과 동일). 수동 스캔 시 해제(가역).
+            Duration ghostAfter
     ) {}
 }

@@ -101,7 +101,7 @@ public class DomainController {
         var effective = classificationResolver.resolve(d.getHost()).toView(); // 공유 빌더(EffectiveClassification.toView)
         return new DomainDetailView(d.getHost(), d.isEnabled(), d.getHostnames(), d.getIntervalOverride(),
                 mode, d.getBasePathStrip(), spec, lastScanAt, effective,
-                d.getActivityStatus(), d.getActivityStatusChangedAt());
+                d.getActivityStatus(), d.getActivityStatusChangedAt(), d.isGhostSuppressed());
     }
 
     @PutMapping("/{host}")
