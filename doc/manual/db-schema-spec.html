@@ -264,7 +264,7 @@
 <!-- ============================================================ -->
 <h2 id="s3">3. 타입 매핑 컨벤션 (JPA → SQL)</h2>
 
-<p>이식성을 위해 <strong>벤더 전용 JSON 타입(PostgreSQL JSONB)을 쓰지 않는다.</strong> JSON 은 모두 <code>String</code> + <code>@Column(columnDefinition="text")</code> 로 저장하고 애플리케이션이 Jackson 으로 직렬화한다(H2/PG 동일 동작). 아래 §4 의 모든 컬럼 타입은 이 규칙을 따른다.</p>
+<p>이식성을 위해 <strong>벤더 전용 JSON 타입(PostgreSQL JSONB)을 쓰지 않는다.</strong> JSON 은 모두 <code>String</code> + <code>@Column(columnDefinition="text")</code> 로 저장하고 애플리케이션이 Jackson 으로 직렬화한다(H2/PostgreSQL 동일 동작). 아래 §4 의 모든 컬럼 타입은 이 규칙을 따른다.</p>
 
 <table>
   <thead><tr><th>Java / JPA</th><th>H2</th><th>PostgreSQL</th><th>nullable 기본</th></tr></thead>
@@ -287,7 +287,7 @@
 <!-- ============================================================ -->
 <h2 id="s4">4. 테이블별 컬럼 명세 (10 테이블)</h2>
 
-<p>표기: <span class="pk">PK</span> 기본키 · <span class="nn">NN</span> NOT NULL · <span class="nl">null</span> nullable. JSON 컬럼은 모두 PG <code>text</code>(<a class="dref" href="#d40">D40</a> 실측 확정).</p>
+<p>표기: <span class="pk">PK</span> 기본키 · <span class="nn">NN</span> NOT NULL · <span class="nl">null</span> nullable. JSON 컬럼은 모두 PostgreSQL <code>text</code>(<a class="dref" href="#d40">D40</a> 실측 확정).</p>
 
 <!-- ===== 4.1 domain_config ===== -->
 <div class="tbl-card">
@@ -319,7 +319,7 @@
 <!-- ===== 4.2 domain_hostnames ===== -->
 <div class="tbl-card">
 <h3>4.2 <code>domain_hostnames</code> — 도메인↔엣지 hostname 컬렉션</h3>
-<p class="meta"><code>DomainConfig.hostnames</code> 의 <code>@ElementCollection</code> 자식 테이블 · <strong>유일한 실 FK</strong> · <code>@Index(host)</code>=<code>idx_domain_hostnames_host</code> 선언(FK 는 자식 컬럼 인덱스를 자동 생성하지 않으므로 명시 — 없으면 95k행 seq scan 으로 PG CPU 포화, <a class="dref" href="#d75">D75</a>).</p>
+<p class="meta"><code>DomainConfig.hostnames</code> 의 <code>@ElementCollection</code> 자식 테이블 · <strong>유일한 실 FK</strong> · <code>@Index(host)</code>=<code>idx_domain_hostnames_host</code> 선언(FK 는 자식 컬럼 인덱스를 자동 생성하지 않으므로 명시 — 없으면 95k행 seq scan 으로 PostgreSQL CPU 포화, <a class="dref" href="#d75">D75</a>).</p>
 <table>
   <thead><tr><th>컬럼</th><th>SQL 타입</th><th>키/널</th><th>의미</th></tr></thead>
   <tbody>
@@ -385,7 +385,7 @@
     <tr><td class="col">filename</td><td class="t">VARCHAR(255)</td><td><span class="nl">null</span></td><td>원본 파일명(<code>PUT /spec ?filename=</code>). <code>spec_name</code> 도출 근거. 기존행·미전달 null (M7 재설계, doc/37).</td></tr>
     <tr><td class="col">format</td><td class="t">VARCHAR(255) enum</td><td><span class="nl">null</span></td><td><code>OPENAPI</code>/<code>POSTMAN</code>/<code>CSV</code>.</td></tr>
     <tr><td class="col">spec_version</td><td class="t">BIGINT</td><td><span class="nn">NN</span></td><td>도메인별 증가 버전.</td></tr>
-    <tr><td class="col"><s>raw_doc</s></td><td class="t">oid</td><td><span class="nl">제거됨</span></td><td>★엔티티 매핑 <strong>제거됨(orphan)</strong> — M7 재설계 P1(doc/37 §7)에서 <code>SpecRecord.rawDoc</code>(<code>@Lob byte[]</code>=PG oid) 삭제(저장 전용·read 0·oid auto-commit 버그 3건의 근원). <code>ddl-auto</code> 가 컬럼을 DROP 하지 않아 ops DROP(<code>lo_unlink</code>→<code>DROP COLUMN</code>) 전까지 orphan 잔존(무해).</td></tr>
+    <tr><td class="col"><s>raw_doc</s></td><td class="t">oid</td><td><span class="nl">제거됨</span></td><td>★엔티티 매핑 <strong>제거됨(orphan)</strong> — M7 재설계 P1(doc/37 §7)에서 <code>SpecRecord.rawDoc</code>(<code>@Lob byte[]</code>=PostgreSQL oid) 삭제(저장 전용·read 0·oid auto-commit 버그 3건의 근원). <code>ddl-auto</code> 가 컬럼을 DROP 하지 않아 ops DROP(<code>lo_unlink</code>→<code>DROP COLUMN</code>) 전까지 orphan 잔존(무해).</td></tr>
     <tr><td class="col">canonical_json</td><td class="t">text</td><td><span class="nl">null</span></td><td>Canonical 엔드포인트 집합 JSON — <strong>스펙 매칭의 진실원</strong>.</td></tr>
     <tr><td class="col">warnings_json</td><td class="t">text</td><td><span class="nl">null</span></td><td>파싱 시 recoverable 경고 <code>List&lt;String&gt;</code> 직렬화.</td></tr>
     <tr><td class="col">endpoint_count</td><td class="t">INTEGER</td><td><span class="nn">NN</span></td><td>이 스펙의 엔드포인트 수.</td></tr>
@@ -487,7 +487,7 @@
   </tbody>
 </table>
 <p class="meta"><strong>제약/인덱스:</strong> UNIQUE(<code>host</code>, <code>spec_name</code>, <code>method</code>, <code>path_template</code>) = 자연키 · INDEX(<code>host</code>) · INDEX(<code>host</code>, <code>spec_name</code>) · INDEX(<code>host</code>, <code>status</code>)[Zombie(DELETED) 조회]. 도입: <code>ddl-auto=update</code> ADD TABLE(무손실), <code>last_change_breaking</code>·<code>last_change_detail_json</code> 은 P2-3 에서 ADD COLUMN(기존행 false/null).</p>
-<p class="meta"><sup>1</sup> DB 상 nullable 이나 reconcile 이 항상 채워 실질 비-null(<code>spec_name</code>·<code>status</code>·<code>last_change</code>). timestamp 컬럼의 PG 실측 타입은 <code>timestamptz</code>(Hibernate 6 <code>Instant</code>→TIMESTAMP_UTC) — §3·다른 표의 <code>TIMESTAMP(6)</code> 와 동일 <code>Instant</code> 매핑이며 실 PG 는 모두 with time zone 이다.</p>
+<p class="meta"><sup>1</sup> DB 상 nullable 이나 reconcile 이 항상 채워 실질 비-null(<code>spec_name</code>·<code>status</code>·<code>last_change</code>). timestamp 컬럼의 PostgreSQL 실측 타입은 <code>timestamptz</code>(Hibernate 6 <code>Instant</code>→TIMESTAMP_UTC) — §3·다른 표의 <code>TIMESTAMP(6)</code> 와 동일 <code>Instant</code> 매핑이며 실 PostgreSQL 는 모두 with time zone 이다.</p>
 </div>
 
 <!-- ===== 4.10 static_classify_rule ===== -->
@@ -499,7 +499,7 @@
   <tbody>
     <tr><td class="col">id</td><td class="t">BIGINT IDENTITY</td><td><span class="pk">PK</span></td><td>DB 자동 채번.</td></tr>
     <tr><td class="col">kind</td><td class="t">VARCHAR(20) enum</td><td><span class="nn">NN</span></td><td><code>EXTENSION</code>(확장자 endsWith→하드 veto·STATIC) / <code>NAME_TOKEN</code>(파일명 토큰 contains→감점). <code>@Column(nullable=false, length=20)</code> 명시.</td></tr>
-    <tr><td class="col">rule_value</td><td class="t">VARCHAR(100)</td><td><span class="nn">NN</span></td><td>규칙 값(확장자 문자열 또는 파일명 토큰). 필드명은 <code>value</code> 이나 컬럼명 <code>rule_value</code>(<code>value</code> 예약어 회피, H2/PG 안전). <code>@Column(nullable=false, length=100)</code>.</td></tr>
+    <tr><td class="col">rule_value</td><td class="t">VARCHAR(100)</td><td><span class="nn">NN</span></td><td>규칙 값(확장자 문자열 또는 파일명 토큰). 필드명은 <code>value</code> 이나 컬럼명 <code>rule_value</code>(<code>value</code> 예약어 회피, H2/PostgreSQL 안전). <code>@Column(nullable=false, length=100)</code>.</td></tr>
   </tbody>
 </table>
 <p class="meta"><strong>제약:</strong> UNIQUE(<code>kind</code>, <code>rule_value</code>) = <code>uk_static_rule</code>. 본 문서에서 <code>@Column(nullable=false)</code> 를 명시하는 <strong>유일한 테이블</strong>(그 외는 §3 대로 타입으로 nullable 결정). <code>ddl-auto=update</code> 로 신규 생성(무손실).</p>
@@ -540,10 +540,10 @@
   <tbody>
     <tr><td><code id="d11">D11</code></td><td>내부 DB = PostgreSQL(운영)/H2(개발). 신규 DB 불필요 — 기존 인프라 재사용.</td></tr>
     <tr><td><code id="d17">D17</code></td><td>분류 설정 DB 저장(전역 1행 + 도메인 override) + effective 병합(도메인→전역→MIDDLE). weights override 는 CUSTOM 한정, threshold 는 어떤 프로파일에서도 override.</td></tr>
-    <tr><td><code id="d40">D40</code></td><td>Testcontainers(PostgreSQL) 통합 테스트 — podman 연결·Ryuk·게이팅으로 실 PG 회귀 검증.</td></tr>
+    <tr><td><code id="d40">D40</code></td><td>Testcontainers(PostgreSQL) 통합 테스트 — podman 연결·Ryuk·게이팅으로 실 PostgreSQL 회귀 검증.</td></tr>
     <tr><td><code id="d56">D56</code></td><td>정적 파일 API 오탐 수정 — 정적 확장자 하드 veto(<code>DROP_STATIC</code>) + 정적 리소스 파일명 감점(<code>img.php</code> 류). <code>.php</code> 는 veto 아님(감점만).</td></tr>
     <tr><td><code id="d57">D57</code></td><td>무접속 자동스캔 제외 기준을 실 access log 시각으로 + 정적분류 규칙 DB 외부화·reload.</td></tr>
-    <tr><td><code id="d75">D75</code></td><td><code>domain_hostnames.host</code> 인덱스 추가 — <code>@ElementCollection</code> FK seq scan N+1 로 인한 PG CPU 포화 해소(~180배).</td></tr>
+    <tr><td><code id="d75">D75</code></td><td><code>domain_hostnames.host</code> 인덱스 추가 — <code>@ElementCollection</code> FK seq scan N+1 로 인한 PostgreSQL CPU 포화 해소(~180배).</td></tr>
     <tr><td><code id="d79">D79</code></td><td>8.3 로그변수 사용 범위·가중치·시뮬레이션 — 응답 CT→<code>endpoint_kind</code> + 요청 4신호(accept/xhr/origin/auth) 양성 가중치. DORMANT 동작 불변·과승격 상한 1.06%.</td></tr>
     <tr><td><code id="d82">D82</code></td><td>무접속 도메인 상태 관리 — 7일 무요청 → <code>activity_status=INACTIVE</code>(sweep) → 스캔 제외. <code>enabled</code> 과 별도 축, 경로 제외(<code>.cloudbric</code>)·재활성.</td></tr>
     <tr><td><code id="d83">D83</code></td><td>endpoint-yield 게이트 — 지속 0-endpoint 유령(봇/foreign-host)을 <code>ghost_suppressed</code> 로 억제(엣지 제외 대체). 수동 스캔 해제(가역).</td></tr>
