@@ -14,11 +14,11 @@
 - **매뉴얼**: 전역 콜아웃(모든 배열=`{count,items}`·breaking) + 전 JSON 예시 배열 래핑 + 응답키 표 타입 갱신(hostnames·findings·params·contributingSpecNames·matcher 배열·extensions·nameTokens). weights/descriptions(맵)·요청 body 입력배열은 미변경.
 
 ### 결과
-- 575 green. ★breaking(배열→객체). 커밋/머지/배포 진행(사용자 요청).
-- ※D85(/discovery 분리·finding classification)도 직전까지 미커밋이었어 D86 과 함께 커밋·배포.
+- 575 green. ★breaking(배열→객체).
+- **커밋·배포 완료**: D85(직전까지 미커밋)와 함께 PR #79 squash-merge `main 944bd0f` → dev(.198) build → 이미지 `217429868306` .197 배포·health UP(~15s)·롤백 `prev-d85`(100606f00f38). 실측 검증: `/scan-result`·`/discovery` `apis.*`={count,items}·`/scan-result/detail`·`/discovery/detail` `findings`={count,items}·중첩(`params.query`·`basis.signals`)·finding `classification` 인라인·루트배열(`/domains`·`/spec`)={count,items}·`hostnames` 래핑.
 
 ### 다음 단계
-- 배포 후 실측 검증(모든 배열 `{count,items}`). 중앙 연동 `.items` 접근 반영 필요(breaking).
+- ★중앙 연동은 신 shape(`.items` 접근·`/discovery/detail`) 반영 필요(breaking). 이 워커 레포 밖.
 
 ---
 
