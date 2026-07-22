@@ -62,7 +62,7 @@
 <tr><td><span class="pill off">false</span></td><td><span class="pill a">ACTIVE</span></td><td class="err">스캔 안 함</td><td>꺼져 있음 = 트래픽 있어도 스캔 안 함(enabled=false 우선)</td></tr>
 </table>
 <div class="callout w"><b>가장 헷갈리는 지점.</b> <code>enabled=true</code> 라도 트래픽이 없어 <code>INACTIVE</code> 면 스캔되지 <b>않는다</b>. 반대로 트래픽이 있어도 <code>enabled=false</code> 면 스캔되지 <b>않는다</b>. "켜 놨는데 왜 스캔 안 되지?" 의 답은 대개 <code>activity_status=INACTIVE</code> 다.</div>
-<p class="muted">참고 실측(2026-07-20 배포 직후 스냅샷, 시간에 따라 변동) — true·ACTIVE ~20,238 / true·INACTIVE ~16,451 / false·INACTIVE ~20,880 / false·ACTIVE ~1.</p>
+<p class="muted">참고 실측(2026-07-22 스냅샷, 시간에 따라 변동) — true·ACTIVE 10,678(그중 <code>ghost_suppressed</code> 612) / true·INACTIVE 26,297 / false·INACTIVE 20,881 / false·ACTIVE 0. <b>실제 주기 스캔 대상(3축 = enabled·ACTIVE·NOT ghost_suppressed) = 10,066.</b> (7-20 배포 직후 true·ACTIVE ~20,238 에서 프로브·<code>.cloudbric</code>-only·유령이 걷히며 수렴.)</p>
 
 <h2>3. 무엇이 무엇을 바꾸나 (전이 규칙)</h2>
 <p>재활성(INACTIVE → ACTIVE)은 전부 <b><code>activity_status</code> 축에서만</b> 일어난다. <code>enabled</code> 는 사람만 바꾼다.</p>
@@ -147,7 +147,8 @@ FROM domain_config WHERE host = '&lt;도메인&gt;';</code></pre></div>
 <h2>8. 근거 문서</h2>
 <ul>
   <li><code>doc/43-inactive-domain-status.md</code> — 설계(원인 규명·안 B 영속 status·경로 제외·재활성).</li>
-  <li><code>DECISIONS D82</code> — 결정·구현·배포 기록.</li>
+  <li><code>DECISIONS D82</code> — 무접속 비활성(activity_status) 결정·구현·배포 기록.</li>
+  <li><code>DECISIONS D83</code> · <code>doc/43 §5</code> — 유령 억제(ghost_suppressed) endpoint-yield 게이트.</li>
   <li><code>doc/30 §5</code> — enabled 는 사용자 소유 설정, 자동 변경 금지 불변식.</li>
   <li>관련 매뉴얼 — <code>api-rest-manual.html</code>(REST 전반)·<code>scan-tick-manual.html</code>(스캔 틱)·<code>db-schema-spec.html</code>(스키마).</li>
 </ul>

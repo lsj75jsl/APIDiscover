@@ -16,7 +16,14 @@
 - §2.1 스캔 정책 표: 무접속 중단 D59(P3D) → **D82(P7D·activity_status)** 갱신 + **D81-C 등록 신뢰 필터**(404·470-only 미등록)·**도메인/경로 제외**(cbricdns·IPv4·`.cloudbric/pron|afc`)·**D83 유령 억제**(ghost_suppressed) 행 추가. 핵심 콜아웃에 스캔 대상 3축(enabled AND ACTIVE AND NOT ghost_suppressed) 명시. src-ref 에 domain-status-ops-manual 링크.
 - §3.3: dedup 직후 필터 2종(foreign-host 제외·`.cloudbric` 경로 스캔 인벤토리 제외=D82 정합) 주석 추가.
 - §7.7 표: P3D 행 → D82 갱신 + 프로브/비대상 Host(D81-C)·`.cloudbric` 경로(D82)·유령 억제(D83, ★자동 복구 없음 트레이드오프 명시) 행 추가.
+- §1 개요 집합식 4개(Shadow/Zombie/Active/Unused)에 차집합·교집합 한글 설명 병기.
 - footer 참조 doc/00~31→00~43. HTML 태그 균형·구식 표기(P3D/3일) 잔존 0 검증.
+
+### 한 일 (추가) — scan-tick·domain-status 매뉴얼 현행화 + api-discovery 별첨 A
+- **scan-tick-manual.html**(7-9판, D82/D83 미반영) 현행화: 스캔 선발 게이트를 `lastSeenAt≥now−3d`(D59) → **`activity_status=ACTIVE`(D82) AND `NOT ghost_suppressed`(D83)** 3축으로 정정(§8.8 관문표·§9 코드표·결정트리 legend·시퀀스). `inactive-after` P3D→**P7D**, `ghost-after` P7D 행 추가, `excluded-hostnames`에 `NEW-PAJ*`(D81-A) + `probe-statuses`(D81-C)·`excluded-paths`·`excluded-domain-suffixes`(D82) 설정행 추가. 500→**650** 잔존 6곳 정정(D74 반영 누락분). 밀림 DB 쿼리도 3축 게이트로. env 매핑에 `ghost-after` 추가. 인트로/footer 에 D82·D83·domain-status 링크.
+- **domain-status-ops-manual.html**(이미 D82/D83 반영) 실측 스냅샷 2026-07-22 갱신: true·ACTIVE 10,678(ghost 612)·true·INACTIVE 26,297·false·INACTIVE 20,881·false·ACTIVE 0, **실 스캔 대상(3축)=10,066**. §8 근거에 D83 추가.
+- **api-discovery-manual.html 별첨 A 신설**: §2.1 "근거 DECISIONS D58~D83" 를 인-도큐먼트 표로. D58~D83 전체 + 본문 인용분(D1·D2·D3·D17·D18·D31·D48~D51·D55·D56) 38건 한 줄 요약(권위=doc/DECISIONS.md). TOC 항목·범위 메모(생략분·D52 supersede) 포함.
+- 3파일 HTML 태그 균형 검증 통과. 실측 3축 스캔 대상 10,066(=enabled&ACTIVE&NOT ghost, ghost_suppressed 618).
 
 ### 다음 단계
 - ghost 게이트 수렴 관찰 계속(scannable 추이) / full eTLD+1 서비스 수 정밀화(사용자 결정 대기, 7-21 항목).

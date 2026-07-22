@@ -164,6 +164,7 @@
       </ol>
     </li>
     <li><a href="#s8">한계 개선 제안 — nginx access log 추가 항목</a></li>
+    <li><a href="#appx">별첨 A — 참조 결정(DECISIONS) 요약</a></li>
   </ol>
 </nav>
 
@@ -1212,8 +1213,57 @@ access_log /var/log/nginx/access.log api_discovery;</code></pre>
 
 <p>정리하면, 로그 항목 추가는 <strong>"무엇이 API 인가"(탐지·분류)의 정확도</strong>를 높이지만, <strong>"그 API 의 내부 계약(스키마·작업·데이터)"</strong>까지 복원하지는 못한다. 후자는 본문이 필요하고, 본문 미수집은 PII·성능·프라이버시를 위한 <strong>의도된 설계 경계</strong>다. 스키마·작업 수준 정보가 필요하면 access log 가 아니라 <strong>스펙 문서 업로드</strong>(OpenAPI/Postman)로 보완하는 것이 본 시스템의 전제다.</p>
 
+<!-- ============================================================= -->
+<h2 id="appx">별첨 A — 참조 결정(DECISIONS) 요약</h2>
+<p>본 매뉴얼(특히 <a href="#s2-1">§2.1</a>·<a href="#s7-7">§7.7</a>)이 근거로 인용하는 결정들을 간단히 정리한다. 스캔·수집 정책의 핵심 구간인 <strong>D58~D83 전체</strong>와, 본문에서 개별 인용한 그 밖의 결정(D1·D2·D3·D17·D18·D31·D48~D51·D55·D56)을 함께 담았다. <strong>권위 있는 전문·근거는 <code>doc/DECISIONS.md</code></strong> 이며, 아래는 탐색용 한 줄 요약이다.</p>
+
+<table>
+  <thead><tr><th>결정</th><th>한 줄 요약</th></tr></thead>
+  <tbody>
+    <tr><td><code>D1</code></td><td>범위 — access log(본문·헤더 없음)로 엔드포인트 인벤토리 + Shadow(<code>D\S</code>)·Zombie(<code>S_deprecated∩D</code>)까지. 스키마·PII·인증은 범위 밖.</td></tr>
+    <tr><td><code>D2</code></td><td>대표 스펙 포맷 = OpenAPI + Postman + CSV. Postman 은 표준 deprecated 부재라 <code>[DEPRECATED]</code> 이름/폴더 규약.</td></tr>
+    <tr><td><code>D3</code></td><td>경로 정규화 우선순위 = 스펙 우선 → 휴리스틱(uuid/id/token/date) → 통계 보정.</td></tr>
+    <tr><td><code>D17</code></td><td>분류 설정 DB 저장(전역 1행 + 도메인 override) + effective 병합(도메인→전역→MIDDLE). weights override 는 CUSTOM 한정, threshold 는 어떤 프로파일에서도 override.</td></tr>
+    <tr><td><code>D18</code></td><td>분류 설정 중앙 REST 4종(전역·도메인 GET/PUT) + host별 effective 캐시(PUT 시 무효화). 단일 인스턴스 전제.</td></tr>
+    <tr><td><code>D31</code></td><td>distinct/분위수 대용량 근사 = DataSketches HLL(distinct)+KLL(분위수). <code>Acc</code> 한정 교체, 영속·판정 경계 불변.</td></tr>
+    <tr><td><code>D48</code></td><td>스캔 정책 C 활동 티어링 + D off-peak + F dormant 를 단일 due 모델(<code>nextScanDueAt</code>)로 통합. <code>tiering-enabled=false</code>=LRS 롤백.</td></tr>
+    <tr><td><code>D49</code></td><td>API 판단 근거(신호별 점수·게이트)를 <code>/discovery</code> 조회 시 재계산 노출(스키마 0, 현재 effective 기준). 분류별 <code>basis</code> 차등.</td></tr>
+    <tr><td><code>D50</code></td><td>REST API 대규모 변경 배치 설계(P1 additive·P2 M7·P3 즉시스캔). 스키마 변경 = <code>spec_record.filename</code> 1건.</td></tr>
+    <tr><td><code>D51</code></td><td><code>SpecRecord.rawDoc</code>(oid LOB) 메타조회 500 버그 수정 = projection(rawDoc 미선택)·forHost readOnly tx·self-invocation tx 교정.</td></tr>
+    <tr><td><code>D55</code></td><td>스캔 신선도 운영 — 백필 발산 진단·워터마크 <code>now−30m</code> 점프·무접속 중단·<code>/result</code> 판단근거 인라인(<code>basis</code>).</td></tr>
+    <tr><td><code>D56</code></td><td>정적 파일 API 오탐 수정 — 정적 확장자 하드 veto(<code>DROP_STATIC</code>) + 정적 리소스 파일명 감점(<code>img.php</code> 류). <code>.php</code> 는 veto 아님(감점만).</td></tr>
+    <tr><td><code>D58</code></td><td>Loki 부하 안정화 — 버스트 기본값 복귀 + IO 타임아웃 적응형 감속·예산 계상 + 외부 파일 로깅(일별·gz·30일 보관).</td></tr>
+    <tr><td><code>D59</code></td><td>무접속 자동스캔 제외 기준을 <code>last_access_log_at</code> → <code>last_seen_at</code>(discovery)로 전환·임계 3일. <strong>→ D82 로 P7D·<code>activity_status</code> 로 재설계됨.</strong></td></tr>
+    <tr><td><code>D60</code></td><td>실시간 유지 쿼리 튜닝 — chunk/slice PT30M + delta-driven skip(무트래픽 구간 조회 생략) + 워터마크 점프.</td></tr>
+    <tr><td><code>D61</code></td><td>delta-driven skip 을 <code>now−lag</code> 즉시 전진으로 — 빈 도메인 1 touch 로 caught-up(catch-up 가속).</td></tr>
+    <tr><td><code>D62</code></td><td>대상 제외 엣지(AAJ 23개) — 등록·출석·조회 모두 제외, 전부 제외면 스캔 skip(전 스트림 폴백 금지).</td></tr>
+    <tr><td><code>D63</code></td><td>엣지-그룹 도메인 배칭(<code>query-batch-size</code>) — 같은 엣지 실조회 도메인 N개를 정규식 OR 1쿼리로(청크 재읽기 1/N).</td></tr>
+    <tr><td><code>D64</code></td><td>활성 우선 선발 — 신규 트래픽 확정 도메인 먼저 + 통과류 <code>K/5</code> 예약(기아 방지). 3단 선발.</td></tr>
+    <tr><td><code>D65</code></td><td>엣지 그룹 Main-only 조회 — 엣지를 그룹 Master 로 치환(Master 로그=그룹 전체 집계, 활성 매핑 −47%).</td></tr>
+    <tr><td><code>D66</code></td><td>롤링 샘플링 — 주기 스캔을 방문 시점의 "최신 10분 표본"만(<code>sample-window</code>). 발산 정지·신선도 ≤ 재방문주기·커버리지 ~33%.</td></tr>
+    <tr><td><code>D67</code></td><td><code>query-batch-size</code> 10→20 + 검증된 튜닝(D58~D67)을 <code>application.yml</code> 기본값으로 승격(이식성).</td></tr>
+    <tr><td><code>D68</code></td><td>초장문 <code>path_template</code>(&gt;2,048자) 하드 veto(<code>DROP_OVERSIZE</code>) + 엔드포인트 저장 격리 — btree 인덱스 행 한계·SQLi 페이로드 차단.</td></tr>
+    <tr><td><code>D69</code></td><td><code>P*</code> 엣지 제외 — <code>excluded-hostnames</code> 접두 와일드카드(신규 P 엣지에도 자동 적용).</td></tr>
+    <tr><td><code>D70</code></td><td>Swagger 2.0 스펙 업로드 지원(<code>OpenAPIParser</code> 통합·2.0→3.0 변환) + 파싱 실패 400 매핑.</td></tr>
+    <tr><td><code>D71</code></td><td>설계문서(<code>doc/NN</code>)에서 'dev 구현 체크리스트' 제거 — 작업 히스토리는 <code>TASKS.md</code>/<code>PROJECT_LOG.md</code> 로 일원화.</td></tr>
+    <tr><td><code>D72</code></td><td>설정·시크릿 확장자 하드 veto 추가(<code>.env/.ini/.pem/.key/.tf/.save</code>). <code>.json/.yaml</code> 은 진짜 데이터 API 라 제외.</td></tr>
+    <tr><td><code>D73</code></td><td>미사용 스캐폴딩 제거 — <code>central/CentralWebhookClient</code>(no-op 스텁) 삭제.</td></tr>
+    <tr><td><code>D74</code></td><td>스캔 처리량 상향 — <code>page-limit</code> 2000→5000 · <code>domains-per-tick</code> 500→650(백로그 감축·페이지네이션 감소).</td></tr>
+    <tr><td><code>D75</code></td><td><code>domain_hostnames.host</code> 인덱스 추가 — <code>@ElementCollection</code> FK seq scan N+1 로 인한 PG CPU 포화 해소(~180배).</td></tr>
+    <tr><td><code>D76</code></td><td><code>discovered_endpoint</code> autovacuum 튜닝(per-table scale 0.05) + 초기 <code>VACUUM</code>(dead 0).</td></tr>
+    <tr><td><code>D77</code></td><td>컨테이너 <code>/dev/shm</code> 확대 시도 → SELinux relabel 실패·롤백, 비병렬 <code>REINDEX</code> 로 대체(shm 불요).</td></tr>
+    <tr><td><code>D78</code></td><td>스코어링 정책 조회 강화 — 전역 GET 에 effective 노출 + threshold 최상위 분리 + 신호 설명(ko/en). API-only.</td></tr>
+    <tr><td><code>D79</code></td><td>8.3 로그변수 소비 범위·가중치·시뮬레이션 — 응답 CT→<code>endpoint_kind</code> + 요청 4신호(accept/xhr/origin/auth) 양성 가중치. DORMANT 무회귀·과승격 상한 1.06%.</td></tr>
+    <tr><td><code>D80</code></td><td>8.3 활성화 전제 = 엣지 nginx <code>log_format</code> 24필드 표준화(파서는 전역 단일 인덱스, 규약 <code>doc/41</code>).</td></tr>
+    <tr><td><code>D81</code></td><td>스캔 due/워터마크 발산 대응 — 유령 도메인 억제 A(<code>NEW-PAJ*</code> 제외)+C(404·470-only 등록 배제) + 하드 정리(31,985 삭제·due −62%).</td></tr>
+    <tr><td><code>D82</code></td><td>무접속 도메인 상태 관리 — 7일 무요청 → <code>activity_status=INACTIVE</code>(sweep) → 스캔 제외. <code>enabled</code> 과 별도 축, 경로 제외(<code>.cloudbric</code>)·재활성.</td></tr>
+    <tr><td><code>D83</code></td><td>endpoint-yield 게이트 — 지속 0-endpoint 유령(봇/foreign-host)을 <code>ghost_suppressed</code> 로 억제(엣지 제외 대체). 수동 스캔 해제(가역).</td></tr>
+  </tbody>
+</table>
+<p class="legend">범위 메모 — D4~D16·D19~D30·D32~D47·D52~D54·D57 은 본 매뉴얼이 직접 인용하지 않아 생략했다(전체 목록은 <code>doc/DECISIONS.md</code>). D52 는 D53 으로 supersede 되어 폐기됐다.</p>
+
 <div class="footer">
-  <p>본 매뉴얼은 <code>doc/manual/</code> 에 보관되며, 실제 동작은 위에 표기한 소스 파일이 단일 진실원이다. 설계 근거 상세는 <code>doc/00~43</code> 및 <code>doc/DECISIONS.md</code> 참고. (2026-07-22 현행화 — D81~D83 반영)</p>
+  <p>본 매뉴얼은 <code>doc/manual/</code> 에 보관되며, 실제 동작은 위에 표기한 소스 파일이 단일 진실원이다. 설계 근거 상세는 <code>doc/00~43</code> 및 <code>doc/DECISIONS.md</code> 참고. (2026-07-22 현행화 — D81~D83 반영 + 별첨 A 결정 요약 추가)</p>
 </div>
 
 </div>

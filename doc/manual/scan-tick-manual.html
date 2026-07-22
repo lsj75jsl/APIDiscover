@@ -123,7 +123,7 @@
 
 <div class="callout note" style="margin-top:20px;">
   <span class="ct">이 문서의 범위</span>
-  주기 스캔의 "한 번에 다 훑지 않고 조금씩 나눠 처리"하는 <b>틱 모델</b>과, 한 틱에 몇 개를 처리할지 정하는 <code>domains-per-tick</code>, 그리고 D58~D66 으로 확장된 <b>판정 파이프라인 전체</b>(활성 우선 선발·엣지 제외/그룹치환·롤링 샘플링·delta-skip·배칭 조회)를 설명한다. 부하 전체 정책(A watermark · E 전역 레이트 가드 등)은 <a href="collection-ops-manual.html">수집 운영 매뉴얼</a>을 참조. 본 문서 수치는 현 배포값 기준이며, 이 값들은 <code>application.yml</code> 기본값에 반영돼 있다(D74 — 재빌드로 이미지에 baked, 별도 env override 없음).
+  주기 스캔의 "한 번에 다 훑지 않고 조금씩 나눠 처리"하는 <b>틱 모델</b>과, 한 틱에 몇 개를 처리할지 정하는 <code>domains-per-tick</code>, 그리고 D58~D66 으로 확장된 <b>판정 파이프라인 전체</b>(활성 우선 선발·엣지 제외/그룹치환·롤링 샘플링·delta-skip·배칭 조회)를 설명한다. ★<b>스캔 대상 선발은 3축 게이트</b>다 — <code>enabled=true</code>(사용자 수동) <b>AND</b> <code>activity_status=ACTIVE</code>(7일 무접속 자동 비활성, D82) <b>AND</b> <code>NOT ghost_suppressed</code>(지속 0-endpoint 유령 억제, D83). 도메인 상태 두 축의 상세는 <a href="domain-status-ops-manual.html">도메인 상태 운영 매뉴얼</a>, 부하 전체 정책(A watermark · E 전역 레이트 가드 등)은 <a href="collection-ops-manual.html">수집 운영 매뉴얼</a>을 참조. 본 문서 수치는 현 배포값 기준이며, 이 값들은 <code>application.yml</code> 기본값에 반영돼 있다(D74 — 재빌드로 이미지에 baked, 별도 env override 없음).
 </div>
 
 <nav class="toc">
@@ -214,7 +214,7 @@ gantt
   <span class="ct">밀림(백로그) 추이 보는 법</span>
   얼마나 밀렸는지는 <b>due(밀린) 도메인 수</b>와 <b>밀림 시간</b>으로 봅니다.
   <ul>
-    <li><b>DB</b>: <code>SELECT count(*) FROM domain_config WHERE enabled AND last_seen_at &gt;= now()-interval '3 days' AND (next_scan_due_at IS NULL OR next_scan_due_at &lt;= now())</code> = 지금 밀린 수. <code>now()-next_scan_due_at</code> 의 p50/p90/max = 밀림 시간.</li>
+    <li><b>DB</b>: <code>SELECT count(*) FROM domain_config WHERE enabled AND activity_status='ACTIVE' AND NOT ghost_suppressed AND (next_scan_due_at IS NULL OR next_scan_due_at &lt;= now())</code> = 지금 밀린 수(스캔 대상 3축 = 선발 술어 그대로, D82·D83). <code>now()-next_scan_due_at</code> 의 p50/p90/max = 밀림 시간.</li>
     <li><b>로그</b>: <code>batched scan tick</code> 라인의 <code>jobs</code>(틱당 실처리)·<code>deferred</code>(예산소진 이월 — <b>0 유지가 정상</b>). <code>deferred&gt;0</code> 지속이면 예산(<code>max-queries-per-hour</code>) 포화 신호.</li>
     <li><b>실측 추이(D74 튜닝, 2026-07-08 전후)</b>: page-limit 2000→5000·domains-per-tick 500→650 상향 후 12h — 밀림 <b>최대 6.1h→2.6h·p50 2.4h→1.0h</b>, due <b>~24k→~16k</b>, 페이지율 ~3.6k→~3.0k/h(budget 6000), deferred 0 유지. 처리량↑인데 Loki 부하↓(페이지네이션 감소 덕).</li>
   </ul>
@@ -280,7 +280,7 @@ flowchart LR
   <tbody>
     <tr><td>📚 도서관</td><td>Loki (운영 로그 저장소)</td><td>모든 웹사이트의 방문 기록(access log)이 실시간으로 쌓이는 곳. 원본은 여기에만 있습니다.</td></tr>
     <tr><td>📋 출석부 담당</td><td>디스커버리(discovery)</td><td>10분마다 도서관에 "최근 12분간 방문 기록이 있는 사이트 명단"을 <b>요약본 한 장</b>으로 받아와, 사이트별 출석부(<code>last_seen_at</code>)에 도장을 찍습니다. 개별 방문 기록은 받지 않아 매우 가볍습니다.</td></tr>
-    <tr><td>👷 작업반장</td><td>스케줄러(스캔 틱)</td><td>약 1분마다 명부에서 <b>차례가 된 사이트 500개</b>를 뽑아 하나씩 처리합니다.</td></tr>
+    <tr><td>👷 작업반장</td><td>스케줄러(스캔 틱)</td><td>약 1분마다 명부에서 <b>차례가 된 사이트 650개</b>를 뽑아 하나씩 처리합니다.</td></tr>
     <tr><td>🔖 책갈피</td><td>워터마크(watermark)</td><td>사이트마다 "방문 기록을 여기까지 읽었다"는 표시. 이 덕분에 같은 기록을 두 번 읽지 않고, 빠뜨리지도 않습니다.</td></tr>
     <tr><td>🧠 분석기</td><td>API 분석 파이프라인</td><td>읽어온 방문 기록에서 API 주소를 골라내고 Shadow/Zombie 를 판정합니다.</td></tr>
   </tbody>
@@ -296,7 +296,7 @@ flowchart LR
     OUT["📑 결과<br/>(API 목록 · /result)"]
     LOKI -- "요약 1장 / 10분" --> DISC
     DISC -- "출석 도장" --> DB
-    DB -- "차례 된 500개" --> TICK
+    DB -- "차례 된 650개" --> TICK
     TICK -- "방문 있던 사이트만 기록 요청" --> LOKI
     LOKI -- "기록 뭉치" --> ANA
     ANA -- "API 판정 저장" --> OUT
@@ -321,8 +321,8 @@ sequenceDiagram
     D->>B: 나머지 ~11,000개 사이트 출석부에 14:00 도장
     Note over W,A: 14:00:30 — 작업 회차(틱) 시작 (약 1분마다 반복)
     W->>B: 차례 된 사이트 650개 주세요 — 신규 방문 확정 우선 + 통과류 예약 1/5 (D64)
-    B-->>W: 650개 명단 (중지·3일 무접속(D59)·제외 엣지 전용(D62/D69) 사이트는 애초 제외)
-    loop 사이트 하나씩 (500회)
+    B-->>W: 650개 명단 (중지(enabled=false)·무접속 비활성(INACTIVE, D82)·유령 억제(ghost_suppressed, D83)·제외 엣지 전용(D62/D69) 사이트는 애초 제외)
+    loop 사이트 하나씩 (650회)
         W->>B: 이 사이트 책갈피·출석부 확인
         alt 출석부에 새 도장 없음 (구간에 방문 없음)
             W->>B: 도서관 안 감 — 책갈피만 "지금−10분"으로 이동 (0.01초)
@@ -360,7 +360,7 @@ flowchart TD
     classDef step fill:#f3eefe,stroke:#6d28d9,color:#1f2430;
     classDef real fill:#eff4ff,stroke:#2563eb,color:#1f2430;
 </div>
-<p class="legend">참고 — "3일 이상 무접속" 사이트(D59)는 이 그림에 아예 안 나옵니다. 명부에서 뽑는 단계(findDueForScan)에서 걸러지기 때문입니다. 방문이 재개되면 출석부 도장이 다시 찍혀 자동 복귀합니다.</p>
+<p class="legend">참고 — "7일 이상 무접속"(<code>activity_status=INACTIVE</code>, D82)·"지속 0-endpoint 유령"(<code>ghost_suppressed=true</code>, D83) 사이트는 이 그림에 아예 안 나옵니다. 명부에서 뽑는 단계(<code>findDueForScan</code>: <code>enabled AND ACTIVE AND NOT ghost_suppressed</code>)에서 걸러지기 때문입니다. 방문이 재개(discovery 재관측)되거나 수동 스캔하면 다시 ACTIVE 로 돌아와 자동 복귀합니다.</p>
 
 <h3>8.4 한 사이트의 하루 — shop.example.com 예시</h3>
 <p>방문이 활발한 낮에는 30분마다 실제 조회가 일어나고, 방문이 끊긴 밤에는 값싼 통과만 반복됩니다.</p>
@@ -383,7 +383,7 @@ gantt
   <thead><tr><th>항목</th><th>대략 값</th><th>설명</th></tr></thead>
   <tbody>
     <tr><td>작업 회차(틱)</td><td>2~3회</td><td>1분 간격이지만 회차 처리시간이 있어 실제 ~2분 간격</td></tr>
-    <tr><td>검토한 사이트</td><td>~1,000~1,500개</td><td>회차당 500개</td></tr>
+    <tr><td>검토한 사이트</td><td>~1,300~2,000개</td><td>회차당 650개</td></tr>
     <tr><td>그중 도서관 안 간 통과</td><td>~60%</td><td>방문 도장 없음 → 책갈피만 점프(건당 ~0.01초)</td></tr>
     <tr><td>실제 도서관 조회</td><td>수백 건</td><td><b>시간당 6,000건 상한을 절대 넘지 않음</b>(예산 소진 시 다음 회차로 미룸)</td></tr>
     <tr><td>읽는 로그 비율</td><td>—</td><td>활성 사이트당 <b>시간당 20분치(33%) 표본</b> — 나머지는 의도적으로 안 읽음(§8.7)</td></tr>
@@ -423,7 +423,7 @@ gantt
 <table>
   <thead><tr><th>#</th><th>관문</th><th>결정</th><th>어디서(코드)</th><th>통과 못 하면</th></tr></thead>
   <tbody>
-    <tr><td>0</td><td>자동 선발</td><td>enabled + 차례(due) + 3일 무접속 아님(D59) + <b>신규 방문 우선·통과류 1/5 예약</b>(D64)</td><td><code>ScanSelector</code> · <code>findDueWithNewTraffic/-out</code></td><td>이번 틱 안 뽑힘(다음 due)</td></tr>
+    <tr><td>0</td><td>자동 선발</td><td>enabled + 차례(due) + <b>activity_status=ACTIVE</b>(무접속 비활성 아님, D82) + <b>NOT ghost_suppressed</b>(유령 억제 아님, D83) + <b>신규 방문 우선·통과류 1/5 예약</b>(D64)</td><td><code>ScanSelector</code> · <code>findDueWithNewTraffic/-out</code></td><td>이번 틱 안 뽑힘(다음 due)</td></tr>
     <tr><td>1</td><td>제외 엣지</td><td>매핑 엣지가 전부 제외 명단(AAJ 23개)?(D62)</td><td><code>DiscoveryJobService.effectiveEdges</code></td><td>스캔 skip(폴백 금지)</td></tr>
     <tr><td>2</td><td>그룹 치환</td><td>엣지→그룹 Master 치환+중복 제거(D65, 규칙 4유형)</td><td><code>EdgeGroupResolver.masterOf</code></td><td>—(치환만)</td></tr>
     <tr><td>3</td><td>윈도우 산정</td><td><b>샘플링: 항상 [지금−lag−10분, 지금−lag)</b>(D66). 샘플링 off 면 워터마크 증분</td><td><code>sampleWindowFor</code> / <code>windowFor</code></td><td>구간 없음=skip</td></tr>
@@ -453,13 +453,14 @@ gantt
     <tr><td>조회 윈도우 상향</td><td><code>DiscoveryScheduler.java:52</code></td><td>off-peak면 <code>offPeakMaxWindow</code>(현 배포 PT30M), 평시면 <code>maxWindow</code>(PT30M) — 현 배포는 주야 동일.</td></tr>
     <tr><td>예산 소진 시 이월</td><td><code>DiscoveryScheduler.java:70-72</code></td><td><code>if (!budget.hasBudget()) break;</code> — Loki 쿼리 캡 소진 → 틱 조기 종료, 다음 틱 이월(비배칭 경로. 배칭 경로는 <code>runScanBatched</code> 내부에서 예산 체크).</td></tr>
     <tr><td>스케줄 커서 전진</td><td><code>DiscoveryScheduler.java:59·78</code></td><td><code>touchScanSchedule(host, now, now.plus(interval))</code> — attempt 마다(skip 포함) <code>nextScanDueAt</code> 를 미래로 → 재선택 방지·기아 방지. 배칭·비배칭 경로 모두 전진.</td></tr>
-    <tr><td><b>K(틱당 개수) 결정</b></td><td><code>ScanSelector.selectForTick:50</code></td><td><code>int k = Math.max(1, offPeak ? offPeakDomainsPerTick() : domainsPerTick());</code> — off-peak 500 / 평시 500(현 배포 주야 동일).</td></tr>
+    <tr><td><b>K(틱당 개수) 결정</b></td><td><code>ScanSelector.selectForTick:49</code></td><td><code>int k = Math.max(1, offPeak ? offPeakDomainsPerTick() : domainsPerTick());</code> — off-peak 650 / 평시 650(현 배포 주야 동일).</td></tr>
     <tr><td>상위 K 선택(3단·활성 우선)</td><td><code>ScanSelector.selectForTick:54-63</code></td><td>예약(<code>findDueWithoutNewTraffic</code> K/5) → 활성 우선(<code>findDueWithNewTraffic</code>) → 남는 몫 skip-류 — 각 <code>PageRequest.of(0, …)</code>, 셋 다 밀린 순(D64).</td></tr>
     <tr><td>밀린 순 정렬 · due 술어</td><td><code>DomainConfigRepository.findDueForScan</code></td><td><code>where enabled=true and nextScanDueAt(null 즉시 due or &lt;= now) order by nextScanDueAt asc nulls first</code>.</td></tr>
     <tr><td>쿼리 예산 캡 로드</td><td><code>LokiBudget.java:33-34</code></td><td>생성자에서 <code>props.scan().maxQueriesPerHour()</code> 를 <b>기동 시 1회</b> 읽어 final 필드로 보유(런타임 변경 불가 — §10 참조).</td></tr>
     <tr><td>조회 시간 구간 산정</td><td><code>DiscoveryJobService.windowFor:718-732</code> (진입 <code>nextWindow:684</code>)</td><td><code>[watermark(없으면 end−initial-backfill), now−ingest-lag)</code> + max-window 절단. 첫 스캔 시작점(§7)이 여기서 결정. 단 <code>sample-window&gt;0</code>(현 배포)이면 <code>sampleWindowFor:701</code> 로 대체(§8.7).</td></tr>
     <tr><td>워터마크 전진</td><td><code>DiscoveryJobService.advanceWatermark</code></td><td>스캔 성공 후 소비 끝점으로 커서 전진(앞으로만) → 다음 스캔이 이어감.</td></tr>
-    <tr><td>무접속 자동제외 게이트 (D59)</td><td><code>DomainConfigRepository.findDueForScan</code></td><td><code>lastSeenAt >= now−inactive-after</code> 아니면 자동스캔 선발에서 제외(3일 무접속). scan-now 는 무관·트래픽 재개 시 자동 복귀.</td></tr>
+    <tr><td>무접속 비활성 게이트 (D59→D82)</td><td><code>findDueForScan</code> · <code>DomainConfigRepository.deactivateStale</code></td><td>선발 술어가 <code>activityStatus = ACTIVE</code>(과거 <code>lastSeenAt >= now−inactive-after</code> 직접 비교 대체). discovery 틱 종료 sweep(<code>deactivateStale</code>, cutoff=now−<code>inactive-after</code> 기본 P7D)이 무접속분을 INACTIVE 로 강등. scan-now·트래픽 재개 시 ACTIVE 복귀(self-healing).</td></tr>
+    <tr><td><b>유령 억제 게이트 (D83)</b></td><td><code>findDueForScan</code> · <code>DomainConfigRepository.suppressGhosts</code></td><td>선발 술어에 <code>ghostSuppressed = false</code> 추가. discovery 틱 sweep 후 <code>suppressGhosts</code>(cutoff=now−<code>ghost-after</code> 기본 P7D)가 지속 0-endpoint 유령(봇/foreign-host·스캔이력·무설정)을 <code>ghost_suppressed=true</code> 로 억제. 수동 스캔(<code>markActive</code>)이 해제(가역).</td></tr>
     <tr><td><b>delta-driven skip (D60/D61)</b></td><td><code>DiscoveryJobService.skipIfNoNewTraffic:179</code> (runScan·runScanBatched 에서 호출)</td><td>출석부(<code>lastSeenAt</code>)가 윈도우 시작 이전이면 = 구간 무방문 → <b>Loki 조회 없이</b> 워터마크를 now−lag 로 즉시 점프(§8.3).</td></tr>
     <tr><td>대상 제외 엣지 (D62)</td><td><code>DiscoveryJobService.effectiveEdges</code> / <code>DomainDiscoveryService</code></td><td>제외 엣지(AAJ 23개) 매핑은 조회·등록·출석 도장 모두 제외. 전부 제외면 스캔 skip(전 스트림 폴백 금지).</td></tr>
     <tr><td>배칭 조회 (D63)</td><td><code>DiscoveryJobService.runScanBatched</code> · <code>LokiQueryBuilder.buildBatch</code></td><td>실조회 도메인을 (Master 엣지×버킷)로 묶어 <code>|~ `(d1|d2|…)`</code> 1쿼리(RE2 이스케이프) → host 파싱 분배. Loki 청크 재읽기 1/N.</td></tr>
@@ -482,8 +483,12 @@ gantt
     <tr><td><code>max-queries-per-hour</code></td><td><b>6000</b></td><td>전역 시간당 Loki 쿼리 하드캡(D66 동반 상향 — 배칭·Main-only 로 쿼리당 부하 급감 후라 안전). 주야 공통.</td></tr>
     <tr><td><code>max-window</code></td><td>PT30M</td><td>평시 도메인당 조회 윈도우 상한.</td></tr>
     <tr><td><code>loki.chunk-window</code> · <code>scan.slice-window</code></td><td><b>PT30M</b></td><td>쿼리 1회 시간창·슬라이스(함께 상향해야 유효) — 도메인-시간당 쿼리 1/3 (D60 A).</td></tr>
-    <tr><td><code>inactive-after</code></td><td><b>P3D</b></td><td>무접속(출석부 기준) 자동스캔 제외 임계(D59). self-healing.</td></tr>
-    <tr><td><code>discovery.excluded-hostnames</code></td><td><b>AAJ 23개 + "P*"</b></td><td>대상 제외 엣지(D62) — 등록·출석·조회 모두 제외. <code>*</code> 끝 항목은 접두 일치(D69, P 시작 전 엣지).</td></tr>
+    <tr><td><code>inactive-after</code></td><td><b>P7D</b></td><td>무접속 비활성 임계(D59→D82, P3D→P7D). 이 기간 무요청이면 sweep 이 <code>activity_status=INACTIVE</code> 로 강등→스캔 제외. self-healing(재요청·수동스캔 시 ACTIVE). 0/null=sweep off.</td></tr>
+    <tr><td><code>ghost-after</code></td><td><b>P7D</b></td><td>유령 억제 임계(D83). <code>discovered_at</code>이 이 기간보다 오래 + 스캔이력 + self-endpoint 0 + 무설정이면 <code>ghost_suppressed=true</code> 로 스캔 제외. 수동 스캔 해제(가역). 0=off.</td></tr>
+    <tr><td><code>discovery.excluded-hostnames</code></td><td><b>AAJ 23개 + "P*" + "NEW-PAJ*"</b></td><td>대상 제외 엣지(D62) — 등록·출석·조회 모두 제외. <code>*</code> 끝 항목은 접두 일치(D69, P 시작 전 엣지). <code>NEW-PAJ*</code>=봇 Host 주요 유입 캐치올 엣지(D81-A).</td></tr>
+    <tr><td><code>discovery.probe-statuses</code></td><td><b>[404, 470]</b></td><td>등록 신뢰 필터(D81-C) — 이 status <b>만</b> 관측된 Host 는 등록·lastSeen 갱신 배제(404=미존재 vhost·470=WAAP 차단). 봇/스푸핑 Host 유입 억제. 빈=무회귀.</td></tr>
+    <tr><td><code>discovery.excluded-paths</code></td><td><b>[/.cloudbric/pron/, /.cloudbric/afc/]</b></td><td>실요청 제외 경로(D82) — 이 URI 접두만 관측된 도메인은 등록·lastSeen 갱신·스캔 인벤토리 배제 → <code>inactive-after</code> 후 INACTIVE. 헬스/프로브성 경로를 트래픽으로 안 침. 서버측 LogQL <code>| uri !~</code>.</td></tr>
+    <tr><td><code>discovery.excluded-domain-suffixes</code></td><td><b>[cbricdns.com]</b></td><td>비대상 도메인 제외(D82 후속) — 이 접미 host + IPv4 리터럴 Host(설정 무관 항상)는 등록·lastSeen 갱신 배제. <code>*.cbricdns.com</code>=Cloudbric 인프라 호스트(서비스 아님).</td></tr>
     <tr><td><code>query-batch-size</code></td><td><b>20</b></td><td>D63 배칭 — 같은 엣지 실조회 도메인 N개를 1쿼리로. D67 에서 10→20(실측 전체 쿼리 −13.7%).</td></tr>
     <tr><td><code>edge-group-main-only</code></td><td><b>true</b></td><td>D65 — 엣지를 그룹 Master 로 치환 조회(활성 매핑 −47%).</td></tr>
     <tr><td><code>sample-window</code></td><td><b>PT10M</b></td><td>D66 롤링 샘플링 — 주기 스캔을 최신 N분 표본만(0=off=gap-free).</td></tr>
@@ -515,6 +520,7 @@ gantt
   <span class="k">apidiscover.loki.chunk-window</span><span>APIDISCOVER_LOKI_CHUNKWINDOW</span>
   <span class="k">apidiscover.scan.slice-window</span><span>APIDISCOVER_SCAN_SLICEWINDOW</span>
   <span class="k">apidiscover.scan.inactive-after</span><span>APIDISCOVER_SCAN_INACTIVEAFTER</span>
+  <span class="k">apidiscover.scan.ghost-after</span><span>APIDISCOVER_SCAN_GHOSTAFTER</span>
   <span class="k">apidiscover.discovery.excluded-hostnames</span><span>APIDISCOVER_DISCOVERY_EXCLUDEDHOSTNAMES (쉼표구분)</span>
   <span class="k">apidiscover.scan.query-batch-size</span><span>APIDISCOVER_SCAN_QUERYBATCHSIZE</span>
   <span class="k">apidiscover.scan.edge-group-main-only</span><span>APIDISCOVER_SCAN_EDGEGROUPMAINONLY</span>
@@ -573,7 +579,7 @@ JAVA_HOME=/usr/lib/jvm/java-21-openjdk ./gradlew build</code></pre>
 </table>
 
 <div class="footer">
-  APIDiscover 스캔 틱 동작 매뉴얼 · 근거 doc/33 §1 B(틱 예산·라운드로빈) · §4 D(off-peak) · 코드 <code>DiscoveryScheduler</code> / <code>ScanSelector</code> / <code>LokiBudget</code> / <code>DomainConfigRepository</code> · 배포값 <code>adc.yaml</code> · 기본값 <code>src/main/resources/application.yml</code>
+  APIDiscover 스캔 틱 동작 매뉴얼 · 근거 doc/33 §1 B(틱 예산·라운드로빈) · §4 D(off-peak) · doc/42(유령 억제 A/C) · doc/43(무접속 비활성 D82·유령 게이트 D83) · 코드 <code>DiscoveryScheduler</code> / <code>ScanSelector</code> / <code>LokiBudget</code> / <code>DomainConfigRepository</code> · 배포값 <code>adc.yaml</code> · 기본값 <code>src/main/resources/application.yml</code> · <span class="badge b-now">현행화 2026-07-22 — D82·D83 반영</span>
 </div>
 
 </div>
