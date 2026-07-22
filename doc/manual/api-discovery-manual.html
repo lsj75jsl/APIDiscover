@@ -660,13 +660,14 @@ api_confidence <span class="op">=</span> clamp<sub>[0,1]</sub> ( <span class="hl
   "weightsSource": "preset",    // preset | custom (profile=CUSTOM 이면 "custom")
   "weights": { "hostApiSubdomain": 0.40, "corsPreflight": 0.30, /* … 위 §4.3 의 14키 전부 */ }
 }</code></pre>
+<p><strong>응답 키</strong> — <code>effectiveClassification</code></p>
 <table>
-  <thead><tr><th>필드</th><th>의미</th><th>값 출처</th></tr></thead>
+  <thead><tr><th>키</th><th>타입</th><th>의미</th></tr></thead>
   <tbody>
-    <tr><td><code>profile</code></td><td>현재 도메인 preset</td><td>도메인 override → 전역 → MIDDLE (§4.4)</td></tr>
-    <tr><td><code>threshold</code></td><td>적용 임계값(이 값 이상이면 ADMIT)</td><td>위와 동일 우선순위</td></tr>
-    <tr><td><code>weightsSource</code></td><td>가중치 출처</td><td><code>profile=CUSTOM</code> 이면 <code>"custom"</code>, HIGH/MIDDLE/LOW 는 <code>"preset"</code></td></tr>
-    <tr><td><code>weights</code></td><td>신호별 effective 가중치(§4.3 의 14키 맵)</td><td>preset 가중치(CUSTOM 이면 override 반영)</td></tr>
+    <tr><td><code>profile</code></td><td>string</td><td>현재 도메인 preset — <code>HIGH</code>/<code>MIDDLE</code>/<code>LOW</code>/<code>CUSTOM</code>. 도메인 override → 전역 → MIDDLE 순으로 결정(§4.4).</td></tr>
+    <tr><td><code>threshold</code></td><td>number[0,1]</td><td>적용 임계값 — <code>apiScore ≥ threshold</code> 면 ADMIT. 우선순위는 <code>profile</code> 과 동일(§4.4).</td></tr>
+    <tr><td><code>weightsSource</code></td><td>string</td><td>가중치 출처 — <code>profile=CUSTOM</code> 이면 <code>custom</code>, HIGH/MIDDLE/LOW 는 <code>preset</code>.</td></tr>
+    <tr><td><code>weights</code></td><td>object(14키)</td><td>신호별 effective 가중치 맵(§4.3 의 14키). preset 가중치(CUSTOM 이면 override 반영).</td></tr>
   </tbody>
 </table>
 
@@ -688,17 +689,19 @@ api_confidence <span class="op">=</span> clamp<sub>[0,1]</sub> ( <span class="hl
     ]
   }
 }</code></pre>
+<p><strong>응답 키</strong> — <code>rationale[].basis</code>(type=<code>score</code>) · <code>signals[]</code> 원소</p>
 <table>
-  <thead><tr><th>필드</th><th>읽는 법</th></tr></thead>
+  <thead><tr><th>키</th><th>타입</th><th>의미</th></tr></thead>
   <tbody>
-    <tr><td><code>signals[].key</code></td><td>§4.2/§4.3 의 신호명과 1:1 — 이 엔드포인트에서 <strong>평가된</strong> 신호.</td></tr>
-    <tr><td><code>signals[].weight</code></td><td>그 신호의 effective 가중치(= <code>effectiveClassification.weights[key]</code>).</td></tr>
-    <tr><td><code>signals[].fired</code></td><td>작동 여부(§4.2 작동 조건 충족 = <code>true</code>).</td></tr>
-    <tr><td><code>signals[].contribution</code></td><td><code>fired</code> 면 <code>weight</code>(<code>staticAssetPenalty</code> 는 음수), 아니면 <code>0</code>. <strong>전부 더하면 <code>apiScore</code></strong>.</td></tr>
-    <tr><td><code>apiScore</code></td><td><code>contribution</code> 합을 <code>[0,1]</code> clamp·소수 3자리 반올림(§4.1).</td></tr>
-    <tr><td><code>threshold</code></td><td>그 도메인 effective 임계(= <code>effectiveClassification.threshold</code>).</td></tr>
-    <tr><td><code>gate</code></td><td><code>ADMIT</code> = <code>apiScore ≥ threshold</code> 또는 명시 힌트 강제 admit(§4.6). <code>rationale</code> 의 score 근거는 <strong>finding 이 된 것만</strong> 담기므로 항상 <code>ADMIT</code>(reject 된 후보는 drop 되어 목록에 없음).</td></tr>
-    <tr><td><code>mode</code></td><td><code>pathless</code> = §4.2 <strong>strict</strong>(내장 path-shape), <code>explicit_hint</code> = §4.2 <strong>explicit</strong>(<code>pathHint</code> 만). 어떤 신호 집합이 평가됐는지를 가른다.</td></tr>
+    <tr><td><code>type</code></td><td>string</td><td>근거 종류 — Shadow 는 <code>score</code>(점수 게이트). 점수 내역(<code>signals[]</code>)이 있는 분류는 Shadow 뿐(③).</td></tr>
+    <tr><td><code>mode</code></td><td>string</td><td><code>pathless</code>=§4.2 <strong>strict</strong>(내장 path-shape) / <code>explicit_hint</code>=§4.2 <strong>explicit</strong>(<code>pathHint</code> 만). 어떤 신호 집합이 평가됐는지를 가른다.</td></tr>
+    <tr><td><code>gate</code></td><td>string</td><td><code>ADMIT</code>=<code>apiScore ≥ threshold</code> 또는 명시 힌트 강제 admit(§4.6). <code>rationale</code> 은 finding 이 된 것만 담겨 <strong>항상 ADMIT</strong>(reject 된 후보는 drop 되어 목록에 없음).</td></tr>
+    <tr><td><code>apiScore</code></td><td>number[0,1]</td><td><code>contribution</code> 합을 <code>[0,1]</code> clamp·소수 3자리 반올림(§4.1).</td></tr>
+    <tr><td><code>threshold</code></td><td>number</td><td>그 도메인 effective 임계(= <code>effectiveClassification.threshold</code>).</td></tr>
+    <tr><td><code>signals[].key</code></td><td>string</td><td>§4.2/§4.3 의 신호명과 1:1 — 이 엔드포인트에서 <strong>평가된</strong> 신호.</td></tr>
+    <tr><td><code>signals[].weight</code></td><td>number</td><td>그 신호의 effective 가중치(= <code>effectiveClassification.weights[key]</code>, 음수 가능).</td></tr>
+    <tr><td><code>signals[].fired</code></td><td>boolean</td><td>작동 여부(§4.2 작동 조건 충족 = <code>true</code>).</td></tr>
+    <tr><td><code>signals[].contribution</code></td><td>number</td><td><code>fired</code> 면 <code>weight</code>(<code>staticAssetPenalty</code> 는 음수), 아니면 <code>0</code>. <strong>전부 더하면 <code>apiScore</code></strong>.</td></tr>
   </tbody>
 </table>
 
