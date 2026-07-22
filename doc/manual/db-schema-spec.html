@@ -77,9 +77,9 @@
 <body>
 <header class="hero">
   <div class="inner">
-    <h1>DB 테이블 명세 &amp; ER Diagram</h1>
+    <h1>DB 테이블 명세 &amp; ER(Entity-Relationship) Diagram</h1>
     <p>API Discovery Worker 의 내부 데이터베이스 — 9 엔티티 + 컬렉션 테이블 1개 = <strong>10 테이블</strong> 전체 컬럼 명세와 관계도.</p>
-    <p>코드(JPA <code>@Entity</code> 애너테이션)가 단일 진실원이며, 본 문서는 이를 역설계해 사람이 읽는 형태로 기술한다.</p>
+    <p>코드(JPA[Java Persistence API] <code>@Entity</code> 애너테이션)가 단일 진실원이며, 본 문서는 이를 역설계해 사람이 읽는 형태로 기술한다.</p>
     <div class="tags">
       <span class="tag">Java 21 · Spring Boot 3.3</span>
       <span class="tag">Hibernate ddl-auto=update</span>
@@ -271,7 +271,7 @@
   <tbody>
     <tr><td><code>String</code> (length 미지정)</td><td>VARCHAR(255)</td><td>varchar(255)</td><td>nullable</td></tr>
     <tr><td><code>String</code> + <code>columnDefinition="text"</code> (JSON)</td><td>text</td><td>text</td><td>nullable</td></tr>
-    <tr><td><code>@Lob byte[]</code> <span class="nl">(現 미사용)</span></td><td>BLOB</td><td>oid</td><td>nullable</td></tr>
+    <tr><td><code>@Lob byte[]</code> <span class="nl">(現 미사용)</span></td><td>BLOB</td><td>oid(PostgreSQL 대용량 객체 식별자)</td><td>nullable</td></tr>
     <tr><td><code>Instant</code></td><td>TIMESTAMP(6)</td><td>timestamp(6)</td><td>nullable (UTC)</td></tr>
     <tr><td><code>long</code> / <code>int</code> / <code>boolean</code> (primitive)</td><td>BIGINT / INTEGER / BOOLEAN</td><td>bigint / integer / boolean</td><td><span class="nn">NOT NULL</span></td></tr>
     <tr><td><code>Long</code> / <code>Double</code> (wrapper)</td><td>BIGINT / DOUBLE</td><td>bigint / double precision</td><td>nullable</td></tr>
@@ -418,7 +418,7 @@
     <tr><td class="col">had_query</td><td class="t">BOOLEAN</td><td><span class="nn">NN</span></td><td>ApiScorer 신호 — 쿼리스트링 존재 여부 스냅샷.</td></tr>
     <tr><td class="col">non_browser_ua</td><td class="t">BOOLEAN</td><td><span class="nn">NN</span></td><td>ApiScorer 신호 — 비브라우저 User-Agent 여부 스냅샷.</td></tr>
     <tr><td class="col">accept_json</td><td class="t">BOOLEAN</td><td><span class="nn">NN · false</span></td><td>8.3 요청측 신호(다수결 스냅샷) — <code>Accept</code> 헤더에 <code>application/json</code> 포함 여부. ApiScorer 양성. ddl-auto ADD default false. (<a class="dref" href="#d79">D79</a>)</td></tr>
-    <tr><td class="col">x_requested_with</td><td class="t">BOOLEAN</td><td><span class="nn">NN · false</span></td><td>8.3 신호 — <code>X-Requested-With</code> 헤더 존재(AJAX/XHR). ApiScorer 양성. ddl-auto ADD default false. (<a class="dref" href="#d79">D79</a>)</td></tr>
+    <tr><td class="col">x_requested_with</td><td class="t">BOOLEAN</td><td><span class="nn">NN · false</span></td><td>8.3 신호 — <code>X-Requested-With</code> 헤더 존재(AJAX/XHR=XMLHttpRequest). ApiScorer 양성. ddl-auto ADD default false. (<a class="dref" href="#d79">D79</a>)</td></tr>
     <tr><td class="col">origin_header</td><td class="t">BOOLEAN</td><td><span class="nn">NN · false</span></td><td>8.3 신호 — <code>Origin</code> 헤더 존재(CORS 맥락). ApiScorer 양성. ddl-auto ADD default false. (<a class="dref" href="#d79">D79</a>)</td></tr>
     <tr><td class="col">auth_scheme</td><td class="t">BOOLEAN</td><td><span class="nn">NN · false</span></td><td>8.3 신호 — <code>Authorization</code> 스킴(bearer/basic 등) 존재(토큰 값 제외). ApiScorer 양성. ddl-auto ADD default false. (<a class="dref" href="#d79">D79</a>)</td></tr>
     <tr><td class="col">params_json</td><td class="t">text</td><td><span class="nl">null</span></td><td><code>ParamCandidates</code>(쿼리·경로 파라미터 후보) 스냅샷.</td></tr>

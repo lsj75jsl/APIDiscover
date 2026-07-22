@@ -437,7 +437,7 @@ gantt
     <tr><td>8</td><td>전진</td><td>워터마크 = now−lag (표본 밖 구간은 의도적 통과)</td><td><code>advanceWatermark</code></td><td>—</td></tr>
   </tbody>
 </table>
-<p class="legend">명시적 <code>POST /scan-now</code>·온디맨드 CLI 는 0·3·4 관문을 거치지 않는다(항상 실조회, 임시 스냅샷·워터마크 미전진). 제외(<a class="dref" href="#d62">D62</a>)·치환(<a class="dref" href="#d65">D65</a>)은 동일 적용.</p>
+<p class="legend">명시적 <code>POST /scan-now</code>·온디맨드 CLI(Command-Line Interface) 는 0·3·4 관문을 거치지 않는다(항상 실조회, 임시 스냅샷·워터마크 미전진). 제외(<a class="dref" href="#d62">D62</a>)·치환(<a class="dref" href="#d65">D65</a>)은 동일 적용.</p>
 
 <div class="callout note">
   <span class="ct">사용자 제안(5분 스텝 설계)과의 관계</span>
@@ -466,9 +466,9 @@ gantt
     <tr><td><b>유령 억제 게이트 (<a class="dref" href="#d83">D83</a>)</b></td><td><code>findDueForScan</code> · <code>DomainConfigRepository.suppressGhosts</code></td><td>선발 술어에 <code>ghostSuppressed = false</code> 추가. discovery 틱 sweep 후 <code>suppressGhosts</code>(cutoff=now−<code>ghost-after</code> 기본 P7D)가 지속 0-endpoint 유령(봇/foreign-host·스캔이력·무설정)을 <code>ghost_suppressed=true</code> 로 억제. 수동 스캔(<code>markActive</code>)이 해제(가역).</td></tr>
     <tr><td><b>delta-driven skip (<a class="dref" href="#d60">D60</a>/<a class="dref" href="#d61">D61</a>)</b></td><td><code>DiscoveryJobService.skipIfNoNewTraffic:179</code> (runScan·runScanBatched 에서 호출)</td><td>출석부(<code>lastSeenAt</code>)가 윈도우 시작 이전이면 = 구간 무방문 → <b>Loki 조회 없이</b> 워터마크를 now−lag 로 즉시 점프(§8.3).</td></tr>
     <tr><td>대상 제외 엣지 (<a class="dref" href="#d62">D62</a>)</td><td><code>DiscoveryJobService.effectiveEdges</code> / <code>DomainDiscoveryService</code></td><td>제외 엣지(AAJ 23개) 매핑은 조회·등록·출석 도장 모두 제외. 전부 제외면 스캔 skip(전 스트림 폴백 금지).</td></tr>
-    <tr><td>배칭 조회 (<a class="dref" href="#d63">D63</a>)</td><td><code>DiscoveryJobService.runScanBatched</code> · <code>LokiQueryBuilder.buildBatch</code></td><td>실조회 도메인을 (Master 엣지×버킷)로 묶어 <code>|~ `(d1|d2|…)`</code> 1쿼리(RE2 이스케이프) → host 파싱 분배. Loki 청크 재읽기 1/N.</td></tr>
+    <tr><td>배칭 조회 (<a class="dref" href="#d63">D63</a>)</td><td><code>DiscoveryJobService.runScanBatched</code> · <code>LokiQueryBuilder.buildBatch</code></td><td>실조회 도메인을 (Master 엣지×버킷)로 묶어 <code>|~ `(d1|d2|…)`</code> 1쿼리(RE2[Google 정규식 엔진] 이스케이프) → host 파싱 분배. Loki 청크 재읽기 1/N.</td></tr>
     <tr><td>활성 우선 선발 (<a class="dref" href="#d64">D64</a>)</td><td><code>ScanSelector.selectForTick</code> · <code>findDueWithNewTraffic/-out</code></td><td>신규 방문 확정(lastSeen&gt;워터마크) 우선, 통과류 K/5 예약(기아·드리프트 방지). 3단 선발.</td></tr>
-    <tr><td>엣지 그룹 Master 치환 (<a class="dref" href="#d65">D65</a>)</td><td><code>EdgeGroupResolver</code></td><td>규칙 4유형으로 edge→Master 맵(TTL 10분). replica 전용 매핑 도메인도 Master 조회로 커버.</td></tr>
+    <tr><td>엣지 그룹 Master 치환 (<a class="dref" href="#d65">D65</a>)</td><td><code>EdgeGroupResolver</code></td><td>규칙 4유형으로 edge→Master 맵(TTL[Time To Live, 캐시 수명] 10분). replica 전용 매핑 도메인도 Master 조회로 커버.</td></tr>
     <tr><td><b>롤링 샘플링 (<a class="dref" href="#d66">D66</a>)</b></td><td><code>DiscoveryJobService.sampleWindowFor</code></td><td>주기 스캔 윈도우 = 항상 [now−lag−10m, now−lag). 과거 백로그 의도적 통과 → 밀림 누적 정지·신선도≤30분.</td></tr>
   </tbody>
 </table>

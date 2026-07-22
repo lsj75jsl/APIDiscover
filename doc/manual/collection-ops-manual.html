@@ -79,7 +79,7 @@
 <header class="hero">
   <div class="inner">
     <h1>APIDiscover 수집 운영 매뉴얼</h1>
-    <p>운영자(엔지니어)용 — <strong>① 도메인 수집(디스커버리)</strong> 과 <strong>② 도메인별 API 정보 수집(스캔)</strong> 의 동작 방식·운영 정책·튜닝·온디맨드 CLI.</p>
+    <p>운영자(엔지니어)용 — <strong>① 도메인 수집(디스커버리)</strong> 과 <strong>② 도메인별 API 정보 수집(스캔)</strong> 의 동작 방식·운영 정책·튜닝·온디맨드 CLI(Command-Line Interface).</p>
     <p>대상 운영 Loki: <code>192.168.8.100:3200</code> · 근거 설계 doc/30 · doc/33 · DECISIONS <a class="dref" href="#d42">D42</a> / <a class="dref" href="#d44">D44</a> / <a class="dref" href="#d45">D45</a> / <a class="dref" href="#d48">D48</a> · 운영 튜닝 <a class="dref" href="#d56">D56</a>~<a class="dref" href="#d69">D69</a></p>
     <div class="tags">
       <span class="tag">도메인 자동 디스커버리</span>
@@ -307,7 +307,7 @@
     <tr><td><span class="b-key">ghost-after</span></td><td><code>P7D</code></td><td>유령 억제 임계 — 등록 후 이 기간+ 스캔에도 self-endpoint 0(봇/foreign-host)이면 <code>ghost_suppressed=true</code> 로 스캔 제외(0=off). 수동 스캔 해제(가역)(<a class="dref" href="#d83">D83</a>)</td><td><span class="badge b-now">구현됨</span></td></tr>
     <tr><td><span class="b-key">query-batch-size</span></td><td><code>20</code></td><td>같은 엣지 실조회 도메인 N개를 정규식 OR 1쿼리로(0=off). Loki 청크 재읽기 1/N(<a class="dref" href="#d63">D63</a>)</td><td><span class="badge b-now">구현됨</span></td></tr>
     <tr><td><span class="b-key">edge-group-main-only</span></td><td><code>true</code></td><td>엣지를 그룹 Master 로 치환 조회(Master 로그=그룹 전체 집계). false=off(<a class="dref" href="#d65">D65</a>)</td><td><span class="badge b-now">구현됨</span></td></tr>
-    <tr><td><span class="b-key">tiering-enabled</span></td><td><code>true</code></td><td>C 활동 티어 on/off. false=구 LRS 동작(동작 불변 롤백 스위치)</td><td><span class="badge b-now">구현됨</span></td></tr>
+    <tr><td><span class="b-key">tiering-enabled</span></td><td><code>true</code></td><td>C 활동 티어 on/off. false=구 LRS(Least-Recently-Scanned) 동작(동작 불변 롤백 스위치)</td><td><span class="badge b-now">구현됨</span></td></tr>
     <tr><td><span class="b-key">active-interval / inactive-interval / default-interval</span></td><td>PT30M / PT6H / PT2H</td><td>활동 기반 티어 주기(active=최근·inactive=뜸·default=신호 없음, <code>active-threshold=PT24H</code>)</td><td><span class="badge b-now">구현됨(C)</span></td></tr>
     <tr><td><span class="b-key">off-peak-domains-per-tick / off-peak-max-window / off-peak-zone</span></td><td>650 / PT30M / Asia/Seoul</td><td>off-peak(01–06시) 예산/윈도우 스위치(D). ★현재는 주간과 동일값으로 튜닝(대량조회 복구 금지 — Loki 과부하 이력)</td><td><span class="badge b-now">구현됨(D)</span></td></tr>
     <tr><td><span class="b-key">dormant-after / dormant-interval</span></td><td>P14D / P1D</td><td>장기 무트래픽 디프라이오리티(최장 주기로 강등, <strong>삭제 아님</strong>)</td><td><span class="badge b-now">구현됨(F)</span></td></tr>

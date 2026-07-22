@@ -32,7 +32,7 @@
 <div class="wrap">
 
 <h1>APIDiscover 테스트서버 배포 검증 가이드</h1>
-<p class="muted">app + postgres 2컨테이너 1 pod(podman, hostNetwork)로 테스트 VM 에 배포하고, Loki 도메인 수집·CLI CSV 를 검증하는 절차. 권위 문서 <code>doc/32-container-deploy-runbook.md</code>·<code>DECISIONS D44</code>. 대상 Loki(192.168.8.100:3200)는 <b>운영 서버</b> — 대용량 확인은 off-peak(01:00–06:00), 창/limit 작게.</p>
+<p class="muted">app + postgres 2컨테이너 1 pod(podman, hostNetwork)로 테스트 VM 에 배포하고, Loki 도메인 수집·CLI(Command-Line Interface) CSV 를 검증하는 절차. 권위 문서 <code>doc/32-container-deploy-runbook.md</code>·<code>DECISIONS D44</code>. 대상 Loki(192.168.8.100:3200)는 <b>운영 서버</b> — 대용량 확인은 off-peak(01:00–06:00), 창/limit 작게.</p>
 
 <h2>0. 사전 준비 (테스트 VM, rootful=root 로그인)</h2>
 <div class="step"><pre><code>mkdir -p /opt/adc /opt/adc-exports /opt/adc-log
@@ -110,11 +110,11 @@ podman pod ps && podman ps --pod        # adc pod 의 db·app Running</code></pr
 <h2>8. DB 성능 유지보수 (<a class="dref" href="#d75">D75</a>~<a class="dref" href="#d77">D77</a>)</h2>
 <table>
 <tr><th>항목</th><th>내용</th><th>fresh DB 조치</th></tr>
-<tr><td><code>domain_hostnames.host</code> 인덱스 (<a class="dref" href="#d75">D75</a>)</td><td><code>@ElementCollection(EAGER)</code> 라 도메인 로드마다 <code>where host=?</code> 조회 — 인덱스 없으면 전체 seq scan 으로 <b>PG 백엔드 CPU 포화</b>(FK 는 자식 인덱스 자동생성 안 함)</td><td class="ok">소스 <code>@Index</code> 로 <code>ddl-auto</code> 자동 생성 — 조치 불요</td></tr>
+<tr><td><code>domain_hostnames.host</code> 인덱스 (<a class="dref" href="#d75">D75</a>)</td><td><code>@ElementCollection(EAGER)</code> 라 도메인 로드마다 <code>where host=?</code> 조회 — 인덱스 없으면 전체 seq scan 으로 <b>PostgreSQL 백엔드 CPU 포화</b>(FK 는 자식 인덱스 자동생성 안 함)</td><td class="ok">소스 <code>@Index</code> 로 <code>ddl-auto</code> 자동 생성 — 조치 불요</td></tr>
 <tr><td><code>discovered_endpoint</code> autovacuum (<a class="dref" href="#d76">D76</a>)</td><td>수백만 행·고빈도 upsert — 전역 임계(50+0.2×행)에서야 작동 → 대형 vacuum CPU 스파이크</td><td class="warn">DB-레벨(소스 표현 불가) — <b>fresh DB 에 1회 재적용</b>: <code>ALTER TABLE discovered_endpoint SET (autovacuum_vacuum_scale_factor=0.05, autovacuum_vacuum_threshold=10000, autovacuum_analyze_scale_factor=0.05, autovacuum_analyze_threshold=10000);</code></td></tr>
 <tr><td>bloat 정리 (<a class="dref" href="#d76">D76</a>/<a class="dref" href="#d77">D77</a>)</td><td>never-vacuum 시 dead tuple·인덱스 bloat 누적</td><td>필요 시 <code>VACUUM (ANALYZE, PARALLEL 0) discovered_endpoint;</code> · 인덱스 <code>SET max_parallel_maintenance_workers=0; REINDEX INDEX CONCURRENTLY &lt;idx&gt;;</code></td></tr>
 </table>
-<div class="callout w"><b>⚠️ 병렬 유지보수와 /dev/shm.</b> 컨테이너 기본 <code>/dev/shm</code>(64MB)은 <b>병렬</b> VACUUM/REINDEX 의 동적 공유메모리에 부족해 실패한다(<code>could not resize shared memory … No space left on device</code>). <b>비병렬로 회피</b>: <code>VACUUM (PARALLEL 0)</code> / <code>SET max_parallel_maintenance_workers=0</code> 후 REINDEX. autovacuum 은 병렬을 안 써서 무관. <code>emptyDir(medium:Memory)</code> 로 /dev/shm 확대는 el8 SELinux 가 tmpfs 를 relabel 하지 않아 PG 크래시루프 → 사용 금지(<a class="dref" href="#d77">D77</a>).</div>
+<div class="callout w"><b>⚠️ 병렬 유지보수와 /dev/shm.</b> 컨테이너 기본 <code>/dev/shm</code>(64MB)은 <b>병렬</b> VACUUM/REINDEX 의 동적 공유메모리에 부족해 실패한다(<code>could not resize shared memory … No space left on device</code>). <b>비병렬로 회피</b>: <code>VACUUM (PARALLEL 0)</code> / <code>SET max_parallel_maintenance_workers=0</code> 후 REINDEX. autovacuum 은 병렬을 안 써서 무관. <code>emptyDir(medium:Memory)</code> 로 /dev/shm 확대는 el8 SELinux 가 tmpfs 를 relabel 하지 않아 PostgreSQL 크래시루프 → 사용 금지(<a class="dref" href="#d77">D77</a>).</div>
 
 <!-- ============================================================= -->
 <h2 id="appx">별첨 A — 참조 결정(DECISIONS) 요약</h2>
@@ -126,7 +126,7 @@ podman pod ps && podman ps --pod        # adc pod 의 db·app Running</code></pr
     <tr><td><code id="d58">D58</code></td><td>Loki 부하 안정화 — 버스트 기본값 복귀 + IO 타임아웃 적응형 감속·예산 계상 + 외부 파일 로깅(일별·gz·30일 보관).</td></tr>
     <tr><td><code id="d62">D62</code></td><td>대상 제외 엣지(AAJ 23개) — 등록·출석·조회 모두 제외, 전부 제외면 스캔 skip(전 스트림 폴백 금지).</td></tr>
     <tr><td><code id="d69">D69</code></td><td><code>P*</code> 엣지 제외 — <code>excluded-hostnames</code> 접두 와일드카드(신규 P 엣지에도 자동 적용).</td></tr>
-    <tr><td><code id="d75">D75</code></td><td><code>domain_hostnames.host</code> 인덱스 추가 — <code>@ElementCollection</code> FK seq scan N+1 로 인한 PG CPU 포화 해소(~180배).</td></tr>
+    <tr><td><code id="d75">D75</code></td><td><code>domain_hostnames.host</code> 인덱스 추가 — <code>@ElementCollection</code> FK seq scan N+1 로 인한 PostgreSQL CPU 포화 해소(~180배).</td></tr>
     <tr><td><code id="d76">D76</code></td><td><code>discovered_endpoint</code> autovacuum 튜닝(per-table scale 0.05) + 초기 <code>VACUUM</code>(dead 0).</td></tr>
     <tr><td><code id="d77">D77</code></td><td>컨테이너 <code>/dev/shm</code> 확대 시도 → SELinux relabel 실패·롤백, 비병렬 <code>REINDEX</code> 로 대체(shm 불요).</td></tr>
     <tr><td><code id="d82">D82</code></td><td>무접속 도메인 상태 관리 — 7일 무요청 → <code>activity_status=INACTIVE</code>(sweep) → 스캔 제외. <code>enabled</code> 과 별도 축, 경로 제외(<code>.cloudbric</code>)·재활성.</td></tr>

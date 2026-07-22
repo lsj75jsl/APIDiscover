@@ -177,7 +177,7 @@ X-Current-Page: 0
 
 <div class="ep">
   <div class="sig"><span class="m m-post">POST</span><code>/api/v1/domains</code></div>
-  <p>도메인 등록. host 는 정규화(소문자·trim)되며 이미 있으면 <code>409 Conflict</code>. 성공 시 <code>201 Created</code> + 등록된 <code>DomainView</code>. (CLI <code>-domain -register</code> 로도 등록 가능.)</p>
+  <p>도메인 등록. host 는 정규화(소문자·trim)되며 이미 있으면 <code>409 Conflict</code>. 성공 시 <code>201 Created</code> + 등록된 <code>DomainView</code>. (CLI(Command-Line Interface) <code>-domain -register</code> 로도 등록 가능.)</p>
   <pre><code>curl -X POST http://&lt;host&gt;:8080/api/v1/domains \
   -H 'Content-Type: application/json' \
   -d '{"host":"api.example.com","enabled":true}'</code></pre>
@@ -652,7 +652,7 @@ curl -i -H 'If-None-Match: "829bfa4c628a7ede"' \
   <li><code>POST /scan</code> 비동기 큐잉(현재 코드 TODO 주석: 동기 트리거).</li>
   <li><code>/discovery</code> 대량 호출용 응답 캐시(ETag) — 현재 plain GET.</li>
   <li>dropped 엔드포인트 per-item 근거 노출(현재 집계만).</li>
-  <li>API 인벤토리 <strong>P2 잔여</strong> — 오래된 DELETED 버전 <strong>inactive prune</strong>(P2-5) · 기존 스펙 param 백필(재업로드). 매칭 source 대체(P2-1)는 <strong>보류</strong>(위험 대비 가치 음수 · 문서 기반 좀비 탐지는 P1 에 이미 존재, DECISIONS <a class="dref" href="#d54">D54</a>). <span class="legend">(영속 인벤토리·파라미터·<code>GET /spec/apis</code>·DELETED→Zombie = P1 완료, breaking 판정·도메인 merged 뷰 = P2-3/P2-4 완료, <code>rawDoc</code> 컬럼 삭제로 oid 함정 해소.)</span></li>
+  <li>API 인벤토리 <strong>P2 잔여</strong> — 오래된 DELETED 버전 <strong>inactive prune</strong>(P2-5) · 기존 스펙 param 백필(재업로드). 매칭 source 대체(P2-1)는 <strong>보류</strong>(위험 대비 가치 음수 · 문서 기반 좀비 탐지는 P1 에 이미 존재, DECISIONS <a class="dref" href="#d54">D54</a>). <span class="legend">(영속 인벤토리·파라미터·<code>GET /spec/apis</code>·DELETED→Zombie = P1 완료, breaking 판정·도메인 merged 뷰 = P2-3/P2-4 완료, <code>rawDoc</code> 컬럼 삭제로 oid(PostgreSQL Large Object 타입) 함정 해소.)</span></li>
   <li>rate limiting / API 버저닝 정책.</li>
   <li>(선택) 정크 도메인(IP·0패딩 IP) 디스커버리 필터.</li>
 </ul>
