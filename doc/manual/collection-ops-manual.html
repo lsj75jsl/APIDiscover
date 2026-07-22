@@ -209,7 +209,10 @@
     <tr><td><span class="b-key">initial-delay</span></td><td><code>PT2M</code></td><td>스캔 스케줄과 stagger offset</td></tr>
     <tr><td><span class="b-key">max-domains-per-run</span></td><td><code>0</code></td><td>0=무제한 전수 등록, &gt;0=카운트 desc 상위 N 캡</td></tr>
     <tr><td><span class="b-key">host-pattern</span></td><td>FQDN 정규식</td><td>자동 등록 폭증 차단(형식 검증)</td></tr>
-    <tr><td><span class="b-key">excluded-hostnames</span></td><td>AAJ11~AAJ63, <code>P*</code></td><td>대상 제외 엣지(hostname 라벨) — 이 엣지의 관측은 등록·<code>lastSeen</code> 갱신·스캔 조회 모두 제외. 접미 <code>*</code>=접두 일치(예 <code>P*</code>=P 로 시작하는 전 엣지). 빈=없음(<a class="dref" href="#d62">D62</a>/<a class="dref" href="#d69">D69</a>)</td></tr>
+    <tr><td><span class="b-key">excluded-hostnames</span></td><td>AAJ11~AAJ63, <code>P*</code>, <code>NEW-PAJ*</code></td><td>대상 제외 엣지(hostname 라벨) — 이 엣지의 관측은 등록·<code>lastSeen</code> 갱신·스캔 조회 모두 제외. 접미 <code>*</code>=접두 일치(예 <code>P*</code>=P 로 시작하는 전 엣지, <code>NEW-PAJ*</code>=봇 유입 캐치올 엣지 <a class="dref" href="#d81">D81</a>-A). 빈=없음(<a class="dref" href="#d62">D62</a>/<a class="dref" href="#d69">D69</a>)</td></tr>
+    <tr><td><span class="b-key">probe-statuses</span></td><td><code>[404, 470]</code></td><td>등록 신뢰 필터(<a class="dref" href="#d81">D81</a>-C) — 이 status <strong>만</strong> 관측된 Host 는 등록·<code>lastSeen</code> 갱신 배제(404=미존재 vhost·470=WAAP 차단). 봇/스푸핑 Host 유입 억제. 빈=필터 없음(동작 불변)</td></tr>
+    <tr><td><span class="b-key">excluded-paths</span></td><td><code>[/.cloudbric/pron/, /.cloudbric/afc/]</code></td><td>실요청 제외 경로(<a class="dref" href="#d82">D82</a>) — 이 URI 접두만 관측된 도메인은 등록·<code>lastSeen</code> 갱신·스캔 인벤토리 배제 → <code>inactive-after</code> 후 INACTIVE. 헬스/프로브성 경로를 트래픽으로 안 침. 서버측 LogQL <code>| uri !~</code></td></tr>
+    <tr><td><span class="b-key">excluded-domain-suffixes</span></td><td><code>[cbricdns.com]</code></td><td>비대상 도메인 제외(<a class="dref" href="#d82">D82</a> 후속) — 이 접미 host + IPv4 리터럴 Host(설정 무관 항상)는 등록·<code>lastSeen</code> 갱신 배제. <code>*.cbricdns.com</code>=Cloudbric 인프라 호스트(서비스 아님)</td></tr>
   </tbody>
 </table>
 
@@ -243,11 +246,12 @@
 <h3 id="s3-2">3.2 B — 틱당 예산 + due 기반 선택(티어링 + 활성 우선)</h3>
 <p>한 틱에 전 도메인을 금지하고, <strong>짧은 틱마다 예산(K) 내에서 "스캔 due 가 도래한 도메인부터"</strong> 처리한다.</p>
 <ul>
-  <li><strong>선택</strong>: <code>ScanSelector.selectForTick()</code> = <code>enabled</code> + due 도래(<code>nextScanDueAt</code> null=즉시 또는 <code>&le; now</code>)를 <code>nextScanDueAt</code> 오름차순(<em>nulls first</em> = 가장 밀린 순) 상위 <code>domains-per-tick</code>(K) 개. due 값은 티어(C)·dormant(F)·override 가 collapse 한 <strong>단일 타임스탬프</strong>다(3.5, <code>ScanTier.effectiveInterval</code>).</li>
+  <li><strong>선택</strong>: <code>ScanSelector.selectForTick()</code> = <strong>스캔 대상 3축</strong>(<code>enabled</code> <strong>AND</strong> <code>activity_status=ACTIVE</code> <strong>AND NOT</strong> <code>ghost_suppressed</code>) + due 도래(<code>nextScanDueAt</code> null=즉시 또는 <code>&le; now</code>)를 <code>nextScanDueAt</code> 오름차순(<em>nulls first</em> = 가장 밀린 순) 상위 <code>domains-per-tick</code>(K) 개. due 값은 티어(C)·dormant(F)·override 가 collapse 한 <strong>단일 타임스탬프</strong>다(3.5, <code>ScanTier.effectiveInterval</code>).</li>
   <li><strong>활성 우선(<a class="dref" href="#d64">D64</a>)</strong>: 후보 중 <strong>워터마크 이후 신규 트래픽이 확정된(=실제 Loki 조회가 필요한) 도메인</strong>을 먼저 채우고, 신규 트래픽 없는(delta-skip 대상) 도메인은 틱당 최소 <code>K/5</code> 만 예약한다 → 활성 도메인의 스캔 지연 최소화, 기아 방지.</li>
   <li><strong>커서 = 영속 타임스탬프</strong>: <code>lastScanAttemptAt</code>(관측)·<code>nextScanDueAt</code>(due, @Index) — 둘 다 DB 영속(재기동 생존). 메모리 인덱스 미채택.</li>
   <li><strong>★커서는 attempt 마다 전진</strong>(skip·실패 포함): <code>touchScanSchedule(host, now, now+effectiveInterval)</code> 로 <code>lastScanAttemptAt=now</code> + <code>nextScanDueAt</code> 갱신. up-to-date/skip 도메인이 매 틱 재선택되는 예산 낭비를 막고 FIFO 기아를 방지.</li>
-  <li><strong>무접속 중단(<a class="dref" href="#d59">D59</a>, <code>inactive-after=P3D</code>)</strong>: 마지막 실 access log 관측(<code>lastSeenAt</code>)이 <code>inactive-after</code> 보다 오래된 도메인은 <strong>선택에서 제외</strong>(수집·평가 안 함). 경량 디스커버리는 계속 돌므로 트래픽 재개 시 <code>lastSeenAt</code> 이 갱신되면 <strong>자동 복귀</strong>(수동 재활성화 불요). <code>0</code>=비활성.</li>
+  <li><strong>무접속 비활성(<a class="dref" href="#d59">D59</a>→<a class="dref" href="#d82">D82</a>, <code>inactive-after=P7D</code>)</strong>: 마지막 실요청(<code>lastSeenAt</code>)이 <code>inactive-after</code> 보다 오래되면 discovery 틱 종료 sweep(<code>deactivateStale</code>)이 <code>activity_status</code> 를 <strong>INACTIVE</strong> 로 강등 → 선택 술어(<code>activity_status=ACTIVE</code>)에서 자연 제외한다(과거 <code>lastSeenAt</code> 직접 비교를 대체). 실요청 재관측·수동 스캔 시 <strong>ACTIVE 자동 복귀</strong>(self-healing). <code>0</code>=sweep off.</li>
+  <li><strong>유령 억제(<a class="dref" href="#d83">D83</a>, <code>ghost-after=P7D</code>)</strong>: 등록 7일+ 스캔했는데도 <a href="#g-self-endpoint">self-endpoint</a> 가 0 인 유령(봇/foreign-host·무설정)은 <code>ghost_suppressed=true</code> 로 선택에서 제외한다. 수동 스캔이 해제(가역).</li>
 </ul>
 <p class="legend"><code>watermark</code>(데이터 윈도우 진행 = 무엇을 수집했나), <code>nextScanDueAt</code>(스캔 due = 언제 차례인가), <code>lastScanAttemptAt</code>(관측 커서)은 <strong>직교</strong>한다.</p>
 
@@ -299,7 +303,8 @@
     <tr><td><span class="b-key">max-bytes-per-hour</span></td><td><code>0</code></td><td>전역 시간당 바이트 하드캡(0=무제한)</td><td><span class="badge b-now">구현됨</span></td></tr>
     <tr><td><span class="b-key">throttle-on-error</span></td><td><code>true</code></td><td>429/5xx 적응형 자동감속 on/off</td><td><span class="badge b-now">구현됨</span></td></tr>
     <tr><td><span class="b-key">sample-window</span></td><td><code>PT10M</code></td><td>롤링 샘플링(최신 N분 표본만, 과거 백로그 skip). 0=off=gap-free 크롤(<a class="dref" href="#d66">D66</a>)</td><td><span class="badge b-now">구현됨</span></td></tr>
-    <tr><td><span class="b-key">inactive-after</span></td><td><code>P3D</code></td><td>무접속 스캔 중단 — <code>lastSeenAt</code> 이 이보다 오래되면 스캔 제외(0=off). 트래픽 재개 시 자동 복귀(<a class="dref" href="#d59">D59</a>)</td><td><span class="badge b-now">구현됨</span></td></tr>
+    <tr><td><span class="b-key">inactive-after</span></td><td><code>P7D</code></td><td>무접속 비활성 임계 — <code>lastSeenAt</code> 이 이보다 오래되면 sweep 이 <code>activity_status=INACTIVE</code> 로 강등→스캔 제외(0=off). 재요청·수동스캔 시 ACTIVE 복귀(<a class="dref" href="#d59">D59</a>→<a class="dref" href="#d82">D82</a>, P3D→P7D)</td><td><span class="badge b-now">구현됨</span></td></tr>
+    <tr><td><span class="b-key">ghost-after</span></td><td><code>P7D</code></td><td>유령 억제 임계 — 등록 후 이 기간+ 스캔에도 self-endpoint 0(봇/foreign-host)이면 <code>ghost_suppressed=true</code> 로 스캔 제외(0=off). 수동 스캔 해제(가역)(<a class="dref" href="#d83">D83</a>)</td><td><span class="badge b-now">구현됨</span></td></tr>
     <tr><td><span class="b-key">query-batch-size</span></td><td><code>20</code></td><td>같은 엣지 실조회 도메인 N개를 정규식 OR 1쿼리로(0=off). Loki 청크 재읽기 1/N(<a class="dref" href="#d63">D63</a>)</td><td><span class="badge b-now">구현됨</span></td></tr>
     <tr><td><span class="b-key">edge-group-main-only</span></td><td><code>true</code></td><td>엣지를 그룹 Master 로 치환 조회(Master 로그=그룹 전체 집계). false=off(<a class="dref" href="#d65">D65</a>)</td><td><span class="badge b-now">구현됨</span></td></tr>
     <tr><td><span class="b-key">tiering-enabled</span></td><td><code>true</code></td><td>C 활동 티어 on/off. false=구 LRS 동작(동작 불변 롤백 스위치)</td><td><span class="badge b-now">구현됨</span></td></tr>
@@ -498,7 +503,7 @@ podman run --rm --network host -v /opt/adc-exports:/exports \
     <tr><td><code id="d48">D48</code></td><td>스캔 정책 C 활동 티어링 + D off-peak + F dormant 를 단일 due 모델(<code>nextScanDueAt</code>)로 통합. <code>tiering-enabled=false</code>=LRS 롤백.</td></tr>
     <tr><td><code id="d56">D56</code></td><td>정적 파일 API 오탐 수정 — 정적 확장자 하드 veto(<code>DROP_STATIC</code>) + 정적 리소스 파일명 감점(<code>img.php</code> 류). <code>.php</code> 는 veto 아님(감점만).</td></tr>
     <tr><td><code id="d58">D58</code></td><td>Loki 부하 안정화 — 버스트 기본값 복귀 + IO 타임아웃 적응형 감속·예산 계상 + 외부 파일 로깅(일별·gz·30일 보관).</td></tr>
-    <tr><td><code id="d59">D59</code></td><td>무접속 자동스캔 제외 기준을 <code>last_access_log_at</code> → <code>last_seen_at</code>(discovery)로 전환·임계 3일. <strong>→ D82 로 P7D·<code>activity_status</code> 로 재설계됨.</strong></td></tr>
+    <tr><td><code id="d59">D59</code></td><td>무접속 자동스캔 제외 기준을 <code>last_access_log_at</code> → <code>last_seen_at</code>(discovery)로 전환·임계 3일. <strong>→ <a class="dref" href="#d82">D82</a> 로 P7D·<code>activity_status</code> 로 재설계됨.</strong></td></tr>
     <tr><td><code id="d60">D60</code></td><td>실시간 유지 쿼리 튜닝 — chunk/slice PT30M + delta-driven skip(무트래픽 구간 조회 생략) + 워터마크 점프.</td></tr>
     <tr><td><code id="d61">D61</code></td><td>delta-driven skip 을 <code>now−lag</code> 즉시 전진으로 — 빈 도메인 1 touch 로 caught-up(catch-up 가속).</td></tr>
     <tr><td><code id="d62">D62</code></td><td>대상 제외 엣지(AAJ 23개) — 등록·출석·조회 모두 제외, 전부 제외면 스캔 skip(전 스트림 폴백 금지).</td></tr>
@@ -508,6 +513,9 @@ podman run --rm --network host -v /opt/adc-exports:/exports \
     <tr><td><code id="d66">D66</code></td><td>롤링 샘플링 — 주기 스캔을 방문 시점의 "최신 10분 표본"만(<code>sample-window</code>). 밀림 누적 정지·신선도 ≤ 재방문주기·커버리지 ~33%.</td></tr>
     <tr><td><code id="d69">D69</code></td><td><code>P*</code> 엣지 제외 — <code>excluded-hostnames</code> 접두 와일드카드(신규 P 엣지에도 자동 적용).</td></tr>
     <tr><td><code id="d74">D74</code></td><td>스캔 처리량 상향 — <code>page-limit</code> 2000→5000 · <code>domains-per-tick</code> 500→650(백로그 감축·페이지네이션 감소).</td></tr>
+    <tr><td><code id="d81">D81</code></td><td>스캔 due/워터마크 밀림 누적 대응 — 유령 도메인 억제 A(<code>NEW-PAJ*</code> 제외)+C(404·470-only 등록 배제) + 하드 정리(31,985 삭제·due −62%).</td></tr>
+    <tr><td><code id="d82">D82</code></td><td>무접속 도메인 상태 관리 — 7일 무요청 → <code>activity_status=INACTIVE</code>(sweep) → 스캔 제외. <code>enabled</code> 과 별도 축, 경로 제외(<code>.cloudbric</code>)·재활성.</td></tr>
+    <tr><td><code id="d83">D83</code></td><td>endpoint-yield 게이트 — 지속 0-endpoint 유령(봇/foreign-host)을 <code>ghost_suppressed</code> 로 억제(엣지 제외 대체). 수동 스캔 해제(가역).</td></tr>
   </tbody>
 </table>
 
@@ -517,6 +525,7 @@ podman run --rm --network host -v /opt/adc-exports:/exports \
 <table>
   <thead><tr><th>용어</th><th>뜻과 설명</th></tr></thead>
   <tbody>
+    <tr id="g-self-endpoint"><td>self-endpoint</td><td>도메인 <b>자신의</b> 실제 API·경로 엔드포인트(<code>discovered_endpoint</code>). 봇·타 도메인(foreign-host) 트래픽만 있고 자기 엔드포인트가 0이면 <b>self-endpoint 0</b> — 스캔해도 산출물이 없는 유령 도메인 신호(<a class="dref" href="#d83">D83</a> 억제 대상).</td></tr>
     <tr id="g-endpoint"><td>엔드포인트<br/>(endpoint)</td><td>클라이언트가 호출하는 하나의 API 지점. <code>method + host + 경로 템플릿</code>으로 식별한다(정규화로 <code>/users/1</code>·<code>/users/2</code> 는 한 엔드포인트로 묶임). 인벤토리·분류의 기본 단위.</td></tr>
     <tr id="g-watermark"><td>watermark<br/>(워터마크·수집 커서)</td><td>도메인별로 "로그를 여기까지 읽었다"를 기록하는 커서(마지막 성공 조회 구간의 끝점). 다음 스캔은 이 지점부터 신규 구간만 읽어(증분 수집) 중복·누락을 막는다. 앞으로만 전진.</td></tr>
     <tr id="g-tick"><td>틱<br/>(tick)</td><td>주기 스캔이 도메인을 한 번에 훑지 않고 <b>조금씩 나눠 처리</b>하는 한 회차(약 1분). 한 틱에 <code>domains-per-tick</code>(현 650)개만 처리하고 나머지는 다음 틱으로.</td></tr>

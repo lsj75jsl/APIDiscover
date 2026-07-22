@@ -292,7 +292,7 @@
 <!-- ===== 4.1 domain_config ===== -->
 <div class="tbl-card">
 <h3>4.1 <code>domain_config</code> — 분석 대상 도메인 설정·스캔 정책</h3>
-<p class="meta">엔티티 <code>DomainConfig</code> · PK <code>host</code> · 허브. <code>@Index(next_scan_due_at)</code> 선언.</p>
+<p class="meta">엔티티 <code>DomainConfig</code> · PK <code>host</code> · 허브. 인덱스 <code>@Index(next_scan_due_at)</code> · <code>@Index(activity_status, next_scan_due_at)</code>(스캔 선택 hot 쿼리·sweep bulk UPDATE 술어, seq scan 회피 <a class="dref" href="#d82">D82</a>) 선언.</p>
 <table>
   <thead><tr><th>컬럼</th><th>SQL 타입</th><th>키/널</th><th>의미</th></tr></thead>
   <tbody>
@@ -305,6 +305,10 @@
     <tr><td class="col">last_seen_at</td><td class="t">TIMESTAMP(6)</td><td><span class="nl">null</span></td><td>디스커버리 최근 관측(집계 윈도우 끝). staleness 가시화용 — <strong>삭제 트리거 아님</strong>.</td></tr>
     <tr><td class="col">last_scan_attempt_at</td><td class="t">TIMESTAMP(6)</td><td><span class="nl">null</span></td><td>스캔 라운드로빈 커서(least-recently-scanned). 스캔 attempt 마다 전진(skip 포함).</td></tr>
     <tr><td class="col">next_scan_due_at</td><td class="t">TIMESTAMP(6) · idx</td><td><span class="nl">null</span></td><td>다음 스캔 due 시각 — 스캔 시 <code>now + effectiveInterval</code> 로 갱신. <strong>null=즉시 due</strong>. 인덱스 컬럼.</td></tr>
+    <tr><td class="col">last_access_log_at</td><td class="t">TIMESTAMP(6)</td><td><span class="nl">null</span></td><td>실 access log 최신 시각(스캔이 Loki 에서 관측한 <code>max(discovered_endpoint.last_seen)</code>). 스캔 시에만 증가(never decrease). null=미스캔. (<a class="dref" href="#d57">D57</a>)</td></tr>
+    <tr><td class="col">activity_status</td><td class="t">VARCHAR(255) enum</td><td><span class="nn">NN · 'ACTIVE'</span></td><td>활동 상태 <code>ACTIVE</code>/<code>INACTIVE</code>. 7일 무요청 도메인은 discovery sweep 이 INACTIVE 로 강등(<a class="dref" href="#d82">D82</a>). <code>enabled</code> 과 <strong>별개 축</strong> — 스캔 대상 = <code>enabled AND activity_status=ACTIVE AND NOT ghost_suppressed</code>. ddl-auto ADD 시 기존행 전부 ACTIVE(<code>@ColumnDefault 'ACTIVE'</code>). (<a class="dref" href="#d82">D82</a>)</td></tr>
+    <tr><td class="col">activity_status_changed_at</td><td class="t">TIMESTAMP(6)</td><td><span class="nl">null</span></td><td>마지막 활동상태 전이(ACTIVE↔INACTIVE) 시각. 감사·중앙연동용. flip 시에만 갱신. null=전이 이력 없음. (<a class="dref" href="#d82">D82</a>)</td></tr>
+    <tr><td class="col">ghost_suppressed</td><td class="t">BOOLEAN</td><td><span class="nn">NN · false</span></td><td>유령 억제 플래그 — 스캔 이력 있고 지속적으로 self-endpoint 0 인 도메인(봇/foreign-host). <code>enabled</code>·<code>activity_status</code> 와 별개 축(endpoint-yield 게이트). 수동 스캔(scan-now)이 <code>false</code> 로 가역 해제. ddl-auto ADD default false. (<a class="dref" href="#d83">D83</a>)</td></tr>
     <tr><td class="col">created_at</td><td class="t">TIMESTAMP(6)</td><td><span class="nl">null</span></td><td>행 생성 시각.</td></tr>
     <tr><td class="col">updated_at</td><td class="t">TIMESTAMP(6)</td><td><span class="nl">null</span></td><td>행 수정 시각.</td></tr>
   </tbody>
@@ -315,7 +319,7 @@
 <!-- ===== 4.2 domain_hostnames ===== -->
 <div class="tbl-card">
 <h3>4.2 <code>domain_hostnames</code> — 도메인↔엣지 hostname 컬렉션</h3>
-<p class="meta"><code>DomainConfig.hostnames</code> 의 <code>@ElementCollection</code> 자식 테이블 · <strong>유일한 실 FK</strong>.</p>
+<p class="meta"><code>DomainConfig.hostnames</code> 의 <code>@ElementCollection</code> 자식 테이블 · <strong>유일한 실 FK</strong> · <code>@Index(host)</code>=<code>idx_domain_hostnames_host</code> 선언(FK 는 자식 컬럼 인덱스를 자동 생성하지 않으므로 명시 — 없으면 95k행 seq scan 으로 PG CPU 포화, <a class="dref" href="#d75">D75</a>).</p>
 <table>
   <thead><tr><th>컬럼</th><th>SQL 타입</th><th>키/널</th><th>의미</th></tr></thead>
   <tbody>
@@ -413,6 +417,10 @@
     <tr><td class="col">status_dist_json</td><td class="t">text</td><td><span class="nl">null</span></td><td>최신 윈도우 status 코드 분포 JSON.</td></tr>
     <tr><td class="col">had_query</td><td class="t">BOOLEAN</td><td><span class="nn">NN</span></td><td>ApiScorer 신호 — 쿼리스트링 존재 여부 스냅샷.</td></tr>
     <tr><td class="col">non_browser_ua</td><td class="t">BOOLEAN</td><td><span class="nn">NN</span></td><td>ApiScorer 신호 — 비브라우저 User-Agent 여부 스냅샷.</td></tr>
+    <tr><td class="col">accept_json</td><td class="t">BOOLEAN</td><td><span class="nn">NN · false</span></td><td>8.3 요청측 신호(다수결 스냅샷) — <code>Accept</code> 헤더에 <code>application/json</code> 포함 여부. ApiScorer 양성. ddl-auto ADD default false. (<a class="dref" href="#d79">D79</a>)</td></tr>
+    <tr><td class="col">x_requested_with</td><td class="t">BOOLEAN</td><td><span class="nn">NN · false</span></td><td>8.3 신호 — <code>X-Requested-With</code> 헤더 존재(AJAX/XHR). ApiScorer 양성. ddl-auto ADD default false. (<a class="dref" href="#d79">D79</a>)</td></tr>
+    <tr><td class="col">origin_header</td><td class="t">BOOLEAN</td><td><span class="nn">NN · false</span></td><td>8.3 신호 — <code>Origin</code> 헤더 존재(CORS 맥락). ApiScorer 양성. ddl-auto ADD default false. (<a class="dref" href="#d79">D79</a>)</td></tr>
+    <tr><td class="col">auth_scheme</td><td class="t">BOOLEAN</td><td><span class="nn">NN · false</span></td><td>8.3 신호 — <code>Authorization</code> 스킴(bearer/basic 등) 존재(토큰 값 제외). ApiScorer 양성. ddl-auto ADD default false. (<a class="dref" href="#d79">D79</a>)</td></tr>
     <tr><td class="col">params_json</td><td class="t">text</td><td><span class="nl">null</span></td><td><code>ParamCandidates</code>(쿼리·경로 파라미터 후보) 스냅샷.</td></tr>
   </tbody>
 </table>
@@ -534,6 +542,11 @@
     <tr><td><code id="d17">D17</code></td><td>분류 설정 DB 저장(전역 1행 + 도메인 override) + effective 병합(도메인→전역→MIDDLE). weights override 는 CUSTOM 한정, threshold 는 어떤 프로파일에서도 override.</td></tr>
     <tr><td><code id="d40">D40</code></td><td>Testcontainers(PostgreSQL) 통합 테스트 — podman 연결·Ryuk·게이팅으로 실 PG 회귀 검증.</td></tr>
     <tr><td><code id="d56">D56</code></td><td>정적 파일 API 오탐 수정 — 정적 확장자 하드 veto(<code>DROP_STATIC</code>) + 정적 리소스 파일명 감점(<code>img.php</code> 류). <code>.php</code> 는 veto 아님(감점만).</td></tr>
+    <tr><td><code id="d57">D57</code></td><td>무접속 자동스캔 제외 기준을 실 access log 시각으로 + 정적분류 규칙 DB 외부화·reload.</td></tr>
+    <tr><td><code id="d75">D75</code></td><td><code>domain_hostnames.host</code> 인덱스 추가 — <code>@ElementCollection</code> FK seq scan N+1 로 인한 PG CPU 포화 해소(~180배).</td></tr>
+    <tr><td><code id="d79">D79</code></td><td>8.3 로그변수 사용 범위·가중치·시뮬레이션 — 응답 CT→<code>endpoint_kind</code> + 요청 4신호(accept/xhr/origin/auth) 양성 가중치. DORMANT 동작 불변·과승격 상한 1.06%.</td></tr>
+    <tr><td><code id="d82">D82</code></td><td>무접속 도메인 상태 관리 — 7일 무요청 → <code>activity_status=INACTIVE</code>(sweep) → 스캔 제외. <code>enabled</code> 과 별도 축, 경로 제외(<code>.cloudbric</code>)·재활성.</td></tr>
+    <tr><td><code id="d83">D83</code></td><td>endpoint-yield 게이트 — 지속 0-endpoint 유령(봇/foreign-host)을 <code>ghost_suppressed</code> 로 억제(엣지 제외 대체). 수동 스캔 해제(가역).</td></tr>
   </tbody>
 </table>
 

@@ -186,7 +186,7 @@ X-Current-Page: 0
 
 <div class="ep">
   <div class="sig"><span class="m m-get">GET</span><code>/api/v1/domains/{host}</code></div>
-  <p>한 도메인의 <strong>상세</strong>(<code>DomainDetailView</code>). 목록(경량)과 달리 <code>lastScanAt</code> 과 <strong>도메인 현재 effective 설정</strong>(<code>effectiveClassification</code>)·활성 스펙 메타(<code>spec</code>)까지 보강해 준다.</p>
+  <p>한 도메인의 <strong>상세</strong>(<code>DomainDetailView</code>). 목록(경량)과 달리 <code>lastScanAt</code> 과 <strong>도메인 현재 effective 설정</strong>(<code>effectiveClassification</code>)·활성 스펙 메타(<code>spec</code>)까지 보강해 준다. <strong>활동 상태 3필드</strong>도 포함한다 — <code>activityStatus</code>(<code>ACTIVE</code>/<code>INACTIVE</code>, 7일 무요청 자동 강등, <a class="dref" href="#d82">D82</a>)·<code>activityStatusChangedAt</code>(마지막 전이 시각, 미전이 시 null)·<code>ghostSuppressed</code>(유령 억제 여부, 가역, <a class="dref" href="#d83">D83</a>). 스캔 대상 = <code>enabled AND activityStatus=ACTIVE AND NOT ghostSuppressed</code>.</p>
   <pre><code>curl http://&lt;host&gt;:8080/api/v1/domains/api.weble.net</code></pre>
   <pre><code>{
   "host":"api.weble.net",
@@ -197,6 +197,9 @@ X-Current-Page: 0
   "basePathStrip":null,
   "spec":null,
   "lastScanAt":"2026-06-29T05:00:37.105715Z",
+  "activityStatus":"ACTIVE",
+  "activityStatusChangedAt":null,
+  "ghostSuppressed":false,
   "effectiveClassification":{
     "profile":"MIDDLE", "threshold":0.7, "weightsSource":"preset",
     "weights":{ "hostApiSubdomain":0.4, "corsPreflight":0.3, "apiSegment":0.55, "graphqlSegment":0.55,
@@ -275,13 +278,13 @@ curl -X DELETE http://&lt;host&gt;:8080/api/v1/domains/api.weble.net   # → 204
 
 <div class="ep">
   <div class="sig"><span class="m m-post">POST</span><code>/api/v1/domains/{host}/scan</code> <span class="loki">⚠️ Loki</span></div>
-  <p>온디맨드 재스캔 트리거(<strong>비동기</strong>). <strong>운영 Loki 를 호출</strong>하므로 남발 금지. 즉시 <code>202 Accepted</code> 만 반환하고 결과는 따로 <code>/scan-status</code>·<code>/result</code> 로 조회한다(<a href="#s5">비동기 큐잉은 TODO</a>). 즉시 결과가 필요하면 아래 <code>/scan-now</code>.</p>
+  <p>온디맨드 재스캔 트리거(<strong>비동기</strong>). <strong>운영 Loki 를 호출</strong>하므로 남발 금지. 즉시 <code>202 Accepted</code> 만 반환하고 결과는 따로 <code>/scan-status</code>·<code>/result</code> 로 조회한다(<a href="#s5">비동기 큐잉은 TODO</a>). 즉시 결과가 필요하면 아래 <code>/scan-now</code>. ★수동 스캔은 <code>activity_status</code> 를 <strong>ACTIVE 로 승격</strong>(무접속 INACTIVE 였어도 주기 스캔 대상 재포함, <a class="dref" href="#d82">D82</a>)하고 <code>ghost_suppressed</code> 를 <strong>해제</strong>(유령 억제 복구, <a class="dref" href="#d83">D83</a>)한다(<code>markActive</code>).</p>
   <pre><code>curl -i -X POST http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/scan   # → 202 Accepted</code></pre>
 </div>
 
 <div class="ep">
   <div class="sig"><span class="m m-post">POST</span><code>/api/v1/domains/{host}/scan-now</code> <span class="loki">⚠️ Loki</span></div>
-  <p>즉시 <strong>동기</strong> 스캔. Loki 를 호출해 스캔을 끝낸 뒤 <strong>결합 결과(findings + rationale + effectiveClassification)</strong>를 바로 반환한다(<a href="#s2-3">§2.3 <code>/discovery</code></a> 와 동일 shape). 미등록 도메인이면 <strong>자동 등록(enabled=true) 후 스캔</strong>한다. 파라미터 <code>?window</code>(ISO-8601 Duration, 기본/상한 = <code>scan.max-window</code>).</p>
+  <p>즉시 <strong>동기</strong> 스캔. Loki 를 호출해 스캔을 끝낸 뒤 <strong>결합 결과(findings + rationale + effectiveClassification)</strong>를 바로 반환한다(<a href="#s2-3">§2.3 <code>/discovery</code></a> 와 동일 shape). 미등록 도메인이면 <strong>자동 등록(enabled=true) 후 스캔</strong>한다. 파라미터 <code>?window</code>(ISO-8601 Duration, 기본/상한 = <code>scan.max-window</code>). ★<code>/scan</code> 과 동일하게 <code>activity_status</code> → <strong>ACTIVE 승격</strong>(<a class="dref" href="#d82">D82</a>) + <code>ghost_suppressed</code> → <strong>해제</strong>(<a class="dref" href="#d83">D83</a>)한다 — 무접속·유령 억제 도메인을 다시 스캔·주기 대상으로 되돌리는 경로.</p>
   <pre><code>curl -X POST 'http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/scan-now?window=PT1H'</code></pre>
   <div class="callout warn">
     <span class="ct">⚠️ 동기 Loki 호출 — busy 도메인 주의</span>
@@ -665,6 +668,7 @@ curl -i -H 'If-None-Match: "829bfa4c628a7ede"' \
     <tr><td><code id="d54">D54</code></td><td>M7 재설계 P2 — 풍부 param diff+breaking·도메인-merged 뷰·백필(재업로드).</td></tr>
     <tr><td><code id="d78">D78</code></td><td>스코어링 정책 조회 강화 — 전역 GET 에 effective 노출 + threshold 최상위 분리 + 신호 설명(ko/en). API-only.</td></tr>
     <tr><td><code id="d82">D82</code></td><td>무접속 도메인 상태 관리 — 7일 무요청 → <code>activity_status=INACTIVE</code>(sweep) → 스캔 제외. <code>enabled</code> 과 별도 축, 경로 제외(<code>.cloudbric</code>)·재활성.</td></tr>
+    <tr><td><code id="d83">D83</code></td><td>endpoint-yield 게이트 — 지속 0-endpoint 유령(봇/foreign-host)을 <code>ghost_suppressed</code> 로 억제(엣지 제외 대체). 수동 스캔 해제(가역).</td></tr>
   </tbody>
 </table>
 

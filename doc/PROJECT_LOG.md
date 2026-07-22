@@ -56,6 +56,15 @@
 - **전 6개 매뉴얼 별첨 통일**(스크립트 `unify_appendix.py`): scan-tick·domain-status·api-rest·collection-ops·db-schema·deploy-verify 에 **별첨 A(참조 결정 요약)**+**별첨 B(용어 설명)** 삽입, 본문 D* → #dNN·용어 첫 등장 → #g-xxx 링크, TOC 항목·`.dref` 스타일 추가. 결정 요약은 api-discovery 별첨 A + 보충(D11·40·42·43·44·45·47·54)에서 생성. 파서 기반 링크로 code/pre/a/script/style·mermaid 내부 제외.
 - 검증: **7개 매뉴얼 전부** 태그 균형·죽은 내부링크 0·mermaid 오염 0·직역투 0·별첨 A/B 존재.
 
+### 한 일 (추가) — 나머지 4개 매뉴얼 내용 현행화 (병렬 감사 → 수정)
+- **병렬 감사**: Explore 에이전트 4로 collection-ops·db-schema·deploy-verify·api-rest 를 현재 코드·DECISIONS 대조 → stale 목록 수집.
+- **collection-ops**: 무접속 게이트 lastSeenAt(P3D)→**activity_status(P7D)·sweep**(D82), 스캔 대상 **3축** 명시, 유령 억제(D83)·`ghost-after` 추가, discovery 신규 필터(probe-statuses·excluded-paths·excluded-domain-suffixes·NEW-PAJ* — D81·D82) 추가.
+- **db-schema**: `domain_config` 신규 컬럼 4(last_access_log_at D57·activity_status/activity_status_changed_at D82·ghost_suppressed D83) + 복합 인덱스(activity_status,next_scan_due_at) + `domain_hostnames(host)` idx(D75) + `discovered_endpoint` 8.3 컬럼 4(accept_json·x_requested_with·origin_header·auth_scheme, D79) 추가. 실제 엔티티로 타입·default 검증.
+- **deploy-verify**: discovery 로그 필드 전체(deactivated·ghostSuppressed 포함) 반영, 검증 체크리스트에 **스캔 대상 3축 쿼리**·상태 컬럼 확인 추가.
+- **api-rest**: GET /domains/{host} 응답에 activityStatus·activityStatusChangedAt·ghostSuppressed 필드(D82·D83), scan·scan-now 이 activity_status ACTIVE 승격 + ghost_suppressed 해제(markActive) 동작 명시.
+- **별첨 A 재생성**(`refresh_appendixA.py`): 신규 인용 결정(D57·D75·D79·D81·D82·D83 등)을 각 별첨 A에 반영·D* 링크 재적용. collection-ops 용어집 g-self-endpoint 추가.
+- 검증: **7개 매뉴얼 전부** 태그 균형·죽은 링크 0·직역투 0. 잔존 P3D 2건은 "P3D→P7D" 변경 이력 표기(정상).
+
 ### 다음 단계
 - ghost 게이트 수렴 관찰 계속(scannable 추이) / full eTLD+1 서비스 수 정밀화(사용자 결정 대기, 7-21 항목).
 

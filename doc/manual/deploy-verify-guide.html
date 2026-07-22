@@ -67,8 +67,10 @@ podman pod ps && podman ps --pod        # adc pod 의 db·app Running</code></pr
 <tr><td>크래시 루프 없음</td><td><code>podman inspect adc-app --format '{{.RestartCount}}'</code></td><td class="ok">0 (증가 안 함)</td></tr>
 <tr><td>postgres 준비</td><td><code>podman logs adc-db | grep 'ready to accept'</code></td><td class="ok">database system is ready to accept connections</td></tr>
 <tr><td>wait-for-db 동작</td><td><code>podman logs adc-app | grep wait-for-db</code></td><td class="ok">…대기 → DB 도달 → 앱 기동</td></tr>
-<tr><td><b>Loki 수집(핵심)</b></td><td><code>podman logs adc-app | grep 'domain discovery:'</code></td><td class="ok">bootstrap=… <b>vector=N inserted=M</b> (timeout 아님)</td></tr>
+<tr><td><b>Loki 수집(핵심)</b></td><td><code>podman logs adc-app | grep 'domain discovery:'</code></td><td class="ok">timeout 아님. 로그 필드(현행 전체) = <code>bootstrap window vector inserted updated rejected dropped excludedEdge excludedDomain deactivated ghostSuppressed</code>. 신규 관측 시 <b>vector·inserted</b>&gt;0, 무접속 강등분은 <b>deactivated</b>=N(<a class="dref" href="#d82">D82</a>), 유령 억제분은 <b>ghostSuppressed</b>=N(<a class="dref" href="#d83">D83</a>)</td></tr>
 <tr><td>도메인 적재</td><td><code>podman exec -e PGPASSWORD=adc adc-db psql -U adc -d adc -tAc "select count(*) from domain_config;"</code></td><td class="ok">&gt; 0</td></tr>
+<tr><td><b>스캔 대상(3축)</b></td><td colspan="2"><code>… "select count(*) from domain_config where enabled and activity_status='ACTIVE' and not ghost_suppressed;"</code> — 실제 주기 스캔 대상 수. 전체(count(*))보다 작은 게 정상(무접속 INACTIVE·유령 억제분 제외, <a class="dref" href="#d82">D82</a>·<a class="dref" href="#d83">D83</a>)</td></tr>
+<tr><td>상태 컬럼 확인</td><td colspan="2"><code>… "select host, enabled, activity_status, ghost_suppressed, last_seen_at from domain_config order by last_seen_at desc nulls last limit 5;"</code> — <code>activity_status</code>(ACTIVE/INACTIVE)·<code>ghost_suppressed</code> 컬럼 존재·값 확인</td></tr>
 <tr><td>도메인+<a href="#g-edge">엣지</a></td><td colspan="2"><code>… "select dc.host, count(dh.hostname) from domain_config dc left join domain_hostnames dh on dh.host=dc.host group by dc.host order by 2 desc limit 10;"</code></td></tr>
 </table>
 <p class="muted">디스커버리 첫 실행은 <code>apidiscover.discovery.initial-delay</code>(기본 2분) 후. 이후 <code>interval</code>(기본 10분) 롤링. 빈 도메인 DB 면 첫 실행은 <code>bootstrap-window</code>(기본 1h).</p>
@@ -127,6 +129,8 @@ podman pod ps && podman ps --pod        # adc pod 의 db·app Running</code></pr
     <tr><td><code id="d75">D75</code></td><td><code>domain_hostnames.host</code> 인덱스 추가 — <code>@ElementCollection</code> FK seq scan N+1 로 인한 PG CPU 포화 해소(~180배).</td></tr>
     <tr><td><code id="d76">D76</code></td><td><code>discovered_endpoint</code> autovacuum 튜닝(per-table scale 0.05) + 초기 <code>VACUUM</code>(dead 0).</td></tr>
     <tr><td><code id="d77">D77</code></td><td>컨테이너 <code>/dev/shm</code> 확대 시도 → SELinux relabel 실패·롤백, 비병렬 <code>REINDEX</code> 로 대체(shm 불요).</td></tr>
+    <tr><td><code id="d82">D82</code></td><td>무접속 도메인 상태 관리 — 7일 무요청 → <code>activity_status=INACTIVE</code>(sweep) → 스캔 제외. <code>enabled</code> 과 별도 축, 경로 제외(<code>.cloudbric</code>)·재활성.</td></tr>
+    <tr><td><code id="d83">D83</code></td><td>endpoint-yield 게이트 — 지속 0-endpoint 유령(봇/foreign-host)을 <code>ghost_suppressed</code> 로 억제(엣지 제외 대체). 수동 스캔 해제(가역).</td></tr>
   </tbody>
 </table>
 
