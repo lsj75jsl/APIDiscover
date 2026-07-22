@@ -399,10 +399,10 @@ gantt
 </ul>
 
 <h3>8.7 롤링 샘플링 (D66) — 왜 전부 읽지 않는가</h3>
-<p>활성 사이트 1.1만 개의 로그 <b>전부</b>를 빠짐없이 읽으려면 시간당 ~2.6만 윈도우가 필요한데, 운영 도서관(Loki) 보호 예산으로는 ~7천이 한계입니다 — 전부-읽기를 고집하면 영원히 뒤처집니다(실측: 평균 17시간 지연·계속 발산). 그래서 <b>표본 조사</b>로 전환했습니다.</p>
+<p>활성 사이트 1.1만 개의 로그 <b>전부</b>를 빠짐없이 읽으려면 시간당 ~2.6만 윈도우가 필요한데, 운영 도서관(Loki) 보호 예산으로는 ~7천이 한계입니다 — 전부-읽기를 고집하면 영원히 뒤처집니다(실측: 평균 17시간 지연·밀림이 계속 커짐). 그래서 <b>표본 조사</b>로 전환했습니다.</p>
 <ul>
   <li><b>방식</b> — 사이트를 방문할 때마다 <b>"그 시점의 최신 10분"만</b> 읽고, 책갈피를 지금−10분으로 점프. 활성 사이트는 30분마다 재방문 → <b>시간당 2회 × 10분 = 20분치(33%) 표본</b>.</li>
-  <li><b>얻는 것</b> — 발산 정지. 활성 사이트의 결과가 항상 <b>30분 이내 최신</b>. 자주 호출되는 API 는 어느 표본에든 잡힘.</li>
+  <li><b>얻는 것</b> — 밀림 누적 정지. 활성 사이트의 결과가 항상 <b>30분 이내 최신</b>. 자주 호출되는 API 는 어느 표본에든 잡힘.</li>
   <li><b>포기하는 것(정직)</b> — 표본 밖 40분에만 발생한 호출은 그 시간엔 못 봄. 드문 엔드포인트는 발견이 늦어질 수 있음(사이트마다 표본 시점이 자연히 흩어져 <b>결정적 사각지대는 없음</b> — 반복 호출은 결국 잡힘). 호출수(hits) 지표는 표본 기반(~1/3 관측).</li>
   <li><b>고정 시각표가 아닌 이유</b> — "매시 0~10분/30~40분" 고정이면 :15 에 도는 정기 작업을 영원히 놓침(결정적 사각지대). 롤링(도메인별 방문 시점 기준)은 이 문제가 없고, 도서관이 느려져도 일정이 붕괴하지 않음.</li>
 </ul>
@@ -466,7 +466,7 @@ gantt
     <tr><td>배칭 조회 (D63)</td><td><code>DiscoveryJobService.runScanBatched</code> · <code>LokiQueryBuilder.buildBatch</code></td><td>실조회 도메인을 (Master 엣지×버킷)로 묶어 <code>|~ `(d1|d2|…)`</code> 1쿼리(RE2 이스케이프) → host 파싱 분배. Loki 청크 재읽기 1/N.</td></tr>
     <tr><td>활성 우선 선발 (D64)</td><td><code>ScanSelector.selectForTick</code> · <code>findDueWithNewTraffic/-out</code></td><td>신규 방문 확정(lastSeen&gt;워터마크) 우선, 통과류 K/5 예약(기아·드리프트 방지). 3단 선발.</td></tr>
     <tr><td>엣지 그룹 Master 치환 (D65)</td><td><code>EdgeGroupResolver</code></td><td>규칙 4유형으로 edge→Master 맵(TTL 10분). replica 전용 매핑 도메인도 Master 조회로 커버.</td></tr>
-    <tr><td><b>롤링 샘플링 (D66)</b></td><td><code>DiscoveryJobService.sampleWindowFor</code></td><td>주기 스캔 윈도우 = 항상 [now−lag−10m, now−lag). 과거 백로그 의도적 통과 → 발산 정지·신선도≤30분.</td></tr>
+    <tr><td><b>롤링 샘플링 (D66)</b></td><td><code>DiscoveryJobService.sampleWindowFor</code></td><td>주기 스캔 윈도우 = 항상 [now−lag−10m, now−lag). 과거 백로그 의도적 통과 → 밀림 누적 정지·신선도≤30분.</td></tr>
   </tbody>
 </table>
 

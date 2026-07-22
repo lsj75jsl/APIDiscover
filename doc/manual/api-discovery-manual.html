@@ -36,6 +36,8 @@
   p{margin:10px 0;}
   a{color:var(--accent); text-decoration:none;}
   a:hover{text-decoration:underline;}
+  a.dref{color:var(--accent); border-bottom:1px dotted currentColor;}
+  a.dref:hover{text-decoration:none; background:var(--accent-soft);}
   code{font-family:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace; font-size:13.5px;
     background:var(--code-bg); padding:1.5px 5px; border-radius:4px; color:#b3185d;}
   pre{background:var(--code-bg); border:1px solid var(--line); border-radius:10px; padding:16px 18px;
@@ -165,6 +167,7 @@
     </li>
     <li><a href="#s8">한계 개선 제안 — nginx access log 추가 항목</a></li>
     <li><a href="#appx">별첨 A — 참조 결정(DECISIONS) 요약</a></li>
+    <li><a href="#gloss">별첨 B — 용어 설명</a></li>
   </ol>
 </nav>
 
@@ -227,27 +230,37 @@ flowchart TD
 </table>
 
 <h3 id="s2-1">2.1 현재 스캔 정책 — 무엇이·얼마나 자주 수집되어 판독에 도달하나</h3>
-<p class="src-ref">운영 상세: <code>doc/manual/scan-tick-manual.html</code> · 도메인 상태(enabled vs activity_status): <code>doc/manual/domain-status-ops-manual.html</code> · 근거: DECISIONS D58~D83</p>
-<p>위 파이프라인의 <strong>① 수집</strong> 단계가 어떤 로그를·얼마나·어느 엣지에서 가져오는지는 운영 정책으로 정해진다. 판독 정확도는 결국 <em>"판독기에 도달한 데이터"</em>에 묶이므로 현재 정책을 먼저 이해해야 한다(각 항목이 무엇을 버리는지는 <a href="#s7-7">7.7</a>). 초기의 "전 도메인·전 엣지·전 구간 전수 크롤"은 활성 수요(~2만 조회창/h)가 운영 Loki 예산(6k/h)을 크게 초과해 워터마크가 발산했고(실측), 아래 정책들로 <strong>실시간성과 부하를 맞추는 표본형</strong>으로 전환했다.</p>
+<p class="src-ref">운영 상세: <code>doc/manual/scan-tick-manual.html</code> · 도메인 상태(enabled vs activity_status): <code>doc/manual/domain-status-ops-manual.html</code> · 근거: DECISIONS <a class="dref" href="#d58">D58</a>~<a class="dref" href="#d83">D83</a></p>
+<p>위 파이프라인의 <strong>① 수집</strong> 단계가 어떤 로그를·얼마나·어느 엣지에서 가져오는지는 운영 정책으로 정해진다. 판독 정확도는 결국 <em>"판독기에 도달한 데이터"</em>에 묶이므로 현재 정책을 먼저 이해해야 한다(각 항목이 무엇을 버리는지는 <a href="#s7-7">7.7</a>). 초기의 "전 도메인·전 엣지·전 구간 전수 크롤"은 활성 수요(~2만 조회창/h)가 운영 Loki 예산(6k/h)을 크게 초과해 워터마크(수집 커서)가 실시간을 못 따라가고 밀림이 계속 커졌고(실측), 아래 정책들로 <strong>실시간성과 부하를 맞추는 표본형</strong>으로 전환했다.</p>
 <table>
   <thead><tr><th>정책 (결정)</th><th>현재 값 / 동작</th><th>판독에 미치는 영향</th></tr></thead>
   <tbody>
-    <tr><td>롤링 샘플링 (D66)</td><td>도메인 방문마다 <strong>최신 10분 로그창</strong>만 조회 (<code>sample-window=PT10M</code>)</td><td>전수 크롤이 아닌 표본 — 방문 사이 구간은 그 방문에서 안 읽음</td></tr>
-    <tr><td>스캔 틱 (D67)</td><td>1분 틱 · 틱당 최대 650 도메인(D74) · 티어별 재방문(활성 30분~)</td><td>활성 도메인일수록 자주 재방문 → 표본이 촘촘해짐</td></tr>
-    <tr><td>증분 + delta-skip (D60·D61)</td><td>watermark 이후만 조회 · discovery 가 "신규 트래픽 없음"으로 보면 조회 없이 watermark 를 <code>now−lag</code> 로 점프</td><td>빈 구간 낭비 조회 제거(무트래픽 보장이라 안전)</td></tr>
-    <tr><td>엣지 그룹 Main-only (D65)</td><td>엣지 그룹은 <strong>Master 1곳만</strong> 조회(Master 로그에 그룹 전체 요청이 집계)</td><td>활성 조회 매핑 −47% — 단 "Master 집계" 전제에 의존</td></tr>
-    <tr><td>엣지 배칭 (D63·D67)</td><td>같은 엣지의 대상 도메인 ≤20개를 정규식 OR 1쿼리로 묶음</td><td>수집 효율(쿼리 −)만 개선 — 판독 입력 데이터는 동일</td></tr>
-    <tr><td>대상 제외 (D62·D69)</td><td>AAJ 23개 엣지 + <code>P*</code>(P 로 시작하는 전 엣지) 제외</td><td>해당 엣지 트래픽은 수집·판독 안 함</td></tr>
-    <tr><td>등록 신뢰 필터 (D81-C)</td><td>404(미존재 vhost)·470(WAAP 차단)<strong>만</strong> 관측된 Host 는 discovery 등록·lastSeen 갱신 배제(<code>discovery.probe-statuses</code>)</td><td>봇/스캐너 프로브 Host 가 스캔 대상으로 등록되지 않음(유령 도메인 유입 −97% 실측)</td></tr>
-    <tr><td>도메인·경로 제외 (D82·후속)</td><td><code>*.cbricdns.com</code> 접미·IPv4 리터럴 Host 는 discovery 제외 + <code>/.cloudbric/pron/</code>·<code>/.cloudbric/afc/</code> 경로는 실요청·스캔 인벤토리에서 제외(<code>discovery.excluded-paths</code>)</td><td>비대상 도메인·WAAP 내부 경로가 수집·판독에 들어가지 않음</td></tr>
-    <tr><td>무접속 비활성 (D59→D82)</td><td>7일(<code>inactive-after=P7D</code>) 무요청 도메인은 discovery sweep 이 <code>activity_status=INACTIVE</code> 로 강등 → 자동 스캔 제외</td><td>죽은 도메인 미스캔 — 요청 재개(upsert)·수동 스캔 시 ACTIVE 복귀(self-healing)</td></tr>
-    <tr><td>유령 억제 (D83)</td><td>등록 7일+(<code>scan.ghost-after=P7D</code>) 스캔 이력이 있는데 self-endpoint 0 이고 운영자 설정도 없는 도메인은 <code>ghost_suppressed</code> 로 주기 스캔 제외</td><td>봇/스푸핑 Host 유령(ACTIVE 유지형) 미스캔 — 수동 스캔이 억제를 해제(가역)</td></tr>
+    <tr><td>롤링 샘플링 (<a class="dref" href="#d66">D66</a>)</td><td>도메인 방문마다 <strong>최신 10분 로그창</strong>만 조회 (<a href="#g-sample-window"><code>sample-window=PT10M</code></a>)</td><td>전수 크롤이 아닌 표본 — 방문 사이 구간은 그 방문에서 안 읽음</td></tr>
+    <tr><td>스캔 틱 (<a class="dref" href="#d67">D67</a>)</td><td>1분 <a href="#g-tick">틱(tick)</a> · 틱당 최대 650 도메인(<a class="dref" href="#d74">D74</a>) · 티어별 재방문(활성 30분~)</td><td>활성 도메인일수록 자주 재방문 → 표본이 촘촘해짐</td></tr>
+    <tr><td>증분 + delta-skip (<a class="dref" href="#d60">D60</a>·<a class="dref" href="#d61">D61</a>)</td><td><a href="#g-watermark">watermark(워터마크)</a> 이후만 조회 · discovery 가 "신규 트래픽 없음"으로 보면 조회 없이 watermark 를 <code>now−lag</code> 로 점프</td><td>빈 구간 낭비 조회 제거(무트래픽 보장이라 안전)</td></tr>
+    <tr><td>엣지 그룹 Main-only (<a class="dref" href="#d65">D65</a>)</td><td>엣지 그룹은 <strong>Master 1곳만</strong> 조회(Master 로그에 그룹 전체 요청이 집계)</td><td>활성 조회 매핑 −47% — 단 "Master 집계" 전제에 의존</td></tr>
+    <tr><td>엣지 배칭 (<a class="dref" href="#d63">D63</a>·<a class="dref" href="#d67">D67</a>)</td><td>같은 엣지의 대상 도메인 ≤20개를 정규식 OR 1쿼리로 묶음</td><td>수집 효율(쿼리 −)만 개선 — 판독 입력 데이터는 동일</td></tr>
+    <tr><td>대상 제외 (<a class="dref" href="#d62">D62</a>·<a class="dref" href="#d69">D69</a>)</td><td>AAJ 23개 엣지 + <code>P*</code>(P 로 시작하는 전 엣지) 제외</td><td>해당 엣지 트래픽은 수집·판독 안 함</td></tr>
+    <tr><td>등록 신뢰 필터 (<a class="dref" href="#d81">D81</a>-C)</td><td>404(미존재 vhost)·470(WAAP 차단)<strong>만</strong> 관측된 Host 는 discovery 등록·lastSeen 갱신 배제(<code>discovery.probe-statuses</code>)</td><td>봇/스캐너 프로브 Host 가 스캔 대상으로 등록되지 않음(유령 도메인 유입 −97% 실측)</td></tr>
+    <tr><td>도메인·경로 제외 (<a class="dref" href="#d82">D82</a>·후속)</td><td><code>*.cbricdns.com</code> 접미·IPv4 리터럴 Host 는 discovery 제외 + <code>/.cloudbric/pron/</code>·<code>/.cloudbric/afc/</code> 경로는 실요청·스캔 인벤토리에서 제외(<code>discovery.excluded-paths</code>)</td><td>비대상 도메인·WAAP 내부 경로가 수집·판독에 들어가지 않음</td></tr>
+    <tr><td>무접속 비활성 (<a class="dref" href="#d59">D59</a>→<a class="dref" href="#d82">D82</a>)</td><td>7일(<code>inactive-after=P7D</code>) 무요청 도메인은 discovery sweep 이 <code>activity_status=INACTIVE</code> 로 강등 → 자동 스캔 제외</td><td>죽은 도메인 미스캔 — 요청 재개(upsert)·수동 스캔 시 ACTIVE 복귀(self-healing)</td></tr>
+    <tr><td>유령 억제 (<a class="dref" href="#d83">D83</a>)</td><td>등록 7일+(<code>scan.ghost-after=P7D</code>) 스캔 이력이 있는데 <a href="#g-self-endpoint">self-endpoint</a> 0 이고 운영자 설정도 없는 도메인은 <code>ghost_suppressed</code> 로 주기 스캔 제외</td><td>봇/스푸핑 Host 유령(ACTIVE 유지형) 미스캔 — 수동 스캔이 억제를 해제(가역)</td></tr>
     <tr><td>수집 지연 버퍼</td><td>조회 종료점 = <code>now − ingest-lag(10분)</code></td><td>실시간 대비 항상 ~10분 지연(미수집 최신분 제외)</td></tr>
   </tbody>
 </table>
 <div class="callout note">
   <span class="ct">핵심</span>
-  지금 판독기에 들어오는 것은 "전체 로그"가 아니라 <strong>활성 도메인의 · 활성 엣지(Master)에서 · 최신 10분 표본</strong>이다. 여기서 "활성 도메인(주기 스캔 대상)"은 3축으로 정의된다 — <code>enabled</code>(사용자 수동) <strong>AND</strong> <code>activity_status=ACTIVE</code>(7일 무요청 자동강등, D82) <strong>AND</strong> <code>NOT ghost_suppressed</code>(지속 0-endpoint 유령 억제, D83). 이 표본형 정책이 정확히 무엇을 버리고 그 대가가 무엇인지는 <a href="#s7-7">7.7 스캔 정책이 버리는 데이터</a>에서 정직하게 다룬다.
+  지금 판독기에 들어오는 것은 "전체 로그"가 아니라 <strong>활성 도메인의 · 활성 엣지(Master)에서 · 최신 10분 표본</strong>이다. 여기서 "활성 도메인(주기 스캔 대상)"은 3축으로 정의된다 — <code>enabled</code>(사용자 수동) <strong>AND</strong> <code>activity_status=ACTIVE</code>(7일 무요청 자동강등, <a class="dref" href="#d82">D82</a>) <strong>AND</strong> <code>NOT ghost_suppressed</code>(지속 0-endpoint 유령 억제, <a class="dref" href="#d83">D83</a>). 이 표본형 정책이 정확히 무엇을 버리고 그 대가가 무엇인지는 <a href="#s7-7">7.7 스캔 정책이 버리는 데이터</a>에서 정직하게 다룬다.
+</div>
+
+<div class="callout ok">
+  <span class="ct">최근 Active·Enabled 정리 작업 (2026-07)</span>
+  스캔 대상(Active·Enabled) 집합을 <strong>실서비스로 수렴</strong>시키기 위해 아래 정리를 진행했다. 앞의 정책 표(등록 신뢰 필터·경로/도메인 제외·유령 억제)와 함께 작동한다.
+  <ul style="margin:6px 0 0; padding-left:18px;">
+    <li><strong>endpoint 0(<a href="#g-self-endpoint">self-endpoint</a> 0) 유령 도메인 정리</strong> — 봇·스캐너·스푸핑 Host 로 무검증 자동등록돼 스캔해도 자기 엔드포인트가 하나도 없는 유령 도메인을 (a) 1회 하드 삭제(31,985건, <a class="dref" href="#d81">D81</a>)하고, (b) 이후 지속 유령은 위 표의 <code>ghost_suppressed</code> 게이트(<a class="dref" href="#d83">D83</a>)로 자동 억제한다. <em>"endpoint 0" 단독으로 지우지 않고</em> 스캔이력·7일 지속·운영자 설정 없음까지 함께 만족할 때만 대상이다(오탐 방지).</li>
+    <li><strong><code>.cloudbric</code> 전용 도메인 정리</strong> — WAAP 내부 검증 경로(<code>/.cloudbric/pron/</code>·<code>/.cloudbric/afc/</code>)만 받던 도메인의 기존 <code>discovered_endpoint</code> 5,430행을 삭제하고, 경로 제외(<a class="dref" href="#d82">D82</a>)로 재수집을 막았다. 이 경로만 오는 도메인은 실요청이 없어 7일 뒤 INACTIVE 로 내려간다.</li>
+    <li><strong>www·bare 서비스 단위 관리</strong> — <code>www.example.com</code> 과 <code>example.com</code>(bare, www 없는 원본)을 <strong>한 서비스로 보는 관점</strong>이다. 현재는 <em>분석 단계</em>다 — 활성 FQDN(Fully Qualified Domain Name, 정규화된 전체 도메인 이름) 10,760개를 www 기준으로 묶으면 약 8,959개, 서비스 단위(eTLD+1 근사)로는 약 3,714개로, "활성 10.7k vs 실서비스 6k" 차이가 도메인 이름 단위 집계의 착시였음을 규명했다. 시스템이 자동으로 병합하지는 <strong>아직 않는다</strong>(집계·관리 관점의 분석만).</li>
+  </ul>
 </div>
 
 <!-- ============================================================= -->
@@ -264,16 +277,16 @@ return "{job=\"" + props.loki().jobLabel() + "\", hostname=\"" + hostnameLabel +
 
 <div class="callout warn">
   <span class="ct">대상 Loki 는 운영 서버 — 부하 보호가 필수</span>
-  샘플 스크립트의 <code>limit=1e8</code>·무(無) 페이지네이션·전 hostname 동시 발사는 금지. <code>LokiClient</code> 가 아래 4중 보호를 내장한다.
+  샘플 스크립트의 <a href="#g-limit1e8"><code>limit=1e8</code></a>·무(無) 페이지네이션·전 hostname 을 한꺼번에 동시 조회하는 것은 금지. <code>LokiClient</code> 가 아래 4중 보호를 내장한다.
 </div>
 
 <table>
   <thead><tr><th>보호 장치</th><th>동작</th><th>구현</th></tr></thead>
   <tbody>
-    <tr><td>윈도우 분할</td><td>전체 윈도우를 <code>chunk-window</code>(현 30분, D60) 단위로 쪼개 순차 조회</td><td><code>queryRange()</code> while 루프</td></tr>
-    <tr><td>페이지네이션</td><td>유한 <code>page-limit</code>(현 5000, D74)으로 끊고, 마지막 ts+1ns 부터 forward 재조회</td><td><code>fetchChunk()</code></td></tr>
+    <tr><td>윈도우 분할</td><td>전체 윈도우를 <code>chunk-window</code>(현 30분, <a class="dref" href="#d60">D60</a>) 단위로 쪼개 순차 조회</td><td><code>queryRange()</code> while 루프</td></tr>
+    <tr><td>페이지네이션</td><td>유한 <code>page-limit</code>(현 5000, <a class="dref" href="#d74">D74</a>)으로 끊고, 마지막 <a href="#g-ts1ns">ts+1ns</a> 부터 forward 재조회</td><td><code>fetchChunk()</code></td></tr>
     <tr><td>동시성 제한</td><td><code>maxConcurrentQueries</code> 만큼만 동시 요청 (세마포어)</td><td><code>Semaphore concurrencyGate</code></td></tr>
-    <tr><td>스로틀 + 백오프</td><td>쿼리 간 최소 간격 + 429/5xx 에 지수 백오프(최대 4회)</td><td><code>throttle()</code> / <code>backoff()</code></td></tr>
+    <tr><td>스로틀 + 백오프</td><td>쿼리 간 최소 간격 + 429/5xx 에 지수 <a href="#g-backoff">백오프(back-off)</a>(최대 4회)</td><td><code>throttle()</code> / <code>backoff()</code></td></tr>
   </tbody>
 </table>
 
@@ -293,7 +306,7 @@ for (int attempt = 0; attempt &lt; MAX_ATTEMPTS; attempt++) {   // MAX_ATTEMPTS 
 <h3 id="s3-2">3.2 ② 로그 파싱 — 24필드를 ParsedRequest 로</h3>
 <p class="src-ref">소스: <code>parse/LogLineParser.java</code>, <code>model/ParsedRequest.java</code></p>
 
-<p>실로그는 <code>^|^</code> 구분자로 최대 24개 필드를 갖는다. 파서는 고정 인덱스에서 핵심 필드를 읽고, HTTP 메서드가 아니거나 숫자/시간 파싱이 실패하는 손상 라인은 폐기한다.</p>
+<p>실로그는 <code>^|^</code> 구분자로 최대 24개 필드를 갖는다. 파서는 고정 인덱스에서 핵심 필드를 읽고, HTTP 메서드가 아니거나 숫자/시간 파싱이 실패하는 손상 라인은 폐기한다. 아래 표는 <strong>판정에 쓰는 핵심 필드</strong>이고, <strong>전체 24필드(인덱스 0~23)</strong>는 그 아래 '전체 필드 정의'를 펼쳐 확인한다(근거 <code>doc/41-nginx-log-format-spec.md</code> §2).</p>
 
 <table>
   <thead><tr><th>필드</th><th>인덱스</th><th>용도</th></tr></thead>
@@ -305,9 +318,44 @@ for (int attempt = 0; attempt &lt; MAX_ATTEMPTS; attempt++) {   // MAX_ATTEMPTS 
     <tr><td>user_agent</td><td>[14]</td><td>SDK/CLI 판정 (non_browser_ua)</td></tr>
     <tr><td>host</td><td>[15] / [16]</td><td>대상 도메인</td></tr>
     <tr><td><strong>$type</strong></td><td>[19]</td><td><strong>endpoint_kind 핵심 신호</strong> — document/library 등 (nullable)</td></tr>
-    <tr><td><strong>request_id</strong></td><td>[23]</td><td><strong>dedup 1순위 키</strong> — 32 hex (nullable)</td></tr>
+    <tr><td><strong>request_id</strong></td><td>[23]</td><td><strong>dedup(중복 제거) 1순위 키</strong> — 32 hex (nullable)</td></tr>
   </tbody>
 </table>
+
+<details>
+  <summary>참고 — 전체 필드 정의 (코어 24필드, 인덱스 0~23) 펼치기</summary>
+  <p class="legend">✅ 소비 = 파서가 실제로 읽는 위치(정확한 위치 필수) · ⬚ 자리 = 안 읽지만 뒤 필드 인덱스를 맞추려 자리를 차지. 8.3 확장 필드(24~30)는 <a href="#s8-4">§8.4</a> 참조.</p>
+  <table>
+    <thead><tr><th>idx</th><th>nginx 변수</th><th>파서</th><th>APIDiscover 용도</th></tr></thead>
+    <tbody>
+      <tr><td>0</td><td><code>$http_client_real_ip</code></td><td>✅</td><td>client_ip(우선)</td></tr>
+      <tr><td>1</td><td><code>$remote_addr</code></td><td>✅</td><td>client_ip(fallback)</td></tr>
+      <tr><td>2</td><td><code>$remote_port</code></td><td>⬚</td><td>(미소비·자리)</td></tr>
+      <tr><td>3</td><td><code>$time_iso8601</code></td><td>✅</td><td>타임스탬프</td></tr>
+      <tr><td>4</td><td><code>$upstream_cache_status</code></td><td>⬚</td><td>(미소비)</td></tr>
+      <tr><td>5</td><td><code>$request</code></td><td>✅</td><td>method 추출(첫 토큰)</td></tr>
+      <tr><td>6</td><td><code>$request_completion</code></td><td>⬚</td><td>(미소비)</td></tr>
+      <tr><td>7</td><td><code>$response_time</code></td><td>✅</td><td>응답시간</td></tr>
+      <tr><td>8</td><td><code>$request_uri</code></td><td>✅</td><td>경로 + 쿼리키</td></tr>
+      <tr><td>9</td><td><code>$status</code></td><td>✅</td><td>HTTP 상태</td></tr>
+      <tr><td>10</td><td><code>$body_bytes_sent</code></td><td>✅</td><td>응답 바이트</td></tr>
+      <tr><td>11</td><td><code>$connection</code></td><td>⬚</td><td>(미소비)</td></tr>
+      <tr><td>12</td><td><code>$https</code></td><td>✅</td><td>on/off</td></tr>
+      <tr><td>13</td><td><code>$http_referer</code></td><td>✅</td><td>referer(kind 보조)</td></tr>
+      <tr><td>14</td><td><code>$http_user_agent</code></td><td>✅</td><td>UA(user-agent, 봇 식별)</td></tr>
+      <tr><td>15</td><td><code>$host</code></td><td>✅</td><td>host(우선)</td></tr>
+      <tr><td>16</td><td><code>$real_host</code></td><td>✅</td><td>host(fallback)</td></tr>
+      <tr><td>17</td><td><code>$server_addr</code></td><td>⬚</td><td>(미소비)</td></tr>
+      <tr><td>18</td><td><code>$server_port</code></td><td>⬚</td><td>(미소비)</td></tr>
+      <tr><td>19</td><td><code>$type</code></td><td>✅</td><td><strong>endpoint_kind($type)</strong></td></tr>
+      <tr><td>20</td><td>(geo country, 예: <code>$geoip_country_code</code>)</td><td>⬚</td><td>(미소비·자리)</td></tr>
+      <tr><td>21</td><td>(예약, 관측='0')</td><td>⬚</td><td>(미소비·자리)</td></tr>
+      <tr><td>22</td><td>(예약, 관측='0')</td><td>⬚</td><td>(미소비·자리)</td></tr>
+      <tr><td>23</td><td><code>$request_id</code></td><td>✅</td><td><strong>dedup(중복 제거) 키(32 hex)</strong></td></tr>
+    </tbody>
+  </table>
+  <p class="legend"><code>$http_client_real_ip</code>·<code>$real_host</code>·<code>$type</code> 은 리치 엣지가 내보내는 커스텀 변수다. idx 20~22 는 파서가 안 읽으므로 값은 자유지만 정확히 3개여야 <code>$request_id</code> 가 idx 23 에 온다.</p>
+</details>
 
 <pre><code>// LogLineParser.parse() — 핵심
 String[] f = DELIM_PATTERN.split(line, -1);              // "^|^" 분리
@@ -323,14 +371,14 @@ String requestId = (f.length &gt; F_REQUEST_ID)  ? nullIfDash(f[F_REQUEST_ID])  
 return Optional.of(new ParsedRequest(method, rawPath, queryParams, status, host, ...));</code></pre>
 
 <div class="callout note">
-  <span class="ct">개인정보·고카디널리티 방지</span>
-  쿼리 파라미터는 <strong>이름 + 값 길이 버킷</strong>만 남기고 값 자체는 버린다. 본문이 없는 로그 특성과 결합해, 스키마/PII 는 애초에 수집 대상이 아니다.
+  <span class="ct">개인정보(<a href="#g-pii">PII</a>)·<a href="#g-cardinality">고카디널리티(high cardinality)</a> 방지</span>
+  쿼리 파라미터는 <strong>이름 + 값 길이 버킷</strong>만 남기고 값 자체는 버린다. 본문이 없는 로그 특성과 결합해, 스키마·<a href="#g-pii">PII(Personally Identifiable Information, 개인식별정보)</a>는 애초에 수집 대상이 아니다.
 </div>
 
-<h3 id="s3-3">3.3 ③ 중복 제거(dedup) · 증분 수집(watermark)</h3>
+<h3 id="s3-3">3.3 ③ 중복 제거(<a href="#g-dedup">dedup = deduplication</a>) · 증분 수집(<a href="#g-watermark">watermark, 워터마크</a>)</h3>
 <p class="src-ref">소스: <code>batch/DiscoveryJobService.java</code> (dedupByRequestId, windowFor), <code>domain/Watermark.java</code></p>
 
-<p><strong>dedup</strong>: 윈도우 겹침·재시도로 같은 요청이 중복 수집될 수 있어, <code>request_id</code> 가 있으면 처음 본 것만 통과시킨다. <code>request_id</code> 가 없는 로그(20필드)는 그대로 보존한다.</p>
+<p><strong><a href="#g-dedup">dedup(deduplication, 중복 제거)</a></strong> — 윈도우 겹침·재시도로 같은 요청이 중복 수집될 수 있어, <code>request_id</code> 가 있으면 처음 본 것만 통과시킨다. <code>request_id</code> 가 없는 로그(20필드)는 그대로 보존한다.</p>
 
 <pre><code>static List&lt;ParsedRequest&gt; dedupByRequestId(List&lt;ParsedRequest&gt; requests) {
     Set&lt;String&gt; seen = new HashSet&lt;&gt;();
@@ -342,7 +390,7 @@ return Optional.of(new ParsedRequest(method, rawPath, queryParams, status, host,
     return out;
 }</code></pre>
 
-<p class="legend">dedup 직후 두 가지를 추가로 걸러낸 뒤 인벤토리로 넘긴다 — ① <strong>foreign-host 제외</strong>: LogQL 의 <code>|=</code> 도메인 필터는 substring 전치필터라 referer/URL 에 도메인이 든 다른 Host 라인도 섞이므로, 파싱 후 스캔 도메인(정규화 동치)만 남긴다. ② <strong><code>/.cloudbric/pron/</code>·<code>/.cloudbric/afc/</code> 경로 제외</strong>(D82 정합): discovery 가 실요청에서 제외하는 WAAP 내부 경로는 스캔 인벤토리(discovered_endpoint)에도 넣지 않는다(<code>discovery.excluded-paths</code> 재사용, 단일 진실원).</p>
+<p class="legend">dedup 직후 두 가지를 추가로 걸러낸 뒤 인벤토리로 넘긴다 — ① <strong>foreign-host 제외</strong>: LogQL 의 <code>|=</code> 도메인 필터는 substring 전치필터라 referer/URL 에 도메인이 든 다른 Host 라인도 섞이므로, 파싱 후 스캔 도메인(정규화 동치)만 남긴다. ② <strong><code>/.cloudbric/pron/</code>·<code>/.cloudbric/afc/</code> 경로 제외</strong>(<a class="dref" href="#d82">D82</a> 정합): discovery 가 실요청에서 제외하는 WAAP 내부 경로는 스캔 인벤토리(discovered_endpoint)에도 넣지 않는다(<code>discovery.excluded-paths</code> 재사용, 단일 진실원).</p>
 
 <p><strong>watermark 증분</strong>: 도메인별로 "마지막으로 성공 분석한 윈도우 끝(lastEnd)"을 저장하고, 다음 스캔은 그 지점부터 신규 구간만 조회한다. 첫 스캔이면 <code>initial-backfill</code> 만큼 거슬러 올라간다.</p>
 
@@ -387,7 +435,7 @@ flowchart LR
 }
 // 예: /users/12345/posts/550e8400-...-446655440000  →  /users/{id}/posts/{uuid}</code></pre>
 
-<p class="legend">휴리스틱으로도 안 잡히는 고카디널리티(예: slug)는 ⑤단계의 통계 승격(<code>{var}</code>)이 추가로 처리한다.</p>
+<p class="legend">휴리스틱으로도 안 잡히는 <a href="#g-cardinality">고카디널리티(high cardinality)</a>(예: slug)는 ⑤단계의 통계 승격(<code>{var}</code>)이 추가로 처리한다.</p>
 
 <h3 id="s3-5">3.5 ⑤ 인벤토리 빌드 — 집계 · 상한 · 실재성 필터</h3>
 <p class="src-ref">소스: <code>normalize/InventoryBuilder.java</code>, <code>normalize/Acc.java</code>, <code>normalize/CardinalityNormalizer.java</code></p>
@@ -441,7 +489,7 @@ for (Acc acc : bySignature.values()) {
 <p>API 판단 전에, 각 경로가 <strong>웹페이지/정적자원/API 후보</strong> 중 무엇인지 먼저 가른다. 신호는 <code>$type</code>(필드19) 와 확장자다. 핵심은 <strong>정적 확장자 판정을 <code>$type</code> 보다 우선</strong>한다는 점 — 실데이터에서 <code>.js/.css</code> 가 <code>$type=document</code> 로 잘못 찍히는 경우가 있기 때문이다.</p>
 
 <div class="callout note">
-  <span class="ct">정적 판정 규칙은 DB 외부화 (D56)</span>
+  <span class="ct">정적 판정 규칙은 DB 외부화 (<a class="dref" href="#d56">D56</a>)</span>
   정적 확장자 목록(<code>.js/.css/.png…/.map</code>)과 정적 리소스 <strong>파일명 토큰</strong>(<code>img/thumb/resize/icon/logo…</code>)은 소스 하드코드가 아니라 <strong>DB(<code>static_classify_rule</code> 테이블)에서 관리</strong>된다(<code>StaticClassifyRules</code>). 기본값(<code>DEFAULT_STATIC_EXT</code>·<code>DEFAULT_NAME_TOKENS</code>)은 미시드 시 부팅 초기값일 뿐이고, 운영자는 REST <code>/api/v1/config/static-classify</code>(목록/추가/삭제/reload)로 런타임 교체할 수 있다(<code>applyRules</code> 가 즉시 재적용). 파일명 토큰은 <code>.php</code> 등 동적 확장자로 이미지/CSS 를 서빙하는 경로(예 <code>img.php</code>)를 잡아 API 점수에서 <strong>감점</strong>하는 데 쓰인다(veto 아님 — §4.2 <code>staticAssetPenalty</code>).
 </div>
 
@@ -578,7 +626,7 @@ api_confidence <span class="op">=</span> clamp<sub>[0,1]</sub> ( <span class="hl
 
 <h4>실제 점수 내역 읽는 법 — <code>GET /api/v1/domains/{host}/discovery</code></h4>
 <p>위 preset 표는 <strong>기준값</strong>이다. 특정 도메인에 <em>실제로</em> 어떤 설정이 적용됐고, 각 엔드포인트가 <strong>어떤 신호에 몇 점</strong>을 받아 어떻게 판정됐는지는 도메인 Discovery 조회 응답에서 직접 확인한다. 응답에 <code>effectiveClassification</code>(도메인 현재 설정)과 <code>rationale[]</code>(엔드포인트별 판단 근거)가 함께 내려온다.</p>
-<p class="legend">이 두 필드는 <code>/discovery</code> <strong>전용</strong>이며 <strong>조회 시점의 effective 설정으로 재계산</strong>된다(operator 가 preset 을 바꾸면 근거도 즉시 갱신). 스캔 결과 <code>/result</code>(<code>report_json</code>·ETag)는 불변이라 영향이 없다(근거 설계 doc/34, D49).</p>
+<p class="legend">이 두 필드는 <code>/discovery</code> <strong>전용</strong>이며 <strong>조회 시점의 effective 설정으로 재계산</strong>된다(operator 가 preset 을 바꾸면 근거도 즉시 갱신). 스캔 결과 <code>/result</code>(<code>report_json</code>·ETag)는 불변이라 영향이 없다(근거 설계 doc/34, <a class="dref" href="#d49">D49</a>).</p>
 
 <h4>① 도메인 effective 설정 확인 — <code>effectiveClassification</code></h4>
 <p>그 도메인에 <strong>현재 실제로 적용된</strong> preset·임계·가중치다. 어떻게 합쳐지는지(도메인 → 전역 → MIDDLE)는 <a href="#s4-4">§4.4</a> 를 본다.</p>
@@ -699,7 +747,7 @@ profile   <span class="op">=</span> <span class="hl">도메인</span> ?? <span c
   <span class="ct">무회귀 — 미설정 = 현행</span>
   도메인·전역 설정이 모두 없으면 effective = MIDDLE preset + 무억제(<code>ApiHintMatcher.NONE</code>)로, 설정 기능 도입 이전 동작과 <strong>100% 동치</strong>다. 저장된 설정이 손상된 경우(out-of-band DB 쓰기 등)는 조용히 기본값으로 떨어지지 않고 fail-fast(예외)한다.
 </div>
-<p class="legend">근거 설계: doc/10(분류설정 DB 저장, D17) · doc/11(중앙 REST + effective 캐시, D18). 엔티티 <code>DomainClassificationConfig</code>(host PK, <code>profile</code>/<code>thresholdOverride</code>/<code>customWeightsJson</code>/<code>matcherJson</code> 전부 nullable = 상속).</p>
+<p class="legend">근거 설계: doc/10(분류설정 DB 저장, <a class="dref" href="#d17">D17</a>) · doc/11(중앙 REST + effective 캐시, <a class="dref" href="#d18">D18</a>). 엔티티 <code>DomainClassificationConfig</code>(host PK, <code>profile</code>/<code>thresholdOverride</code>/<code>customWeightsJson</code>/<code>matcherJson</code> 전부 nullable = 상속).</p>
 
 <h3 id="s4-5">4.5 핵심 코드 — score()</h3>
 <p>발화한 신호의 가중치를 더하는 단순·투명한 구조다. explicit-hint 모드 분기를 제외하면 모든 신호가 한 메서드에서 가산된다.</p>
@@ -905,7 +953,7 @@ base <span class="op">=</span> 0.5 · <span class="hl">log₁₀(hits+1)/3</span
   <li><strong>HA 다중 실행 미보장</strong> — 현재 단일 <code>@Scheduled</code> 만 사용. 다중 인스턴스 배포 시 같은 도메인을 중복 스캔할 수 있다(ShedLock/Quartz 클러스터 도입은 후속).</li>
   <li>Spring Batch JobRepository 실연결 미완(<code>batch.job.enabled=false</code>, 스케줄러만 트리거).</li>
   <li>중앙 서버 연동의 <strong>서비스 간 인증 미구현</strong>(<code>SecurityConfig</code> permitAll) — 외부 연동은 자체 기능 안정화 후 진행 예정.</li>
-  <li>재방문 주기는 <strong>티어(활성/기본/비활성/dormant)</strong> 로 자동 결정된다(D48, <code>nextScanDueAt</code> collapse). 도메인별 <code>intervalOverride</code> 도 이 커서에 반영된다. <span class="pill">갱신됨</span> (구 매뉴얼의 "전역 간격만 적용" 기술은 폐기).</li>
+  <li>재방문 주기는 <strong>티어(활성/기본/비활성/dormant)</strong> 로 자동 결정된다(<a class="dref" href="#d48">D48</a>, <code>nextScanDueAt</code> collapse). 도메인별 <code>intervalOverride</code> 도 이 커서에 반영된다. <span class="pill">갱신됨</span> (구 매뉴얼의 "전역 간격만 적용" 기술은 폐기).</li>
 </ul>
 
 <h3 id="s7-7">7.7 스캔 정책이 버리는 데이터 (수집 단계 — 판독기에 아예 들어오지 않음)</h3>
@@ -914,43 +962,43 @@ base <span class="op">=</span> 0.5 · <span class="hl">log₁₀(hits+1)/3</span
   <thead><tr><th>버리는 데이터</th><th>왜 (정책·근거)</th><th>탐지 리스크</th><th>완화 / 자가치유</th></tr></thead>
   <tbody>
     <tr>
-      <td><strong>방문 사이 구간의 로그</strong><br/>롤링 샘플링(D66) — 방문당 최신 10분만 조회</td>
-      <td>전수 크롤은 활성 수요(~2만 창/h)가 예산(6k/h)을 초과해 워터마크 발산(실측). 표본으로 실시간성 확보(커버리지 약 1/3)</td>
+      <td><strong>방문 사이 구간의 로그</strong><br/>롤링 샘플링(<a class="dref" href="#d66">D66</a>) — 방문당 최신 10분만 조회</td>
+      <td>전수 크롤은 활성 수요(~2만 창/h)가 예산(6k/h)을 초과해 워터마크 밀림이 계속 커짐(실측). 표본으로 실시간성 확보(커버리지 약 1/3)</td>
       <td>재방문 주기(활성 30분~) 사이에 <strong>짧게 반짝인 엔드포인트</strong>는 그 방문에서 누락 가능. 특히 희귀·1회성 호출</td>
       <td>롤링이라 <strong>고정 사각지대 없음</strong> — 반복 호출되는 엔드포인트는 다음 방문에서 결국 포착. 신선도가 곧 재방문 주기</td>
     </tr>
     <tr>
-      <td><strong>제외 엣지의 전 트래픽</strong><br/>AAJ 23개(D62) · <code>P*</code>(D69)</td>
+      <td><strong>제외 엣지의 전 트래픽</strong><br/>AAJ 23개(<a class="dref" href="#d62">D62</a>) · <code>P*</code>(<a class="dref" href="#d69">D69</a>)</td>
       <td>운영자 판단상 API 탐지 대상이 아닌 엣지(전용·비대상)</td>
       <td>그 엣지로만 유입되는 도메인·API 는 인벤토리에 안 잡힘</td>
       <td>혼합 엣지 도메인은 비제외 엣지 관측분으로 여전히 포착. 제외 목록은 설정으로 즉시 조정 가능</td>
     </tr>
     <tr>
-      <td><strong>replica 엣지 고유 트래픽</strong><br/>Main-only(D65) — Master 만 조회</td>
+      <td><strong>replica 엣지 고유 트래픽</strong><br/>Main-only(<a class="dref" href="#d65">D65</a>) — Master 만 조회</td>
       <td>Master 로그에 그룹 전체 요청이 집계된다는 전제(운영 확인)</td>
       <td>전제가 깨져 <strong>replica 에만</strong> 오는 요청이 있으면 누락</td>
       <td>전제는 실측 확인됨. 어긋나면 <code>edge-group-main-only=false</code> 로 전 엣지 조회 복귀</td>
     </tr>
     <tr>
-      <td><strong>무접속 도메인의 로그</strong><br/>7일(P7D) 무요청 시 <code>activity_status=INACTIVE</code> 강등(D59→D82)</td>
-      <td>죽은 도메인 스캔은 예산 낭비. 워터마크 롱테일 "발산"의 실체가 이 무접속분이었음(D82 원인 규명)</td>
+      <td><strong>무접속 도메인의 로그</strong><br/>7일(P7D) 무요청 시 <code>activity_status=INACTIVE</code> 강등(<a class="dref" href="#d59">D59</a>→<a class="dref" href="#d82">D82</a>)</td>
+      <td>죽은 도메인 스캔은 예산 낭비. 워터마크 롱테일이 계속 뒤처지던 현상의 실체가 이 무접속분이었음(<a class="dref" href="#d82">D82</a> 원인 규명)</td>
       <td>7일 넘게 조용하던 도메인이 되살아나면 <strong>재관측 시점까지</strong>는 미스캔</td>
       <td>실요청 재관측(upsert) 시 ACTIVE 자동 복귀(self-healing). 명시 <code>scan-now</code>/<code>scan</code> 은 즉시 스캔 + ACTIVE 승격</td>
     </tr>
     <tr>
-      <td><strong>프로브·비대상 Host 의 전 트래픽</strong><br/>404·470-only Host 미등록(D81-C) · <code>*.cbricdns.com</code>·IPv4 리터럴 제외</td>
+      <td><strong>프로브·비대상 Host 의 전 트래픽</strong><br/>404·470-only Host 미등록(<a class="dref" href="#d81">D81</a>-C) · <code>*.cbricdns.com</code>·IPv4 리터럴 제외</td>
       <td>봇/스캐너가 스푸핑한 Host 가 캐치올 엣지로 무검증 자동등록돼 유령 도메인 ~39.5k 가 due 큐 66% 를 잠식했던 실측 사고의 재발 방지</td>
       <td>404/470 만 반환하던 vhost 가 실서비스로 열려도 <strong>2xx 등 실응답이 관측되기 전까지</strong>는 미등록</td>
       <td>실 트래픽(비프로브 status) 발생 즉시 자동 등록(자기치유). 제외 접미·status 목록은 설정으로 조정 가능</td>
     </tr>
     <tr>
-      <td><strong><code>/.cloudbric/pron/</code>·<code>/.cloudbric/afc/</code> 경로 요청</strong><br/>discovery 실요청·스캔 인벤토리 공통 제외(D82)</td>
+      <td><strong><code>/.cloudbric/pron/</code>·<code>/.cloudbric/afc/</code> 경로 요청</strong><br/>discovery 실요청·스캔 인벤토리 공통 제외(<a class="dref" href="#d82">D82</a>)</td>
       <td>WAAP 내부 검증 경로 — 서비스의 실사용이 아님</td>
       <td>이 경로만 받는 도메인은 관측 0 → lastSeenAt 정체 → INACTIVE 수렴(의도된 동작)</td>
       <td><code>discovery.excluded-paths</code> 설정으로 조정 가능. 실경로 트래픽이 생기면 정상 관측·재활성</td>
     </tr>
     <tr>
-      <td><strong>지속 0-endpoint 유령 도메인의 로그</strong><br/>7일+ 스캔에도 self-endpoint 0 → <code>ghost_suppressed</code>(D83)</td>
+      <td><strong>지속 0-endpoint 유령 도메인의 로그</strong><br/>7일+ 스캔에도 self-endpoint 0 → <code>ghost_suppressed</code>(<a class="dref" href="#d83">D83</a>)</td>
       <td>봇 트래픽으로 ACTIVE 가 유지되는 유령(~1.8k 실측)은 스캔해도 산출물이 없음. 유입 엣지가 실서비스 혼합 catch-all 이라 엣지 제외로는 못 걷어냄</td>
       <td>억제된 도메인이 실서비스로 바뀌어도 <strong>자동 복구가 없다</strong> — 봇 재관측(upsert)은 억제를 유지</td>
       <td>수동 스캔(<code>scan-now</code>/<code>scan</code>)이 억제를 해제(가역). 운영자 설정 흔적이 있는 도메인은 애초에 억제 대상 제외</td>
@@ -965,7 +1013,7 @@ base <span class="op">=</span> 0.5 · <span class="hl">log₁₀(hits+1)/3</span
 </table>
 <div class="callout danger">
   <span class="ct">요지 — 의도적 트레이드오프</span>
-  이 버림들은 "탐지 완전성 ↔ 운영 Loki 부하·실시간성" 사이의 <strong>의도된 절충</strong>이다. 전 도메인·전 엣지·무지연 전수 크롤은 운영 Loki 를 과부하시키고 워터마크가 매일 발산했다(실측 근거). 현재 정책은 <strong>활성 트래픽을 실시간(≤10분 프론티어, 재방문 30분~)에 가깝게</strong> 따라가되, 그 대가로 <em>희귀·과거 구간·비대상 엣지</em>를 포기한다. 스캔이 로그 기준 어디까지 읽었는지는 도메인별 워터마크로 상시 추적된다.
+  이 버림들은 "탐지 완전성 ↔ 운영 Loki 부하·실시간성" 사이의 <strong>의도된 절충</strong>이다. 전 도메인·전 엣지·무지연 전수 크롤은 운영 Loki 를 과부하시키고 워터마크가 매일 더 뒤처졌다(실측 근거). 현재 정책은 <strong>활성 트래픽을 실시간(≤10분 프론티어, 재방문 30분~)에 가깝게</strong> 따라가되, 그 대가로 <em>희귀·과거 구간·비대상 엣지</em>를 포기한다. 스캔이 로그 기준 어디까지 읽었는지는 도메인별 워터마크로 상시 추적된다.
 </div>
 
 <h3 id="s7-8">7.8 검출 파이프라인이 버리는 데이터 (수집됐지만 인벤토리에서 제외)</h3>
@@ -973,11 +1021,11 @@ base <span class="op">=</span> 0.5 · <span class="hl">log₁₀(hits+1)/3</span
 <table>
   <thead><tr><th>버림 지점</th><th>대상</th><th>노출 메트릭</th></tr></thead>
   <tbody>
-    <tr><td>게이트 <code>DROP_STATIC</code> (D55)</td><td>정적 자원(.css/.js/.png/.webp… 또는 <code>$type=library</code>) — 점수·키워드 무관 하드 veto</td><td><code>droppedNonApi.staticFile</code></td></tr>
+    <tr><td>게이트 <code>DROP_STATIC</code> (<a class="dref" href="#d55">D55</a>)</td><td>정적 자원(.css/.js/.png/.webp… 또는 <code>$type=library</code>) — 점수·키워드 무관 하드 veto</td><td><code>droppedNonApi.staticFile</code></td></tr>
     <tr><td>게이트 <code>DROP_WEB_FORM</code></td><td>웹페이지 폼 제출(강 API 신호 없는 <code>WEB_PAGE</code> 쓰기 메서드)</td><td><code>droppedNonApi.webForm</code></td></tr>
     <tr><td>게이트 <code>DROP_LOW_SCORE</code></td><td>API 점수가 임계 미달</td><td><code>droppedNonApi.lowScore</code></td></tr>
     <tr><td>게이트 <code>DROP_EXCLUDED</code></td><td>운영자 명시 제외 경로(<code>ApiHintMatcher</code>)</td><td><code>droppedNonApi.excluded</code></td></tr>
-    <tr><td><strong>게이트 <code>DROP_OVERSIZE</code> (D68)</strong></td><td><strong>초장문 경로(&gt;2,048자)</strong> — 대개 SQLi 등 공격 페이로드. <code>discovered_endpoint</code> unique btree 인덱스 행 한계(압축 후 ~2.7KB) 초과라 저장 자체가 불가한 크기</td><td><code>droppedNonApi.oversizePath</code></td></tr>
+    <tr><td><strong>게이트 <code>DROP_OVERSIZE</code> (<a class="dref" href="#d68">D68</a>)</strong></td><td><strong>초장문 경로(&gt;2,048자)</strong> — 대개 SQLi 등 공격 페이로드. <code>discovered_endpoint</code> unique btree 인덱스 행 한계(압축 후 ~2.7KB) 초과라 저장 자체가 불가한 크기</td><td><code>droppedNonApi.oversizePath</code></td></tr>
     <tr><td>실재성 필터</td><td>전부 4xx/404 인 "존재하지 않는 경로"(스캐너 노이즈)</td><td><code>droppedNonExistent</code></td></tr>
     <tr><td>template 상한(5000)</td><td>host 당 distinct template 초과분 — hits 낮은 순 폐기(<a href="#s7">7.5</a>)</td><td><code>droppedByLimit</code></td></tr>
   </tbody>
@@ -992,7 +1040,7 @@ base <span class="op">=</span> 0.5 · <span class="hl">log₁₀(hits+1)/3</span
 <!-- ============================================================= -->
 <h2 id="s8">8. 한계 개선 — nginx access log 추가 항목 (소비 구현 완료·활성 대기)</h2>
 
-<p>7장 한계의 상당수는 "<strong>로그에 담긴 신호가 부족</strong>"하기 때문이다. nginx 는 <code>log_format</code> 에 다양한 내장 변수를 추가로 남길 수 있다. 아래 항목 중 판별력이 확인된 것들의 <strong>소비 로직은 이미 구현·머지되어 있고</strong>(PR #73 / <code>05c17aa</code>, D79 — 파서·<code>EndpointKindClassifier</code>·<code>ApiScorer</code>), 지금은 <strong>DORMANT(휴면)</strong> 상태로 대기한다. 운영자가 nginx <code>log_format</code> 에 필드를 추가하고 해당 인덱스를 설정하면(§8.4) 판정기가 그 신호를 소비하기 시작한다.</p>
+<p>7장 한계의 상당수는 "<strong>로그에 담긴 신호가 부족</strong>"하기 때문이다. nginx 는 <code>log_format</code> 에 다양한 내장 변수를 추가로 남길 수 있다. 아래 항목 중 판별력이 확인된 것들의 <strong>소비 로직은 이미 구현·머지되어 있고</strong>(PR #73 / <code>05c17aa</code>, <a class="dref" href="#d79">D79</a> — 파서·<code>EndpointKindClassifier</code>·<code>ApiScorer</code>), 지금은 <strong>DORMANT(휴면)</strong> 상태로 대기한다. 운영자가 nginx <code>log_format</code> 에 필드를 추가하고 해당 인덱스를 설정하면(§8.4) 판정기가 그 신호를 소비하기 시작한다.</p>
 
 <div class="callout ok">
   <span class="ct">무회귀 — 지금은 현행 판정 100% 동일</span>
@@ -1011,7 +1059,7 @@ base <span class="op">=</span> 0.5 · <span class="hl">log₁₀(hits+1)/3</span
   <tbody>
     <tr><td><code>$sent_http_content_type</code></td><td>응답 Content-Type</td><td>json/xml/grpc → API, text/html → 웹페이지, image·css·js → 정적. endpoint_kind 결정적 판정</td><td>7.2 · 7.3 · 6장</td><td><span class="pill pill-admit">소비</span> idx 24 · <code>endpoint_kind</code> 결정(별개 경로)</td></tr>
     <tr><td><code>$content_type</code><br/>(=<code>$http_content_type</code>)</td><td>요청 본문 Content-Type</td><td>향후 web-form 억제(DROP_WEB_FORM) 정밀화용 — <strong>현재 판정에 미반영</strong></td><td>7.5 · 7.1(부분)</td><td><span class="pill pill-drop">예약</span> idx 25 · 로깅만·미소비(파서 인덱스 미부여)</td></tr>
-    <tr><td><code>$http_access_control_request_method</code></td><td>CORS preflight 요청 메서드(ACRM)</td><td>값이 있으면 <strong>확정적 preflight</strong> → 진짜 OPTIONS 와 구분(Unused 오판 제거)</td><td>7.5</td><td><span class="pill pill-admit">소비</span> idx 28 · 기구현(M3/D50, 기존 게이트)</td></tr>
+    <tr><td><code>$http_access_control_request_method</code></td><td>CORS preflight 요청 메서드(ACRM)</td><td>값이 있으면 <strong>확정적 preflight</strong> → 진짜 OPTIONS 와 구분(Unused 오판 제거)</td><td>7.5</td><td><span class="pill pill-admit">소비</span> idx 28 · 기구현(M3/<a class="dref" href="#d50">D50</a>, 기존 게이트)</td></tr>
     <tr><td><code>$http_accept</code></td><td>요청 Accept 헤더</td><td>클라이언트가 <code>application/json</code> 기대 → API 호출 의도</td><td>7.3</td><td><span class="pill pill-admit">소비</span> idx 26 · <code>acceptJson</code>(가중치 0.20)</td></tr>
     <tr><td><code>$http_x_requested_with</code></td><td>XHR 표식</td><td><code>XMLHttpRequest</code> → AJAX/SPA 의 API 호출 신호</td><td>7.3</td><td><span class="pill pill-admit">소비</span> idx 27 · <code>xRequestedWith</code>(0.28)</td></tr>
     <tr><td><code>$http_origin</code></td><td>CORS Origin 헤더</td><td>cross-origin 호출 → API 컨텍스트(ACRM 보강)</td><td>7.5 · 7.3</td><td><span class="pill pill-admit">소비</span> idx 29 · <code>originHeader</code>(0.15)</td></tr>
@@ -1030,7 +1078,7 @@ base <span class="op">=</span> 0.5 · <span class="hl">log₁₀(hits+1)/3</span
   <thead><tr><th>소비 신호</th><th>소비 경로</th><th>새 가중치?</th></tr></thead>
   <tbody>
     <tr><td><code>$sent_http_content_type</code></td><td><code>endpoint_kind</code> <strong>최우선 결정</strong>(§8.3) — 응답 CT 로 API/WEB_PAGE/STATIC 을 직접 분기. 기존 <code>responseTypeApi</code> 신호의 더 정확한 소스로도 기능한다.</td><td><span class="pill pill-drop">아니오</span> 스칼라 가중치가 아니라 kind 분기</td></tr>
-    <tr><td><code>$http_access_control_request_method</code></td><td><strong>기존 preflight 게이트</strong>(<code>corsPreflight</code> 신호는 이미 존재) — M3/D50 으로 이미 구현. 로그 필드·인덱스 설정만 하면 활성.</td><td><span class="pill pill-drop">아니오</span> 기존 신호·게이트 재사용</td></tr>
+    <tr><td><code>$http_access_control_request_method</code></td><td><strong>기존 preflight 게이트</strong>(<code>corsPreflight</code> 신호는 이미 존재) — M3/<a class="dref" href="#d50">D50</a> 으로 이미 구현. 로그 필드·인덱스 설정만 하면 활성.</td><td><span class="pill pill-drop">아니오</span> 기존 신호·게이트 재사용</td></tr>
     <tr><td><code>$http_accept</code> · <code>$http_x_requested_with</code> · <code>$http_origin</code> · <code>$auth_scheme</code></td><td><code>ApiScorer</code> 양성 가중치 신호(아래 표)</td><td><span class="pill pill-admit">예 — 4개</span></td></tr>
     <tr><td><code>$content_type</code>(요청)</td><td><strong>미소비</strong>(예약) — 향후 web-form 정밀화용, 현재 판정에 미반영</td><td><span class="pill pill-drop">아니오</span></td></tr>
     <tr><td><code>$server_protocol</code> · <code>$upstream_addr</code></td><td><strong>제외</strong> — 판별력 미미(사용자 결정). §8.1·§8.6 참조</td><td><span class="pill pill-drop">미채택</span></td></tr>
@@ -1093,7 +1141,7 @@ flowchart TD
   <tbody>
     <tr><td><strong>2xx 응답만 누적</strong></td><td><code>Acc.add()</code> 에서 <code>status/100 == 2</code> 일 때만 CT 를 분포에 반영</td><td>에러·인증실패 html·3xx redirect CT 오염 원천 차단. <strong>401/403-only 엔드포인트는 CT 분포가 비어 자연 폴백</strong> → 실재성 필터(doc/19) 보존</td></tr>
     <tr><td><strong>엄격 과반(&gt;0.5)</strong></td><td>dominant CT 비율이 과반 미만이면(<code>≤ 0.5</code>, <strong>50/50 tie 포함</strong>) CT 분기 skip → 폴백</td><td>혼합 CT(부분 오설정·오염) 시 비결정 분기 회피. tie 는 dominant 가 Map 반복순으로 임의 선택되므로 반드시 skip</td></tr>
-    <tr><td><strong>확장자 정적 veto 우선</strong></td><td>CT 분기 위치 = <code>isStaticPath</code>(확장자 veto) <em>다음</em>·<code>$type</code> 분기 <em>앞</em></td><td>CT 가 json 이어도 <code>.env</code>·<code>.pem</code> 등 정적 확장자면 STATIC 유지(D55/D56 시크릿 수확 오탐 차단 정책 보존)</td></tr>
+    <tr><td><strong>확장자 정적 veto 우선</strong></td><td>CT 분기 위치 = <code>isStaticPath</code>(확장자 veto) <em>다음</em>·<code>$type</code> 분기 <em>앞</em></td><td>CT 가 json 이어도 <code>.env</code>·<code>.pem</code> 등 정적 확장자면 STATIC 유지(<a class="dref" href="#d55">D55</a>/<a class="dref" href="#d56">D56</a> 시크릿 수확 오탐 차단 정책 보존)</td></tr>
     <tr><td><strong>CT 정규화</strong></td><td><code>;charset=…</code> 등 파라미터 제거·소문자화·<code>+json</code>/<code>+xml</code> suffix 포함(<code>application/vnd.api+json</code> 등)</td><td>매칭 누락 방지. html 을 xml 보다 먼저 검사(<code>application/xhtml+xml</code> 오분류 회피)</td></tr>
   </tbody>
 </table>
@@ -1215,55 +1263,74 @@ access_log /var/log/nginx/access.log api_discovery;</code></pre>
 
 <!-- ============================================================= -->
 <h2 id="appx">별첨 A — 참조 결정(DECISIONS) 요약</h2>
-<p>본 매뉴얼(특히 <a href="#s2-1">§2.1</a>·<a href="#s7-7">§7.7</a>)이 근거로 인용하는 결정들을 간단히 정리한다. 스캔·수집 정책의 핵심 구간인 <strong>D58~D83 전체</strong>와, 본문에서 개별 인용한 그 밖의 결정(D1·D2·D3·D17·D18·D31·D48~D51·D55·D56)을 함께 담았다. <strong>권위 있는 전문·근거는 <code>doc/DECISIONS.md</code></strong> 이며, 아래는 탐색용 한 줄 요약이다.</p>
+<p>본 매뉴얼(특히 <a href="#s2-1">§2.1</a>·<a href="#s7-7">§7.7</a>)이 근거로 인용하는 결정들을 간단히 정리한다. 스캔·수집 정책의 핵심 구간인 <strong><a class="dref" href="#d58">D58</a>~<a class="dref" href="#d83">D83</a> 전체</strong>와, 본문에서 개별 인용한 그 밖의 결정(<a class="dref" href="#d1">D1</a>·<a class="dref" href="#d2">D2</a>·<a class="dref" href="#d3">D3</a>·<a class="dref" href="#d17">D17</a>·<a class="dref" href="#d18">D18</a>·<a class="dref" href="#d31">D31</a>·<a class="dref" href="#d48">D48</a>~<a class="dref" href="#d51">D51</a>·<a class="dref" href="#d55">D55</a>·<a class="dref" href="#d56">D56</a>)을 함께 담았다. <strong>권위 있는 전문·근거는 <code>doc/DECISIONS.md</code></strong> 이며, 아래는 탐색용 한 줄 요약이다.</p>
 
 <table>
   <thead><tr><th>결정</th><th>한 줄 요약</th></tr></thead>
   <tbody>
-    <tr><td><code>D1</code></td><td>범위 — access log(본문·헤더 없음)로 엔드포인트 인벤토리 + Shadow(<code>D\S</code>)·Zombie(<code>S_deprecated∩D</code>)까지. 스키마·PII·인증은 범위 밖.</td></tr>
-    <tr><td><code>D2</code></td><td>대표 스펙 포맷 = OpenAPI + Postman + CSV. Postman 은 표준 deprecated 부재라 <code>[DEPRECATED]</code> 이름/폴더 규약.</td></tr>
-    <tr><td><code>D3</code></td><td>경로 정규화 우선순위 = 스펙 우선 → 휴리스틱(uuid/id/token/date) → 통계 보정.</td></tr>
-    <tr><td><code>D17</code></td><td>분류 설정 DB 저장(전역 1행 + 도메인 override) + effective 병합(도메인→전역→MIDDLE). weights override 는 CUSTOM 한정, threshold 는 어떤 프로파일에서도 override.</td></tr>
-    <tr><td><code>D18</code></td><td>분류 설정 중앙 REST 4종(전역·도메인 GET/PUT) + host별 effective 캐시(PUT 시 무효화). 단일 인스턴스 전제.</td></tr>
-    <tr><td><code>D31</code></td><td>distinct/분위수 대용량 근사 = DataSketches HLL(distinct)+KLL(분위수). <code>Acc</code> 한정 교체, 영속·판정 경계 불변.</td></tr>
-    <tr><td><code>D48</code></td><td>스캔 정책 C 활동 티어링 + D off-peak + F dormant 를 단일 due 모델(<code>nextScanDueAt</code>)로 통합. <code>tiering-enabled=false</code>=LRS 롤백.</td></tr>
-    <tr><td><code>D49</code></td><td>API 판단 근거(신호별 점수·게이트)를 <code>/discovery</code> 조회 시 재계산 노출(스키마 0, 현재 effective 기준). 분류별 <code>basis</code> 차등.</td></tr>
-    <tr><td><code>D50</code></td><td>REST API 대규모 변경 배치 설계(P1 additive·P2 M7·P3 즉시스캔). 스키마 변경 = <code>spec_record.filename</code> 1건.</td></tr>
-    <tr><td><code>D51</code></td><td><code>SpecRecord.rawDoc</code>(oid LOB) 메타조회 500 버그 수정 = projection(rawDoc 미선택)·forHost readOnly tx·self-invocation tx 교정.</td></tr>
-    <tr><td><code>D55</code></td><td>스캔 신선도 운영 — 백필 발산 진단·워터마크 <code>now−30m</code> 점프·무접속 중단·<code>/result</code> 판단근거 인라인(<code>basis</code>).</td></tr>
-    <tr><td><code>D56</code></td><td>정적 파일 API 오탐 수정 — 정적 확장자 하드 veto(<code>DROP_STATIC</code>) + 정적 리소스 파일명 감점(<code>img.php</code> 류). <code>.php</code> 는 veto 아님(감점만).</td></tr>
-    <tr><td><code>D58</code></td><td>Loki 부하 안정화 — 버스트 기본값 복귀 + IO 타임아웃 적응형 감속·예산 계상 + 외부 파일 로깅(일별·gz·30일 보관).</td></tr>
-    <tr><td><code>D59</code></td><td>무접속 자동스캔 제외 기준을 <code>last_access_log_at</code> → <code>last_seen_at</code>(discovery)로 전환·임계 3일. <strong>→ D82 로 P7D·<code>activity_status</code> 로 재설계됨.</strong></td></tr>
-    <tr><td><code>D60</code></td><td>실시간 유지 쿼리 튜닝 — chunk/slice PT30M + delta-driven skip(무트래픽 구간 조회 생략) + 워터마크 점프.</td></tr>
-    <tr><td><code>D61</code></td><td>delta-driven skip 을 <code>now−lag</code> 즉시 전진으로 — 빈 도메인 1 touch 로 caught-up(catch-up 가속).</td></tr>
-    <tr><td><code>D62</code></td><td>대상 제외 엣지(AAJ 23개) — 등록·출석·조회 모두 제외, 전부 제외면 스캔 skip(전 스트림 폴백 금지).</td></tr>
-    <tr><td><code>D63</code></td><td>엣지-그룹 도메인 배칭(<code>query-batch-size</code>) — 같은 엣지 실조회 도메인 N개를 정규식 OR 1쿼리로(청크 재읽기 1/N).</td></tr>
-    <tr><td><code>D64</code></td><td>활성 우선 선발 — 신규 트래픽 확정 도메인 먼저 + 통과류 <code>K/5</code> 예약(기아 방지). 3단 선발.</td></tr>
-    <tr><td><code>D65</code></td><td>엣지 그룹 Main-only 조회 — 엣지를 그룹 Master 로 치환(Master 로그=그룹 전체 집계, 활성 매핑 −47%).</td></tr>
-    <tr><td><code>D66</code></td><td>롤링 샘플링 — 주기 스캔을 방문 시점의 "최신 10분 표본"만(<code>sample-window</code>). 발산 정지·신선도 ≤ 재방문주기·커버리지 ~33%.</td></tr>
-    <tr><td><code>D67</code></td><td><code>query-batch-size</code> 10→20 + 검증된 튜닝(D58~D67)을 <code>application.yml</code> 기본값으로 승격(이식성).</td></tr>
-    <tr><td><code>D68</code></td><td>초장문 <code>path_template</code>(&gt;2,048자) 하드 veto(<code>DROP_OVERSIZE</code>) + 엔드포인트 저장 격리 — btree 인덱스 행 한계·SQLi 페이로드 차단.</td></tr>
-    <tr><td><code>D69</code></td><td><code>P*</code> 엣지 제외 — <code>excluded-hostnames</code> 접두 와일드카드(신규 P 엣지에도 자동 적용).</td></tr>
-    <tr><td><code>D70</code></td><td>Swagger 2.0 스펙 업로드 지원(<code>OpenAPIParser</code> 통합·2.0→3.0 변환) + 파싱 실패 400 매핑.</td></tr>
-    <tr><td><code>D71</code></td><td>설계문서(<code>doc/NN</code>)에서 'dev 구현 체크리스트' 제거 — 작업 히스토리는 <code>TASKS.md</code>/<code>PROJECT_LOG.md</code> 로 일원화.</td></tr>
-    <tr><td><code>D72</code></td><td>설정·시크릿 확장자 하드 veto 추가(<code>.env/.ini/.pem/.key/.tf/.save</code>). <code>.json/.yaml</code> 은 진짜 데이터 API 라 제외.</td></tr>
-    <tr><td><code>D73</code></td><td>미사용 스캐폴딩 제거 — <code>central/CentralWebhookClient</code>(no-op 스텁) 삭제.</td></tr>
-    <tr><td><code>D74</code></td><td>스캔 처리량 상향 — <code>page-limit</code> 2000→5000 · <code>domains-per-tick</code> 500→650(백로그 감축·페이지네이션 감소).</td></tr>
-    <tr><td><code>D75</code></td><td><code>domain_hostnames.host</code> 인덱스 추가 — <code>@ElementCollection</code> FK seq scan N+1 로 인한 PG CPU 포화 해소(~180배).</td></tr>
-    <tr><td><code>D76</code></td><td><code>discovered_endpoint</code> autovacuum 튜닝(per-table scale 0.05) + 초기 <code>VACUUM</code>(dead 0).</td></tr>
-    <tr><td><code>D77</code></td><td>컨테이너 <code>/dev/shm</code> 확대 시도 → SELinux relabel 실패·롤백, 비병렬 <code>REINDEX</code> 로 대체(shm 불요).</td></tr>
-    <tr><td><code>D78</code></td><td>스코어링 정책 조회 강화 — 전역 GET 에 effective 노출 + threshold 최상위 분리 + 신호 설명(ko/en). API-only.</td></tr>
-    <tr><td><code>D79</code></td><td>8.3 로그변수 소비 범위·가중치·시뮬레이션 — 응답 CT→<code>endpoint_kind</code> + 요청 4신호(accept/xhr/origin/auth) 양성 가중치. DORMANT 무회귀·과승격 상한 1.06%.</td></tr>
-    <tr><td><code>D80</code></td><td>8.3 활성화 전제 = 엣지 nginx <code>log_format</code> 24필드 표준화(파서는 전역 단일 인덱스, 규약 <code>doc/41</code>).</td></tr>
-    <tr><td><code>D81</code></td><td>스캔 due/워터마크 발산 대응 — 유령 도메인 억제 A(<code>NEW-PAJ*</code> 제외)+C(404·470-only 등록 배제) + 하드 정리(31,985 삭제·due −62%).</td></tr>
-    <tr><td><code>D82</code></td><td>무접속 도메인 상태 관리 — 7일 무요청 → <code>activity_status=INACTIVE</code>(sweep) → 스캔 제외. <code>enabled</code> 과 별도 축, 경로 제외(<code>.cloudbric</code>)·재활성.</td></tr>
-    <tr><td><code>D83</code></td><td>endpoint-yield 게이트 — 지속 0-endpoint 유령(봇/foreign-host)을 <code>ghost_suppressed</code> 로 억제(엣지 제외 대체). 수동 스캔 해제(가역).</td></tr>
+    <tr><td><code id="d1">D1</code></td><td>범위 — access log(본문·헤더 없음)로 엔드포인트 인벤토리 + Shadow(<code>D\S</code>)·Zombie(<code>S_deprecated∩D</code>)까지. 스키마·PII·인증은 범위 밖.</td></tr>
+    <tr><td><code id="d2">D2</code></td><td>대표 스펙 포맷 = OpenAPI + Postman + CSV. Postman 은 표준 deprecated 부재라 <code>[DEPRECATED]</code> 이름/폴더 규약.</td></tr>
+    <tr><td><code id="d3">D3</code></td><td>경로 정규화 우선순위 = 스펙 우선 → 휴리스틱(uuid/id/token/date) → 통계 보정.</td></tr>
+    <tr><td><code id="d17">D17</code></td><td>분류 설정 DB 저장(전역 1행 + 도메인 override) + effective 병합(도메인→전역→MIDDLE). weights override 는 CUSTOM 한정, threshold 는 어떤 프로파일에서도 override.</td></tr>
+    <tr><td><code id="d18">D18</code></td><td>분류 설정 중앙 REST 4종(전역·도메인 GET/PUT) + host별 effective 캐시(PUT 시 무효화). 단일 인스턴스 전제.</td></tr>
+    <tr><td><code id="d31">D31</code></td><td>distinct/분위수 대용량 근사 = DataSketches HLL(distinct)+KLL(분위수). <code>Acc</code> 한정 교체, 영속·판정 경계 불변.</td></tr>
+    <tr><td><code id="d48">D48</code></td><td>스캔 정책 C 활동 티어링 + D off-peak + F dormant 를 단일 due 모델(<code>nextScanDueAt</code>)로 통합. <code>tiering-enabled=false</code>=LRS 롤백.</td></tr>
+    <tr><td><code id="d49">D49</code></td><td>API 판단 근거(신호별 점수·게이트)를 <code>/discovery</code> 조회 시 재계산 노출(스키마 0, 현재 effective 기준). 분류별 <code>basis</code> 차등.</td></tr>
+    <tr><td><code id="d50">D50</code></td><td>REST API 대규모 변경 배치 설계(P1 additive·P2 M7·P3 즉시스캔). 스키마 변경 = <code>spec_record.filename</code> 1건.</td></tr>
+    <tr><td><code id="d51">D51</code></td><td><code>SpecRecord.rawDoc</code>(oid LOB) 메타조회 500 버그 수정 = projection(rawDoc 미선택)·forHost readOnly tx·self-invocation tx 교정.</td></tr>
+    <tr><td><code id="d55">D55</code></td><td>스캔 신선도 운영 — 백필 밀림 누적 진단·워터마크 <code>now−30m</code> 점프·무접속 중단·<code>/result</code> 판단근거 인라인(<code>basis</code>).</td></tr>
+    <tr><td><code id="d56">D56</code></td><td>정적 파일 API 오탐 수정 — 정적 확장자 하드 veto(<code>DROP_STATIC</code>) + 정적 리소스 파일명 감점(<code>img.php</code> 류). <code>.php</code> 는 veto 아님(감점만).</td></tr>
+    <tr><td><code id="d58">D58</code></td><td>Loki 부하 안정화 — 버스트 기본값 복귀 + IO 타임아웃 적응형 감속·예산 계상 + 외부 파일 로깅(일별·gz·30일 보관).</td></tr>
+    <tr><td><code id="d59">D59</code></td><td>무접속 자동스캔 제외 기준을 <code>last_access_log_at</code> → <code>last_seen_at</code>(discovery)로 전환·임계 3일. <strong>→ <a class="dref" href="#d82">D82</a> 로 P7D·<code>activity_status</code> 로 재설계됨.</strong></td></tr>
+    <tr><td><code id="d60">D60</code></td><td>실시간 유지 쿼리 튜닝 — chunk/slice PT30M + delta-driven skip(무트래픽 구간 조회 생략) + 워터마크 점프.</td></tr>
+    <tr><td><code id="d61">D61</code></td><td>delta-driven skip 을 <code>now−lag</code> 즉시 전진으로 — 빈 도메인 1 touch 로 caught-up(catch-up 가속).</td></tr>
+    <tr><td><code id="d62">D62</code></td><td>대상 제외 엣지(AAJ 23개) — 등록·출석·조회 모두 제외, 전부 제외면 스캔 skip(전 스트림 폴백 금지).</td></tr>
+    <tr><td><code id="d63">D63</code></td><td>엣지-그룹 도메인 배칭(<code>query-batch-size</code>) — 같은 엣지 실조회 도메인 N개를 정규식 OR 1쿼리로(청크 재읽기 1/N).</td></tr>
+    <tr><td><code id="d64">D64</code></td><td>활성 우선 선발 — 신규 트래픽 확정 도메인 먼저 + 통과류 <code>K/5</code> 예약(기아 방지). 3단 선발.</td></tr>
+    <tr><td><code id="d65">D65</code></td><td>엣지 그룹 Main-only 조회 — 엣지를 그룹 Master 로 치환(Master 로그=그룹 전체 집계, 활성 매핑 −47%).</td></tr>
+    <tr><td><code id="d66">D66</code></td><td>롤링 샘플링 — 주기 스캔을 방문 시점의 "최신 10분 표본"만(<code>sample-window</code>). 밀림 누적 정지·신선도 ≤ 재방문주기·커버리지 ~33%.</td></tr>
+    <tr><td><code id="d67">D67</code></td><td><code>query-batch-size</code> 10→20 + 검증된 튜닝(<a class="dref" href="#d58">D58</a>~<a class="dref" href="#d67">D67</a>)을 <code>application.yml</code> 기본값으로 승격(이식성).</td></tr>
+    <tr><td><code id="d68">D68</code></td><td>초장문 <code>path_template</code>(&gt;2,048자) 하드 veto(<code>DROP_OVERSIZE</code>) + 엔드포인트 저장 격리 — btree 인덱스 행 한계·SQLi 페이로드 차단.</td></tr>
+    <tr><td><code id="d69">D69</code></td><td><code>P*</code> 엣지 제외 — <code>excluded-hostnames</code> 접두 와일드카드(신규 P 엣지에도 자동 적용).</td></tr>
+    <tr><td><code id="d70">D70</code></td><td>Swagger 2.0 스펙 업로드 지원(<code>OpenAPIParser</code> 통합·2.0→3.0 변환) + 파싱 실패 400 매핑.</td></tr>
+    <tr><td><code id="d71">D71</code></td><td>설계문서(<code>doc/NN</code>)에서 'dev 구현 체크리스트' 제거 — 작업 히스토리는 <code>TASKS.md</code>/<code>PROJECT_LOG.md</code> 로 일원화.</td></tr>
+    <tr><td><code id="d72">D72</code></td><td>설정·시크릿 확장자 하드 veto 추가(<code>.env/.ini/.pem/.key/.tf/.save</code>). <code>.json/.yaml</code> 은 진짜 데이터 API 라 제외.</td></tr>
+    <tr><td><code id="d73">D73</code></td><td>미사용 스캐폴딩 제거 — <code>central/CentralWebhookClient</code>(no-op 스텁) 삭제.</td></tr>
+    <tr><td><code id="d74">D74</code></td><td>스캔 처리량 상향 — <code>page-limit</code> 2000→5000 · <code>domains-per-tick</code> 500→650(백로그 감축·페이지네이션 감소).</td></tr>
+    <tr><td><code id="d75">D75</code></td><td><code>domain_hostnames.host</code> 인덱스 추가 — <code>@ElementCollection</code> FK seq scan N+1 로 인한 PG CPU 포화 해소(~180배).</td></tr>
+    <tr><td><code id="d76">D76</code></td><td><code>discovered_endpoint</code> autovacuum 튜닝(per-table scale 0.05) + 초기 <code>VACUUM</code>(dead 0).</td></tr>
+    <tr><td><code id="d77">D77</code></td><td>컨테이너 <code>/dev/shm</code> 확대 시도 → SELinux relabel 실패·롤백, 비병렬 <code>REINDEX</code> 로 대체(shm 불요).</td></tr>
+    <tr><td><code id="d78">D78</code></td><td>스코어링 정책 조회 강화 — 전역 GET 에 effective 노출 + threshold 최상위 분리 + 신호 설명(ko/en). API-only.</td></tr>
+    <tr><td><code id="d79">D79</code></td><td>8.3 로그변수 소비 범위·가중치·시뮬레이션 — 응답 CT→<code>endpoint_kind</code> + 요청 4신호(accept/xhr/origin/auth) 양성 가중치. DORMANT 무회귀·과승격 상한 1.06%.</td></tr>
+    <tr><td><code id="d80">D80</code></td><td>8.3 활성화 전제 = 엣지 nginx <code>log_format</code> 24필드 표준화(파서는 전역 단일 인덱스, 규약 <code>doc/41</code>).</td></tr>
+    <tr><td><code id="d81">D81</code></td><td>스캔 due/워터마크 밀림 누적 대응 — 유령 도메인 억제 A(<code>NEW-PAJ*</code> 제외)+C(404·470-only 등록 배제) + 하드 정리(31,985 삭제·due −62%).</td></tr>
+    <tr><td><code id="d82">D82</code></td><td>무접속 도메인 상태 관리 — 7일 무요청 → <code>activity_status=INACTIVE</code>(sweep) → 스캔 제외. <code>enabled</code> 과 별도 축, 경로 제외(<code>.cloudbric</code>)·재활성.</td></tr>
+    <tr><td><code id="d83">D83</code></td><td>endpoint-yield 게이트 — 지속 0-endpoint 유령(봇/foreign-host)을 <code>ghost_suppressed</code> 로 억제(엣지 제외 대체). 수동 스캔 해제(가역).</td></tr>
   </tbody>
 </table>
 <p class="legend">범위 메모 — D4~D16·D19~D30·D32~D47·D52~D54·D57 은 본 매뉴얼이 직접 인용하지 않아 생략했다(전체 목록은 <code>doc/DECISIONS.md</code>). D52 는 D53 으로 supersede 되어 폐기됐다.</p>
 
+<!-- ============================================================= -->
+<h2 id="gloss">별첨 B — 용어 설명</h2>
+<p>본문에서 쓰인 약어·전문 용어의 뜻이다. 각 용어가 처음 나오는 곳에서 이 표의 해당 항목으로 바로 이동할 수 있다.</p>
+<table>
+  <thead><tr><th>용어</th><th>뜻과 설명</th></tr></thead>
+  <tbody>
+    <tr id="g-self-endpoint"><td><code>self-endpoint</code><br/>(도메인 자기 엔드포인트)</td><td>그 도메인 <strong>자신의</strong> 실제 API·경로 엔드포인트(<code>discovered_endpoint</code> 로 집계되는 것). 봇·타 도메인(foreign-host) 트래픽만 섞여 들어오고 도메인 자신의 엔드포인트가 하나도 안 잡히면 <strong>self-endpoint 0</strong> 이며, 스캔해도 산출물이 없는 유령 도메인의 신호다(<a class="dref" href="#d83">D83</a> 억제 대상).</td></tr>
+    <tr id="g-watermark"><td><code>watermark</code><br/>(워터마크·수집 커서)</td><td>도메인별로 "로그를 여기까지 읽었다"를 기록하는 커서(마지막으로 성공 조회한 시간 구간의 끝점). 다음 스캔은 이 지점부터 신규 구간만 읽어(증분 수집) 같은 로그를 두 번 읽지 않고 빠뜨리지도 않는다. 앞으로만(현재 방향) 전진한다.</td></tr>
+    <tr id="g-tick"><td>틱<br/>(tick)</td><td>주기 스캔이 5만여 도메인을 한 번에 훑지 않고 <strong>조금씩 나눠 처리</strong>하는 한 회차. 약 1분마다 돌며, 한 틱에 <code>domains-per-tick</code>(현 650)개만 처리하고 나머지는 다음 틱으로 넘긴다. 상세는 <code>doc/manual/scan-tick-manual.html</code>.</td></tr>
+    <tr id="g-sample-window"><td><code>sample-window</code><br/>(샘플 윈도우)</td><td>롤링 샘플링(<a class="dref" href="#d66">D66</a>)에서 도메인을 방문할 때마다 읽는 "그 시점의 최신 N분" 표본 구간(현 10분). 전 구간을 빠짐없이 읽는 대신 최신 표본만 읽어 운영 Loki 부하를 맞추고 밀림 누적을 막는다.</td></tr>
+    <tr id="g-limit1e8"><td><code>limit=1e8</code></td><td>LogQL 쿼리가 한 번에 돌려받을 로그 라인 수 상한. <code>1e8</code> = 1×10<sup>8</sup> = <strong>1억</strong>(사실상 무제한)이라, 이렇게 크게 잡으면 운영 Loki 가 방대한 결과를 한꺼번에 모아 보내다 과부하된다 → 금지. 대신 <code>page-limit</code>(현 5000)으로 잘라 페이지 단위로 읽는다.</td></tr>
+    <tr id="g-ts1ns"><td><code>ts+1ns</code></td><td>timestamp + 1 나노초(nanosecond, 10<sup>−9</sup>초). 페이지네이션에서 앞 페이지 <strong>마지막 라인의 타임스탬프 바로 다음 지점</strong>부터 이어 읽어(forward), 경계 라인을 중복·누락 없이 잇는다.</td></tr>
+    <tr id="g-backoff"><td>백오프<br/>(back-off)</td><td>요청이 실패(429·5xx)하면 <strong>재시도 간격을 실패할수록 지수적으로 늘리는</strong> 방식(base×2<sup>시도횟수</sup>). 이미 힘든 서버에 재시도를 몰아붓지 않으려는 것. 본 시스템은 최대 4회까지.</td></tr>
+    <tr id="g-cardinality"><td>고카디널리티<br/>(high cardinality)</td><td>한 항목(예: 경로 세그먼트·쿼리 값)이 갖는 <strong>서로 다른 값의 종류가 매우 많은</strong> 상태. 사용자 ID·토큰·slug 처럼 값이 거의 무한히 갈리면 정규화 없이는 엔드포인트 인벤토리가 폭증한다 → 템플릿화·통계 승격(<code>{var}</code>)으로 묶는다.</td></tr>
+    <tr id="g-pii"><td>PII<br/>(Personally Identifiable Information, 개인식별정보)</td><td>이름·이메일·주민번호 등 <strong>개인을 식별할 수 있는 정보</strong>. 본 시스템은 요청/응답 본문과 쿼리 값을 수집하지 않아(이름·길이버킷만 보관) PII 를 애초에 담지 않는 것이 설계 경계다.</td></tr>
+    <tr id="g-dedup"><td><code>dedup</code><br/>(deduplication, 중복 제거)</td><td>같은 요청이 윈도우 겹침·재시도로 두 번 이상 수집될 때 하나만 남기는 것. 본 시스템은 <code>request_id</code>(32 hex)가 있으면 처음 본 것만 통과시킨다.</td></tr>
+  </tbody>
+</table>
+
 <div class="footer">
-  <p>본 매뉴얼은 <code>doc/manual/</code> 에 보관되며, 실제 동작은 위에 표기한 소스 파일이 단일 진실원이다. 설계 근거 상세는 <code>doc/00~43</code> 및 <code>doc/DECISIONS.md</code> 참고. (2026-07-22 현행화 — D81~D83 반영 + 별첨 A 결정 요약 추가)</p>
+  <p>본 매뉴얼은 <code>doc/manual/</code> 에 보관되며, 실제 동작은 위에 표기한 소스 파일이 단일 진실원이다. 설계 근거 상세는 <code>doc/00~43</code> 및 <code>doc/DECISIONS.md</code> 참고. (2026-07-22 현행화 — <a class="dref" href="#d81">D81</a>~<a class="dref" href="#d83">D83</a> 반영 · 별첨 A 결정 요약 · 별첨 B 용어 설명 · 최근 정리 작업(§2.1) 추가)</p>
 </div>
 
 </div>

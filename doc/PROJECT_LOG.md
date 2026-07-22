@@ -25,6 +25,17 @@
 - **api-discovery-manual.html 별첨 A 신설**: §2.1 "근거 DECISIONS D58~D83" 를 인-도큐먼트 표로. D58~D83 전체 + 본문 인용분(D1·D2·D3·D17·D18·D31·D48~D51·D55·D56) 38건 한 줄 요약(권위=doc/DECISIONS.md). TOC 항목·범위 메모(생략분·D52 supersede) 포함.
 - 3파일 HTML 태그 균형 검증 통과. 실측 3축 스캔 대상 10,066(=enabled&ACTIVE&NOT ghost, ghost_suppressed 618).
 
+### 한 일 (추가) — 문서 작성 규칙 적용 + api-discovery 용어/링크 정비
+- **문서 작성 규칙 수립·적용**(사용자 지시): ① 약어→괄호 풀명 병기 ② 하단 별첨 용어집 + 본문 링크 ③ "발산" 등 영어 직역 표현 금지 ④ 모든 DECISION D* 를 별첨 A 에 + 본문 D* → 별첨 A 링크.
+- **§2.1 최근 Active·Enabled 정리 작업 콜아웃 추가**: endpoint 0(self-endpoint 0) 유령 하드삭제(31,985·D81)+ghost 게이트(D83)·`.cloudbric` 전용 도메인 정리(5,430행+경로제외 D82)·www·bare 서비스 단위 관리(분석만·FQDN 착시 규명). §2.1 표에 self-endpoint·watermark·틱·sample-window 용어 링크.
+- **§3.1**: `limit=1e8`·`ts+1ns`·백오프 용어 링크, "전 hostname 동시 발사"→"한꺼번에 동시 조회"(직역 표현 수정).
+- **§3.2**: 전체 24필드(0~23) 정의 `<details>` 표 추가(doc/41 §2 근거), 고카디널리티(high cardinality)·PII(Personally Identifiable Information) 원문 병기+링크.
+- **§3.3**: dedup(deduplication, 중복 제거)·watermark 풀명 병기+링크.
+- **별첨 B 용어 설명 신설**(10개 앵커: self-endpoint·watermark·틱·sample-window·limit=1e8·ts+1ns·백오프·고카디널리티·PII·dedup), TOC 항목 추가.
+- **"발산" 전량 제거**: api-discovery 7곳·scan-tick 3곳 → "밀림 누적/계속 뒤처짐" 등 자연스러운 한국어.
+- **규칙 4.1 — D* 링크화**: 별첨 A 38개 행에 `id="dNN"` 앵커, 본문 D* 참조 66곳을 파서 기반 스크립트로 `#dNN` 링크화(code/pre/a/script/style·mermaid 다이어그램 내부 제외, 무결성 확인). `.dref` 은은한 밑줄 스타일.
+- 검증: 3파일 태그 균형·발산 0·죽은 링크 0·용어 앵커 10개·mermaid/code 오염 0·JS 무결.
+
 ### 다음 단계
 - ghost 게이트 수렴 관찰 계속(scannable 추이) / full eTLD+1 서비스 수 정밀화(사용자 결정 대기, 7-21 항목).
 
