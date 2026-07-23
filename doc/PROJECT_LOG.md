@@ -5,6 +5,17 @@
 
 ---
 
+## 2026-07-23 세션 — DELETE /domains cascade 수정 (D89, 사용자 요청)
+
+### 한 일
+- D88 Swagger 업로드 테스트 정리 중 발견한 고아 문제 수정: `DELETE /domains/{host}` 가 domain_config 만 지우고 `spec_record`·`documented_api`·`discovered_endpoint`·`scan_result`(host-keyed 별개 테이블·FK cascade 없음)를 남기던 것 → 4개 리포에 `deleteByHost` 추가, `DomainController.delete` `@Transactional` 원자 cascade. 삭제 후 재등록 시 옛 데이터 부활 방지.
+- 테스트: `DomainControllerTest`(cascade 호출 verify) + `PostgresIntegrationTest.deleteDomainCascadesSpecInventoryDiscoveredAndScanResult`(실 PG: 사전 존재→DELETE 204→전부 제거). **build green 568**(실패 0).
+
+### 다음 단계
+- ★behavior change(DELETE 가 더 많이 지움). 커밋·배포 대기.
+
+---
+
 ## 2026-07-23 세션 — CSV 스펙 입력 포맷 제거 (D88) + Postman 유지 결정 (사용자 요청)
 
 ### 한 일

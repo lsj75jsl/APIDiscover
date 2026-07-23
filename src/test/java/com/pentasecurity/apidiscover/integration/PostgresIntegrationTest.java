@@ -102,6 +102,7 @@ class PostgresIntegrationTest {
     @Autowired DiscoveredEndpointRepository discoveredRepo;
     @Autowired DomainConfigRepository domainRepo;
     @Autowired com.pentasecurity.apidiscover.domain.WatermarkRepository watermarkRepo;
+    @Autowired com.pentasecurity.apidiscover.domain.DocumentedApiRepository documentedApiRepo;
     @Autowired EffectiveClassificationResolver resolver;
     @Autowired com.pentasecurity.apidiscover.batch.DomainUpserter domainUpserter;
     @Autowired DiscoveryJobService jobService;
@@ -724,6 +725,38 @@ class PostgresIntegrationTest {
                 .andExpect(jsonPath("$.items[?(@.pathTemplate=='/shared')].version").value(hasItem("1.0.0")))      // ★ACTIVE 문서값(삭제 문서 2.0.0 아님)
                 .andExpect(jsonPath("$.items[?(@.pathTemplate=='/shared')].sourceSpecVersion").value(hasItem(1)))   // ACTIVE pool 기준(삭제 행 2 아님)
                 .andExpect(jsonPath("$.items[?(@.pathTemplate=='/shared')].contributingSpecNames.count").value(hasItem(2)));
+    }
+
+    // --- DELETE /domains cascade — 연계 데이터(spec_record·documented_api·discovered_endpoint·scan_result) 함께 제거 (D89) ---
+    @Test
+    void deleteDomainCascadesSpecInventoryDiscoveredAndScanResult() throws Exception {
+        String host = "cascade-del.example.com";
+        registerDomain(host);
+        putSpec(host, "c.json", oas("GET,/u/{id},false,v1,", "POST,/u,false,v1,")); // spec_record + documented_api
+
+        DiscoveredEndpointRecord d = new DiscoveredEndpointRecord();
+        d.setHost(host); d.setMethod("GET"); d.setPathTemplate("/u/{id}");
+        d.setTemplateSource("INFERRED"); d.setEndpointKind("API_CANDIDATE"); d.setKindConfidence(0.9);
+        d.setFirstSeen(Instant.EPOCH); d.setLastSeen(Instant.EPOCH); d.setLastScanAt(Instant.EPOCH);
+        d.setHits(1); d.setStatusDistJson("{\"2xx\":1}");
+        discoveredRepo.save(d);
+        ScanResult sr = new ScanResult(); sr.setHost(host); sr.setVersion("v1"); sr.setReportJson("{}");
+        scanRepo.save(sr);
+
+        // 사전: 전부 존재
+        assertThat(specRepo.findByHostAndActiveIsTrue(host)).isNotEmpty();
+        assertThat(documentedApiRepo.findByHostOrdered(host)).isNotEmpty();
+        assertThat(discoveredRepo.findByHost(host)).isNotEmpty();
+        assertThat(scanRepo.findById(host)).isPresent();
+
+        mvc.perform(delete("/api/v1/domains/{host}", host)).andExpect(status().isNoContent());
+
+        // 사후: 도메인 + 연계 데이터 전부 제거(고아 없음)
+        assertThat(domainRepo.existsById(host)).isFalse();
+        assertThat(specRepo.findByHostAndActiveIsTrue(host)).isEmpty();
+        assertThat(documentedApiRepo.findByHostOrdered(host)).isEmpty();
+        assertThat(discoveredRepo.findByHost(host)).isEmpty();
+        assertThat(scanRepo.findById(host)).isEmpty();
     }
 
     private void putSpec(String host, String filename, byte[] content) throws Exception {

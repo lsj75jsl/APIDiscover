@@ -6,8 +6,13 @@ import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 public interface SpecRecordRepository extends JpaRepository<SpecRecord, Long> {
+
+    /** 도메인 삭제 cascade — host 의 모든 스펙 문서/버전 제거(D89). */
+    @Transactional
+    void deleteByHost(String host);
 
     /** 현재 활성 스펙(스캔이 사용). */
     Optional<SpecRecord> findFirstByHostAndActiveIsTrueOrderBySpecVersionDesc(String host);

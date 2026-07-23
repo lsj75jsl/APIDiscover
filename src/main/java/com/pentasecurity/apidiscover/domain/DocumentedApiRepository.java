@@ -5,8 +5,13 @@ import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 public interface DocumentedApiRepository extends JpaRepository<DocumentedApiRecord, Long> {
+
+    /** 도메인 삭제 cascade — host 의 모든 문서화 API 인벤토리 제거(D89). */
+    @Transactional
+    void deleteByHost(String host);
 
     /** reconcile 입력 — 그 문서(specName)의 현재 인벤토리 상태. 삭제 격리(다른 specName 미접근, doc/37 §3). */
     List<DocumentedApiRecord> findByHostAndSpecName(String host, String specName);
