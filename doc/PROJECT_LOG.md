@@ -14,8 +14,10 @@
 - **매뉴얼**: 스펙 입력 CSV 언급 정리(api-discovery §개요·D2·api-rest §2.4·format 표·db-schema format 컬럼) — ★CLI 결과 export CSV(collection-ops·deploy-verify)는 유지. 잔존 스펙-CSV 0.
 - **안전 확인**: 운영 `spec_record` **0행** → CSV enum 제거해도 기존 행 역직렬화 문제 없음(배포 무위험).
 
-### 다음 단계
-- ★behavior change(CSV 업로드→400). 커밋·배포 대기. 배포 시 새 스캔·업로드부터 반영.
+### 커밋·배포 완료 + Swagger 검증 + 매뉴얼 보강
+- **커밋·배포**: PR #84 머지 `main 8f5005b` → 이미지 `2a0dbd8c4d74` .197 배포·health UP·롤백 `prev-d88`(d725e4f48ec0). CSV 업로드 실측 **400**.
+- **Swagger 2.0 업로드 실검증(.197)**: 임시 도메인에 Swagger 2.0 문서 PUT → **200**, `format=OPENAPI`·endpointCount 2·`/spec/apis` 에 `GET /api/users/{id}`(param id:PATH:integer)·`POST /api/orders`(deprecated·body:object)·basePath `/api` 조인·version 1.2.3 정확 추출. 테스트 도메인+spec_record+documented_api 정리 완료(운영 clean). ★부수 발견: `DELETE /domains/{host}` 가 spec_record·documented_api 를 cascade 안 함(고아 잔존) — 별도 후속 후보.
+- **매뉴얼 보강**: api-rest §2.4 PUT /spec 에 "업로드 가능한 문서 종류" 표 추가(OpenAPI 3.0/3.1·Swagger 2.0·Postman v2.x·감지기준·형식·CSV 지원중단), api-discovery 개요에 Swagger 명시.
 
 ---
 
