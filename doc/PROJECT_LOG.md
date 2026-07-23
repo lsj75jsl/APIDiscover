@@ -5,6 +5,17 @@
 
 ---
 
+## 2026-07-23 세션 — 경로 정규화 숫자ID(라벨)→{id} (D87) + brand-zones 분석 (사용자 요청)
+
+### 한 일
+- **규칙 확장(D87)**: `PathNormalizer` 에 `^\d+\(.*\)$` → `{id}` 추가. `/campaigns/1337477(체험단)` 등 `숫자(라벨)` 세그먼트가 `/campaigns/{id}` 로 수렴(그동안 순수 숫자만 치환·표본<20 이라 통계 승격도 미발동해 값마다 분리됐던 문제). 테스트 추가(인코딩/비인코딩 라벨·숫자 비시작 유지). 576 green.
+- **brand-zones 오분류 문의 분석**(코드 변경 없음): `/main-pages/brand-zones/samsung_ace`(외 2) 가 SHADOW 로 잡힌 근거 실측 = `hostApiSubdomain 0.4`(api 서브도메인) + `corsPreflight 0.3`(OPTIONS 관측) = 0.7 임계 도달. CORS preflight 는 fetch/XHR 호출 지표라 실제 데이터 API 가능성 높음(오탐 아닐 수). 결정적 판별(응답 $type/Content-Type=endpoint_kind)은 DORMANT(로그포맷 표준화 대기, doc/40). 대응 옵션(신호 활성화·가중치/threshold override·경로 제외) 사용자에게 안내.
+
+### 다음 단계
+- D87 재배포(새 스캔부터 수렴 반영). brand-zones 는 사용자 확인 후 대응 결정.
+
+---
+
 ## 2026-07-23 세션 — 매뉴얼 UX: 개요 표 앵커 링크 + 확대(zoom) 기능 이식 (사용자 요청)
 
 ### 한 일

@@ -745,6 +745,12 @@ gap-free 크롤은 활성 수요(~22.6k 윈도우/h) vs 예산 용량(D65 후 ~7
 - **배포(2026-07-23, D85 와 함께)**: PR #79 squash-merge `main 944bd0f` → 이미지 `217429868306` `.197` 배포·health UP(~15s)·롤백 `prev-d85`(100606f00f38). 실측: `/scan-result`·`/discovery` `apis.*`={count,items}, `/scan-result/detail`·`/discovery/detail` `findings`={count,items}·중첩(`params.query`·`basis.signals`)도 래핑·finding `classification` 인라인(D85), 루트배열(`/domains`·`/spec`)={count,items}·중첩 `hostnames` 래핑.
 - **관련**: D84·D85(scan-result·discovery apis·finding classification), doc/07.
 
+### D87. 경로 정규화 — 숫자ID(라벨) 세그먼트 → {id} (2026-07-23, 사용자 요청)
+- **배경**: `/campaigns/1337477(체험단)`·`594387(체험단)`·`990312(체험단)` 이 논리적으로 한 엔드포인트인데 3개로 분리돼 검출됨. 원인 = `PathNormalizer` 의 `NUMERIC=^\d+$` 는 **순수 숫자만** `{id}` 치환하고, `숫자(라벨)` 형태(앱이 URL 에 사람용 라벨을 삽입)는 미치환 + 표본<20 이라 2차 통계 승격(`statVarMinDistinct=20`)도 미발동.
+- **결정**: `PathNormalizer.classify()` 에 `NUMERIC_LABELED=^\d+\(.*\)$` 규칙 추가 → `{id}`. 라벨은 흡수(캠페인 상세를 단일 `/campaigns/{id}` 로 수렴). `summer(2026)` 처럼 숫자로 시작하지 않으면 유지(오병합 방지).
+- **영향**: 새 스캔부터 반영(재배포 필요). 기존 검출 행은 다음 스캔 때 새 템플릿으로 재수렴. build green 576.
+- **관련**: doc/02 §3.2(정규화 휴리스틱), doc/13(고카디널리티 2-pass).
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.
