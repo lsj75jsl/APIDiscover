@@ -143,7 +143,7 @@ public class ApiScorer {
     }
 
     /**
-     * weight override map 검증(doc/10 §4): 키는 {@link #WEIGHT_KEYS} 의 14개 필드명만 허용(오타/미지원 키 reject),
+     * weight override map 검증(doc/10 §4): 키는 {@link #WEIGHT_KEYS} 의 18개 필드명만 허용(오타/미지원 키 reject),
      * 값은 유한(NaN/Infinity/null 금지). 위반 → IllegalArgumentException (조용한 무시 금지).
      */
     public static void validateWeightOverrides(Map<String, Double> overrides) {

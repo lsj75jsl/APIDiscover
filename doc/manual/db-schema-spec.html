@@ -373,7 +373,7 @@
     <tr><td class="col">spec_version</td><td class="t">BIGINT</td><td><span class="nn">NN</span></td><td>이 결과가 대조한 스펙 버전.</td></tr>
     <tr><td class="col">window_from</td><td class="t">TIMESTAMP(6)</td><td><span class="nl">null</span></td><td>이 결과의 수집 윈도우 시작.</td></tr>
     <tr><td class="col">window_to</td><td class="t">TIMESTAMP(6)</td><td><span class="nl">null</span></td><td>이 결과의 수집 윈도우 끝.</td></tr>
-    <tr><td class="col">report_json</td><td class="t">text</td><td><span class="nl">null</span></td><td><strong>★ 전체 <code>DiscoveryReport</code> JSON.</strong> 엔드포인트별 상세(분류·confidence·severity·params·dropped·signal)를 담는다. <code>GET /api/v1/domains/{host}/result</code> 가 ETag 조건부 GET 으로 중앙에 내려주는 <strong>본체</strong>.</td></tr>
+    <tr><td class="col">report_json</td><td class="t">text</td><td><span class="nl">null</span></td><td><strong>★ 전체 <code>DiscoveryReport</code> JSON.</strong> 엔드포인트별 상세(분류·confidence·severity·params·dropped·signal)를 담는다. <code>GET /api/v1/domains/{host}/scan-result/detail</code> 가 ETag 조건부 GET 으로 중앙에 내려주는 <strong>본체</strong>.</td></tr>
     <tr><td class="col">discovered</td><td class="t">INTEGER</td><td><span class="nn">NN</span></td><td><strong>★ 이번 스캔 윈도우에서 트래픽이 관측된 엔드포인트 수</strong>(분류 전 인벤토리). <strong>OPTIONS 제외</strong>(CORS 신호 전용·과대집계 방지).</td></tr>
     <tr><td class="col">active</td><td class="t">INTEGER</td><td><span class="nn">NN</span></td><td><strong>★ 스펙 문서화 ∩ 트래픽(S∩D)</strong> = 정상 사용 중인 문서화 API 수.</td></tr>
     <tr><td class="col">shadow</td><td class="t">INTEGER</td><td><span class="nn">NN</span></td><td>트래픽엔 있는데 스펙엔 없음(<strong>D−S</strong>) = 그림자 API.</td></tr>
