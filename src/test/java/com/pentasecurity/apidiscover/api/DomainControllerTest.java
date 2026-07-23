@@ -14,11 +14,14 @@ import com.pentasecurity.apidiscover.api.dto.DomainDtos.DomainView;
 import com.pentasecurity.apidiscover.classify.EffectiveClassificationResolver;
 import com.pentasecurity.apidiscover.domain.ClassificationConfigRepository;
 import com.pentasecurity.apidiscover.domain.DomainClassificationConfigRepository;
+import com.pentasecurity.apidiscover.domain.DiscoveredEndpointRepository;
+import com.pentasecurity.apidiscover.domain.DocumentedApiRepository;
 import com.pentasecurity.apidiscover.domain.DomainConfig;
 import com.pentasecurity.apidiscover.domain.DomainConfigRepository;
 import com.pentasecurity.apidiscover.domain.ScanResult;
 import com.pentasecurity.apidiscover.domain.ScanResultRepository;
 import com.pentasecurity.apidiscover.domain.SpecMetaProjection;
+import com.pentasecurity.apidiscover.domain.SpecRecordRepository;
 import com.pentasecurity.apidiscover.model.ClassificationProfile;
 import com.pentasecurity.apidiscover.model.SpecMergeStrategy;
 import com.pentasecurity.apidiscover.spec.SpecFormat;
@@ -41,11 +44,15 @@ class DomainControllerTest {
     private final DomainConfigRepository repo = mock(DomainConfigRepository.class);
     private final SpecStore specStore = mock(SpecStore.class);
     private final ScanResultRepository scanRepo = mock(ScanResultRepository.class);
+    private final SpecRecordRepository specRepo = mock(SpecRecordRepository.class);
+    private final DocumentedApiRepository documentedApiRepo = mock(DocumentedApiRepository.class);
+    private final DiscoveredEndpointRepository discoveredRepo = mock(DiscoveredEndpointRepository.class);
     // 실 resolver(빈 config repo mock) → resolve=MIDDLE effective(non-null, toView 동작). doc/34 일관.
     private final EffectiveClassificationResolver resolver = new EffectiveClassificationResolver(
             mock(ClassificationConfigRepository.class), mock(DomainClassificationConfigRepository.class),
             new ObjectMapper());
-    private final DomainController controller = new DomainController(repo, specStore, scanRepo, resolver);
+    private final DomainController controller = new DomainController(repo, specStore, scanRepo,
+            specRepo, documentedApiRepo, discoveredRepo, resolver);
 
     @Test
     void createNormalizesHostBeforeSave() {
@@ -119,6 +126,11 @@ class DomainControllerTest {
         controller.delete("EXAMPLE.com"); // 대문자 경로 → 정규화 키로 삭제
 
         verify(repo).existsById("example.com");
+        // cascade(D89): 연계 테이블도 정규화 키로 삭제(고아 방지)
+        verify(specRepo).deleteByHost("example.com");
+        verify(documentedApiRepo).deleteByHost("example.com");
+        verify(discoveredRepo).deleteByHost("example.com");
+        verify(scanRepo).deleteByHost("example.com");
         verify(repo).deleteById("example.com");
     }
 

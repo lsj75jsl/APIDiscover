@@ -6,13 +6,17 @@ import com.pentasecurity.apidiscover.api.dto.DomainDtos.DomainUpsert;
 import com.pentasecurity.apidiscover.api.dto.DomainDtos.DomainView;
 import com.pentasecurity.apidiscover.api.dto.DomainDtos.SpecMetaView;
 import com.pentasecurity.apidiscover.classify.EffectiveClassificationResolver;
+import com.pentasecurity.apidiscover.domain.DiscoveredEndpointRepository;
+import com.pentasecurity.apidiscover.domain.DocumentedApiRepository;
 import com.pentasecurity.apidiscover.domain.DomainConfig;
 import com.pentasecurity.apidiscover.domain.DomainConfigRepository;
 import com.pentasecurity.apidiscover.domain.ScanResult;
 import com.pentasecurity.apidiscover.domain.ScanResultRepository;
+import com.pentasecurity.apidiscover.domain.SpecRecordRepository;
 import com.pentasecurity.apidiscover.model.SpecMergeStrategy;
 import com.pentasecurity.apidiscover.spec.SpecStore;
 import com.pentasecurity.apidiscover.util.DomainNames;
+import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -39,13 +43,21 @@ public class DomainController {
     private final DomainConfigRepository repo;
     private final SpecStore specStore;
     private final ScanResultRepository scanRepo;
+    private final SpecRecordRepository specRepo;
+    private final DocumentedApiRepository documentedApiRepo;
+    private final DiscoveredEndpointRepository discoveredRepo;
     private final EffectiveClassificationResolver classificationResolver;
 
     public DomainController(DomainConfigRepository repo, SpecStore specStore,
-                            ScanResultRepository scanRepo, EffectiveClassificationResolver classificationResolver) {
+                            ScanResultRepository scanRepo, SpecRecordRepository specRepo,
+                            DocumentedApiRepository documentedApiRepo, DiscoveredEndpointRepository discoveredRepo,
+                            EffectiveClassificationResolver classificationResolver) {
         this.repo = repo;
         this.specStore = specStore;
         this.scanRepo = scanRepo;
+        this.specRepo = specRepo;
+        this.documentedApiRepo = documentedApiRepo;
+        this.discoveredRepo = discoveredRepo;
         this.classificationResolver = classificationResolver;
     }
 
@@ -113,13 +125,24 @@ public class DomainController {
         return toView(d);
     }
 
+    /**
+     * 도메인 삭제 — 연계 데이터까지 cascade 제거(D89). host 로 묶인 별개 테이블(spec_record·documented_api·
+     * discovered_endpoint·scan_result)은 FK cascade 가 없어 domain_config 만 지우면 고아로 남았다(D88 후속).
+     * 한 트랜잭션으로 전부 삭제 → 삭제 후 재등록 시 옛 스펙/인벤토리/검출/결과가 되살아나지 않는다.
+     * (domain_hostnames 는 DomainConfig @ElementCollection 이라 domain_config 삭제 시 자동 정리.)
+     */
+    @Transactional
     @DeleteMapping("/{host}")
     public ResponseEntity<Void> delete(@PathVariable String host) {
         String key = requireNormalizedHost(host); // 경로 host 정규화(등록 정규화 일관)
         if (!repo.existsById(key)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         }
-        repo.deleteById(key);
+        specRepo.deleteByHost(key);          // 스펙 문서/버전
+        documentedApiRepo.deleteByHost(key); // 문서화 API 인벤토리
+        discoveredRepo.deleteByHost(key);    // 검출 endpoint 카탈로그
+        scanRepo.deleteByHost(key);          // 스캔 결과(report_json)
+        repo.deleteById(key);                // 도메인 설정(+hostnames 자동)
         return ResponseEntity.noContent().build();
     }
 

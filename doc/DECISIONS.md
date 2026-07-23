@@ -759,6 +759,12 @@ gap-free 크롤은 활성 수요(~22.6k 윈도우/h) vs 예산 용량(D65 후 ~7
 - **테스트**: reconcile/인벤토리 테스트의 CSV 업로드를 OpenAPI 로 전환(`csv()`→`oas()` OpenAPI 생성 헬퍼, row 형식 유지·파일명 .csv→.json). `ThreeFormatEquivalenceTest`→`TwoFormatEquivalenceTest`(OpenAPI↔Postman). body param 은 OpenAPI requestBody→SpecParam name="body"(CSV 는 토큰명) 차이 있으나 어떤 단언도 미참조라 무영향. build green **567**(실패 0).
 - **관련**: doc/03(포맷), doc/14 D21(canonical 동일성), D70(Swagger=OpenAPI 2.0).
 
+### D89. DELETE /domains cascade — 연계 host-keyed 데이터 함께 삭제 (2026-07-23, 사용자 요청)
+- **배경**: `DELETE /domains/{host}` 가 `domain_config`(+`domain_hostnames` @ElementCollection 자동)만 지우고, host 로 묶인 **별개 테이블**(`spec_record`·`documented_api`·`discovered_endpoint`·`scan_result`)은 FK cascade 가 없어 **고아**로 남았다(D88 Swagger 업로드 테스트 정리 중 발견 — DELETE 후 spec_record·documented_api 잔존). 삭제 후 재등록 시 옛 스펙/인벤토리/검출/결과가 되살아나는 문제.
+- **결정**: 4개 리포지토리에 `@Transactional void deleteByHost(String)` 추가, `DomainController.delete` 를 `@Transactional` 로 만들어 spec_record·documented_api·discovered_endpoint·scan_result·domain_config 를 **한 트랜잭션에 원자 삭제**. (domain_hostnames 는 @ElementCollection 이라 자동.)
+- **테스트**: `DomainControllerTest` cascade 호출 verify + `PostgresIntegrationTest` 실 PG cascade(사전 존재→DELETE 204→전부 제거 확인). build green **568**.
+- **관련**: D88(CSV 제거 검증 중 발견), doc/07 §3.1.
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.

@@ -22,4 +22,8 @@ public interface DiscoveredEndpointRepository extends JpaRepository<DiscoveredEn
     /** retention prune — stale(lastSeen < cutoff) 삭제(스캐너 noise 누적 방지, doc/26 §2). */
     @Transactional
     void deleteByHostAndLastSeenBefore(String host, Instant cutoff);
+
+    /** 도메인 삭제 cascade — host 의 모든 검출 endpoint 제거(D89). */
+    @Transactional
+    void deleteByHost(String host);
 }
