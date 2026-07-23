@@ -5,6 +5,22 @@
 
 ---
 
+## 2026-07-23 세션 — 매뉴얼·소스주석 API 싱크 (사용자 요청)
+
+### 한 일
+전 매뉴얼을 이번 세션 API 변경(D84 개명·D85 /discovery 분리·D86 count/items)과 D79(가중치 14→18) 기준으로 정합화.
+- **api-discovery-manual §4.3** — ① effectiveClassification·② rationale/signals 를 `/discovery/detail` 소속으로 교정(요약 `/discovery` 엔 없음), `signals`·`rationale` `{count,items}`, pathless 신호 13→17, preset 표 4신호 추가(14→18)+DORMANT 주석, §4.2 제목 "14개"→"18(핵심14+요청4)", `/result`→`/scan-result/detail`(§7·D49/D55).
+- **api-rest-manual** — weights 예시 5곳 18키, signals count 17, descriptions 16→20, `object(14키)`→18, `findings[i]`→`findings.items[i]`, 잔여 `/discovery`→`/discovery/detail`.
+- **db-schema-spec** — report_json 컬럼 `/result`→`/scan-result/detail`.
+- **소스 주석** — `ScoringWeightCatalog`(3곳)·`ApiScorer`(1곳)의 "14 weight/필드명"→18(동작 무관 주석).
+- 나머지 4개 매뉴얼(collection-ops·deploy-verify·domain-status·scan-tick)=이 API 미문서화, 해당 없음.
+- 검증: 전 매뉴얼 stale 0·HTML 균형·JSON 유효·앵커 정상·compileJava OK.
+
+### 다음 단계
+- 문서/주석 전용(동작 무관·배포 불요). 커밋·푸시.
+
+---
+
 ## 2026-07-23 세션 — 경로 정규화 숫자ID(라벨)→{id} (D87) + brand-zones 분석 (사용자 요청)
 
 ### 한 일

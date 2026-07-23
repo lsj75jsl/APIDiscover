@@ -1,4 +1,4 @@
-// API 판단 스코어링 신호(14 weight + threshold + repeatMinCount)의 의미 설명 정적 사전 (ko/en, doc/39 D78)
+// API 판단 스코어링 신호(18 weight + threshold + repeatMinCount)의 의미 설명 정적 사전 (ko/en, doc/39 D78)
 package com.pentasecurity.apidiscover.classify;
 
 import java.util.Collections;
@@ -7,14 +7,14 @@ import java.util.Map;
 
 /**
  * 분류설정 조회 응답의 {@code descriptions} 블록 단일 진실원. 값은 순수 숫자로 두고(쓰기 바디 호환) 의미는 여기서만 관리.
- * 키 = {@link ApiScorer#WEIGHT_KEYS}(14) ∪ {@code threshold}·{@code repeatMinCount}. 매뉴얼(한글) 문구와 일치시킨다.
+ * 키 = {@link ApiScorer#WEIGHT_KEYS}(18) ∪ {@code threshold}·{@code repeatMinCount}. 매뉴얼(한글) 문구와 일치시킨다.
  */
 public final class ScoringWeightCatalog {
 
     /** 신호 의미 한 줄 설명(한국어/영어). */
     public record Description(String ko, String en) {}
 
-    /** 조회 응답용 불변 사전(선언 순서 유지 = threshold·repeatMinCount 먼저, 이후 14 weight). */
+    /** 조회 응답용 불변 사전(선언 순서 유지 = threshold·repeatMinCount 먼저, 이후 18 weight). */
     public static final Map<String, Description> ALL = build();
 
     private ScoringWeightCatalog() {
