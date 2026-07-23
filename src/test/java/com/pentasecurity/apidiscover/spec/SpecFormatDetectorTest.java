@@ -24,12 +24,6 @@ class SpecFormatDetectorTest {
     }
 
     @Test
-    void detectsCsvByHeader() {
-        String csv = "method,path,host,deprecated\nGET,/users/{id},api.example.com,false\n";
-        assertThat(detector.detect(bytes(csv))).isEqualTo(SpecFormat.CSV);
-    }
-
-    @Test
     void detectsPostmanBySchema() {
         String json = """
                 { "info": { "name": "x",

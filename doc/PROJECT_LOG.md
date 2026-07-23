@@ -5,6 +5,20 @@
 
 ---
 
+## 2026-07-23 세션 — CSV 스펙 입력 포맷 제거 (D88) + Postman 유지 결정 (사용자 요청)
+
+### 한 일
+- **결정**: 지원 스펙 포맷에서 CSV 제거, Postman 유지(사용자 확정). Swagger 는 이미 OpenAPI 2.0 로 지원(D70)이라 추가 불요 — 사용자에게 이 점 설명.
+- **코드**(서브에이전트): `SpecFormat.CSV`·`CsvSpecParser` 삭제, `SpecFormatDetector` CSV 감지(`looksLikeCsv`) 제거(→400), 주석(CanonicalEndpoint·SpecNormalize) "3종→2종". `SpecStore` 무변경(제네릭).
+- **테스트**(서브에이전트): `CsvSpecParserTest` 삭제, `SpecFormatDetectorTest` CSV 케이스 제거, `ThreeFormatEquivalenceTest`→`TwoFormatEquivalenceTest`, `PostgresIntegrationTest` reconcile 의 CSV 업로드를 OpenAPI 로 전환(`csv()`→`oas()` OpenAPI 생성 헬퍼·row 형식 유지·.csv→.json·specName 단언). body param 은 name="body" 차이 있으나 단언 미참조라 무영향. **build green 567**(실패 0).
+- **매뉴얼**: 스펙 입력 CSV 언급 정리(api-discovery §개요·D2·api-rest §2.4·format 표·db-schema format 컬럼) — ★CLI 결과 export CSV(collection-ops·deploy-verify)는 유지. 잔존 스펙-CSV 0.
+- **안전 확인**: 운영 `spec_record` **0행** → CSV enum 제거해도 기존 행 역직렬화 문제 없음(배포 무위험).
+
+### 다음 단계
+- ★behavior change(CSV 업로드→400). 커밋·배포 대기. 배포 시 새 스캔·업로드부터 반영.
+
+---
+
 ## 2026-07-23 세션 — 매뉴얼·소스주석 API 싱크 (사용자 요청)
 
 ### 한 일

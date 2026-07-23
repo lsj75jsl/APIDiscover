@@ -63,6 +63,7 @@
 > (현재 비어 있음 — 스코어링 정책 조회 강화(D78, effective 노출·threshold 분리·descriptions·매뉴얼) 완료, Done 참조)
 
 #### 스펙 파서 / Spec Store (03 문서)
+- [x] **CSV 스펙 입력 포맷 제거 + 지원 포맷 명세 (D88)** **(구현·테스트·매뉴얼 완료 — build green 567·커밋/배포 대기. 사용자 요청)** — `SpecFormat.CSV`·`CsvSpecParser`·detector CSV 감지 제거(업로드 시 400). 지원 = OpenAPI(Swagger 2.0+3.0/3.1·JSON/YAML) + Postman v2.x. ★CLI export CSV 는 유지. reconcile 테스트 CSV→OpenAPI 전환(csv()→oas()), ThreeFormat→TwoFormatEquivalence. 매뉴얼(api-discovery·api-rest·db-schema) 스펙 CSV 언급 정리. 운영 spec_record 0행이라 enum 제거 무위험. → D88.
 > (현재 비어 있음 — 검출/업로드 데이터 모델 통합 + 멀티 스펙 병합 완료, Done 참조)
 > 후속(P4·선택): `/discovered`·`/spec` 원 카탈로그 list REST 중앙 노출 — 결합 뷰 `/discovery` 로 자체조회 충족, 중앙 노출은 외부연동(P4) 시.
 

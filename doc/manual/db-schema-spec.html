@@ -412,7 +412,7 @@
     <tr><td class="col">host</td><td class="t">VARCHAR(255)</td><td><span class="nl">null</span></td><td>논리 FK → <code>domain_config.host</code>.</td></tr>
     <tr><td class="col">spec_name</td><td class="t">VARCHAR(255)</td><td><span class="nl">null</span></td><td>host 내 문서 식별(멀티 스펙). null → <code>"default"</code> 로 해석. <code>filename</code> 정규화로 도출.</td></tr>
     <tr><td class="col">filename</td><td class="t">VARCHAR(255)</td><td><span class="nl">null</span></td><td>원본 파일명(<code>PUT /spec ?filename=</code>). <code>spec_name</code> 도출 근거. 기존행·미전달 null (M7 재설계, doc/37).</td></tr>
-    <tr><td class="col">format</td><td class="t">VARCHAR(255) enum</td><td><span class="nl">null</span></td><td><code>OPENAPI</code>/<code>POSTMAN</code>/<code>CSV</code>.</td></tr>
+    <tr><td class="col">format</td><td class="t">VARCHAR(255) enum</td><td><span class="nl">null</span></td><td><code>OPENAPI</code>(Swagger 2.0 포함)/<code>POSTMAN</code>. (CSV 는 지원 중단)</td></tr>
     <tr><td class="col">spec_version</td><td class="t">BIGINT</td><td><span class="nn">NN</span></td><td>도메인별 증가 버전.</td></tr>
     <tr><td class="col"><s>raw_doc</s></td><td class="t">oid</td><td><span class="nl">제거됨</span></td><td>★엔티티 매핑 <strong>제거됨(orphan)</strong> — M7 재설계 P1(doc/37 §7)에서 <code>SpecRecord.rawDoc</code>(<code>@Lob byte[]</code>=PostgreSQL oid) 삭제(저장 전용·read 0·oid auto-commit 버그 3건의 근원). <code>ddl-auto</code> 가 컬럼을 DROP 하지 않아 ops DROP(<code>lo_unlink</code>→<code>DROP COLUMN</code>) 전까지 orphan 잔존(무해).</td></tr>
     <tr><td class="col">canonical_json</td><td class="t">text</td><td><span class="nl">null</span></td><td>Canonical 엔드포인트 집합 JSON — <strong>스펙 매칭의 진실원</strong>.</td></tr>

@@ -1,4 +1,4 @@
-// 3종 포맷(OpenAPI/Postman/CSV)이 공통 변환되는 내부 엔드포인트 표현 (doc/03 §1, doc/37 §2 params 가산)
+// 2종 포맷(OpenAPI/Postman)이 공통 변환되는 내부 엔드포인트 표현 (doc/03 §1, doc/37 §2 params 가산)
 package com.pentasecurity.apidiscover.model;
 
 import java.util.List;
