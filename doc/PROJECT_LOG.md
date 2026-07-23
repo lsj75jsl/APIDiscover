@@ -5,6 +5,19 @@
 
 ---
 
+## 2026-07-23 세션 — 매뉴얼 UX: 개요 표 앵커 링크 + 확대(zoom) 기능 이식 (사용자 요청)
+
+### 한 일
+- **api-rest-manual §1 개요 표** — 25개 경로를 클릭 시 하단 해당 API 상세로 점프하도록 앵커 링크(상세 블록 19곳에 `id="ep-*"` 부여, 댕글링 0).
+- **확대(zoom/pan) 기능 이식** — api-discovery-manual 의 확대 모달(🔍 버튼·클릭 확대·휠 배율·드래그·ESC·안내 팁)을 5개 매뉴얼(api-rest·collection-ops·db-schema·deploy-verify·domain-status)에 이식. CSS 는 `var(--x, fallback)` 로 포팅(변수 미정의 매뉴얼 대응). scan-tick 은 이미 보유(제외), api-discovery 는 원본.
+- **확대 대상 보강** — 초기 `.mermaid,table,.formula,img` → 사용자 지적으로 `svg`(db-schema ER 인라인 SVG)·`.flow`(collection-ops CSS 플로우차트) 추가. 최종 대상: `.mermaid, .flow, table, .formula, img, svg`(mermaid/수식 내부 svg 는 가드로 중복 방지).
+- 검증: HTML 태그 균형·`node --check` 구문·모의 DOM 으로 `.flow` 확대 배선 실증. 사용자 실기기 확대 정상 확인.
+
+### 다음 단계
+- 문서 전용 변경(배포 무관). 커밋·푸시.
+
+---
+
 ## 2026-07-23 세션 — 응답 배열 전역 {count, items} 래핑 (D86)
 
 ### 한 일 (사용자 요청)
