@@ -69,6 +69,35 @@
   .ep .sig{font-size:15px; margin:12px 0 6px; display:flex; align-items:center; flex-wrap:wrap; gap:6px;}
   .ep .sig code{font-size:14px; color:#10204a; background:none; padding:0; font-weight:600;}
   a.dref{border-bottom:1px dotted currentColor;}
+  /* ── 확대(zoom) 기능 (공용, api-discovery-manual 이식) ──── */
+  .zoom-wrap{position:relative;}
+  .zoom-btn{position:absolute; top:10px; right:10px; z-index:6; background:var(--accent,#2563eb); color:#fff;
+    border:none; border-radius:7px; padding:5px 11px; font-size:12.5px; font-weight:600; cursor:pointer;
+    opacity:0; transition:opacity .15s; box-shadow:0 2px 6px rgba(0,0,0,.18);}
+  .zoom-wrap:hover > .zoom-btn, .zoom-btn:focus{opacity:1;}
+  @media(hover:none){.zoom-btn{opacity:.9;}}
+  .mermaid.zoomable, .flow.zoomable, .formula.zoomable, img.zoomable, svg.zoomable{cursor:zoom-in;}
+  .zoom-overlay{position:fixed; inset:0; z-index:1000; display:flex; flex-direction:column;
+    background:rgba(247,249,252,.975);}
+  .zoom-overlay[hidden]{display:none;}
+  .zoom-toolbar{display:flex; align-items:center; gap:8px; padding:10px 16px; background:#fff;
+    border-bottom:1px solid var(--line,#e3e7ee); box-shadow:0 1px 6px rgba(0,0,0,.06); flex-wrap:wrap;}
+  .zoom-toolbar button{background:var(--accent-soft,#eff4ff); color:#10204a; border:1px solid #cfe0ff;
+    border-radius:7px; padding:6px 13px; font-size:15px; line-height:1; cursor:pointer; font-weight:700;}
+  .zoom-toolbar button:hover{background:#dde9ff;}
+  .zoom-toolbar .zoom-level{min-width:60px; text-align:center; font-variant-numeric:tabular-nums; color:var(--muted,#5b6473); font-size:13px;}
+  .zoom-toolbar .zoom-hint{color:var(--muted,#5b6473); font-size:12.5px;}
+  .zoom-toolbar .sp{flex:1;}
+  .zoom-toolbar .zoom-close{background:#fdeceb; border-color:#f4cdc9; color:var(--red,#b91c1c);}
+  .zoom-stage{flex:1; overflow:auto; padding:28px; display:flex; align-items:flex-start; justify-content:center; cursor:grab;}
+  .zoom-stage.grabbing{cursor:grabbing;}
+  .zoom-content{transform-origin:center top; transition:transform .08s ease-out; width:92vw; max-width:1500px;}
+  .zoom-content svg{width:100% !important; max-width:none !important; height:auto !important;}
+  .zoom-content table{width:100%; font-size:16px; display:table; overflow:visible;}
+  .zoom-content .formula{font-size:21px; width:100%;}
+  .zoom-content img{width:100%; height:auto;}
+  .zoom-tip{background:var(--accent-soft,#eff4ff); border:1px solid #cfe0ff; border-radius:10px;
+    padding:10px 16px; margin:18px 0; font-size:13.5px; color:#10204a;}
 </style>
 </head>
 <body>
@@ -122,31 +151,31 @@
 <table>
   <thead><tr><th>메서드</th><th>경로</th><th>용도</th><th>Loki</th></tr></thead>
   <tbody>
-    <tr><td><span class="m m-get">GET</span></td><td><code>/domains</code></td><td>도메인 목록(페이지네이션)</td><td>DB</td></tr>
-    <tr><td><span class="m m-post">POST</span></td><td><code>/domains</code></td><td>도메인 등록(201)</td><td>DB</td></tr>
-    <tr><td><span class="m m-get">GET</span></td><td><code>/domains/{host}</code></td><td>도메인 상세(설정 + effective + spec)</td><td>DB</td></tr>
-    <tr><td><span class="m m-put">PUT</span></td><td><code>/domains/{host}</code></td><td>도메인 설정 부분수정</td><td>DB</td></tr>
-    <tr><td><span class="m m-del">DELETE</span></td><td><code>/domains/{host}</code></td><td>도메인 삭제(204)</td><td>DB</td></tr>
-    <tr><td><span class="m m-get">GET</span></td><td><code>/domains/{host}/scan-result</code></td><td>최신 스캔 상태·요약(+latestSpec·유형별 API 목록)</td><td>DB</td></tr>
-    <tr><td><span class="m m-get">GET</span></td><td><code>/domains/{host}/scan-result/detail</code></td><td>전체 리포트(+판단근거 인라인 · 조건부 GET)</td><td>DB</td></tr>
-    <tr><td><span class="m m-post">POST</span></td><td><code>/domains/{host}/scan</code></td><td>온디맨드 재스캔(비동기 202)</td><td><span class="loki">⚠️ Loki</span></td></tr>
-    <tr><td><span class="m m-post">POST</span></td><td><code>/domains/{host}/scan-now</code></td><td>즉시 동기 스캔(결과 반환)</td><td><span class="loki">⚠️ Loki</span></td></tr>
-    <tr><td><span class="m m-get">GET</span></td><td><code>/domains/{host}/discovery</code></td><td>총 알려진 API 요약(유형별 카운트·목록)</td><td>DB</td></tr>
-    <tr><td><span class="m m-get">GET</span></td><td><code>/domains/{host}/discovery/detail</code></td><td>총 알려진 API 상세정보(findings+판단근거)</td><td>DB</td></tr>
-    <tr><td><span class="m m-put">PUT</span></td><td><code>/domains/{host}/spec</code></td><td>스펙 업로드(<code>?filename</code>)</td><td>DB</td></tr>
-    <tr><td><span class="m m-get">GET</span></td><td><code>/domains/{host}/spec</code></td><td>활성 스펙 목록(배열, specName별)</td><td>DB</td></tr>
-    <tr><td><span class="m m-get">GET</span></td><td><code>/domains/{host}/spec/apis</code></td><td>문서화 API 인벤토리(파라미터·상태)</td><td>DB</td></tr>
-    <tr><td><span class="m m-get">GET</span></td><td><code>/classification</code></td><td>전역 분류 설정</td><td>DB</td></tr>
-    <tr><td><span class="m m-put">PUT</span></td><td><code>/classification</code></td><td>전역 분류 설정 수정</td><td>DB</td></tr>
-    <tr><td><span class="m m-patch">PATCH</span></td><td><code>/classification/weights</code></td><td>전역 가중치 부분편집(→CUSTOM)</td><td>DB</td></tr>
-    <tr><td><span class="m m-get">GET</span></td><td><code>/domains/{host}/classification</code></td><td>도메인 분류 설정(override + effective)</td><td>DB</td></tr>
-    <tr><td><span class="m m-put">PUT</span></td><td><code>/domains/{host}/classification</code></td><td>도메인 override 수정</td><td>DB</td></tr>
-    <tr><td><span class="m m-patch">PATCH</span></td><td><code>/domains/{host}/classification/weights</code></td><td>도메인 가중치 부분편집(→CUSTOM)</td><td>DB</td></tr>
-    <tr><td><span class="m m-get">GET</span></td><td><code>/config/static-classify</code></td><td>정적 분류 규칙 목록(확장자·파일명 토큰)</td><td>DB</td></tr>
-    <tr><td><span class="m m-post">POST</span></td><td><code>/config/static-classify</code></td><td>규칙 추가(201)</td><td>DB</td></tr>
-    <tr><td><span class="m m-del">DELETE</span></td><td><code>/config/static-classify/{kind}/{value}</code></td><td>규칙 삭제(204)</td><td>DB</td></tr>
-    <tr><td><span class="m m-post">POST</span></td><td><code>/config/static-classify/reload</code></td><td>DB 규칙 재적용</td><td>DB</td></tr>
-    <tr><td><span class="m m-get">GET</span></td><td><code>/actuator/health</code></td><td>헬스체크</td><td>DB</td></tr>
+    <tr><td><span class="m m-get">GET</span></td><td><a href="#ep-get-domains"><code>/domains</code></a></td><td>도메인 목록(페이지네이션)</td><td>DB</td></tr>
+    <tr><td><span class="m m-post">POST</span></td><td><a href="#ep-post-domains"><code>/domains</code></a></td><td>도메인 등록(201)</td><td>DB</td></tr>
+    <tr><td><span class="m m-get">GET</span></td><td><a href="#ep-get-domain"><code>/domains/{host}</code></a></td><td>도메인 상세(설정 + effective + spec)</td><td>DB</td></tr>
+    <tr><td><span class="m m-put">PUT</span></td><td><a href="#ep-put-delete-domain"><code>/domains/{host}</code></a></td><td>도메인 설정 부분수정</td><td>DB</td></tr>
+    <tr><td><span class="m m-del">DELETE</span></td><td><a href="#ep-put-delete-domain"><code>/domains/{host}</code></a></td><td>도메인 삭제(204)</td><td>DB</td></tr>
+    <tr><td><span class="m m-get">GET</span></td><td><a href="#ep-get-scan-result"><code>/domains/{host}/scan-result</code></a></td><td>최신 스캔 상태·요약(+latestSpec·유형별 API 목록)</td><td>DB</td></tr>
+    <tr><td><span class="m m-get">GET</span></td><td><a href="#ep-get-scan-result-detail"><code>/domains/{host}/scan-result/detail</code></a></td><td>전체 리포트(+판단근거 인라인 · 조건부 GET)</td><td>DB</td></tr>
+    <tr><td><span class="m m-post">POST</span></td><td><a href="#ep-post-scan"><code>/domains/{host}/scan</code></a></td><td>온디맨드 재스캔(비동기 202)</td><td><span class="loki">⚠️ Loki</span></td></tr>
+    <tr><td><span class="m m-post">POST</span></td><td><a href="#ep-post-scan-now"><code>/domains/{host}/scan-now</code></a></td><td>즉시 동기 스캔(결과 반환)</td><td><span class="loki">⚠️ Loki</span></td></tr>
+    <tr><td><span class="m m-get">GET</span></td><td><a href="#ep-get-discovery"><code>/domains/{host}/discovery</code></a></td><td>총 알려진 API 요약(유형별 카운트·목록)</td><td>DB</td></tr>
+    <tr><td><span class="m m-get">GET</span></td><td><a href="#ep-get-discovery-detail"><code>/domains/{host}/discovery/detail</code></a></td><td>총 알려진 API 상세정보(findings+판단근거)</td><td>DB</td></tr>
+    <tr><td><span class="m m-put">PUT</span></td><td><a href="#ep-spec"><code>/domains/{host}/spec</code></a></td><td>스펙 업로드(<code>?filename</code>)</td><td>DB</td></tr>
+    <tr><td><span class="m m-get">GET</span></td><td><a href="#ep-spec"><code>/domains/{host}/spec</code></a></td><td>활성 스펙 목록(배열, specName별)</td><td>DB</td></tr>
+    <tr><td><span class="m m-get">GET</span></td><td><a href="#ep-get-spec-apis"><code>/domains/{host}/spec/apis</code></a></td><td>문서화 API 인벤토리(파라미터·상태)</td><td>DB</td></tr>
+    <tr><td><span class="m m-get">GET</span></td><td><a href="#ep-classification"><code>/classification</code></a></td><td>전역 분류 설정</td><td>DB</td></tr>
+    <tr><td><span class="m m-put">PUT</span></td><td><a href="#ep-classification"><code>/classification</code></a></td><td>전역 분류 설정 수정</td><td>DB</td></tr>
+    <tr><td><span class="m m-patch">PATCH</span></td><td><a href="#ep-weights"><code>/classification/weights</code></a></td><td>전역 가중치 부분편집(→CUSTOM)</td><td>DB</td></tr>
+    <tr><td><span class="m m-get">GET</span></td><td><a href="#ep-domain-classification"><code>/domains/{host}/classification</code></a></td><td>도메인 분류 설정(override + effective)</td><td>DB</td></tr>
+    <tr><td><span class="m m-put">PUT</span></td><td><a href="#ep-domain-classification"><code>/domains/{host}/classification</code></a></td><td>도메인 override 수정</td><td>DB</td></tr>
+    <tr><td><span class="m m-patch">PATCH</span></td><td><a href="#ep-weights"><code>/domains/{host}/classification/weights</code></a></td><td>도메인 가중치 부분편집(→CUSTOM)</td><td>DB</td></tr>
+    <tr><td><span class="m m-get">GET</span></td><td><a href="#ep-get-static-classify"><code>/config/static-classify</code></a></td><td>정적 분류 규칙 목록(확장자·파일명 토큰)</td><td>DB</td></tr>
+    <tr><td><span class="m m-post">POST</span></td><td><a href="#ep-post-delete-static-classify"><code>/config/static-classify</code></a></td><td>규칙 추가(201)</td><td>DB</td></tr>
+    <tr><td><span class="m m-del">DELETE</span></td><td><a href="#ep-post-delete-static-classify"><code>/config/static-classify/{kind}/{value}</code></a></td><td>규칙 삭제(204)</td><td>DB</td></tr>
+    <tr><td><span class="m m-post">POST</span></td><td><a href="#ep-static-classify-reload"><code>/config/static-classify/reload</code></a></td><td>DB 규칙 재적용</td><td>DB</td></tr>
+    <tr><td><span class="m m-get">GET</span></td><td><a href="#ep-get-health"><code>/actuator/health</code></a></td><td>헬스체크</td><td>DB</td></tr>
   </tbody>
 </table>
 <p class="legend">아래 실제 응답은 라이브 재배포(<code>c435d9f</code>, 전역 도메인 <strong>45,592건</strong>)에서 캡처한 것이다. 예시 도메인 <code>api.weble.net</code> 은 api 서브도메인이며 스펙이 없어 검출이 전부 Shadow 다.</p>
@@ -163,7 +192,7 @@
 <h3 id="s2-1">2.1 도메인 인벤토리 — <code>/api/v1/domains</code></h3>
 
 <div class="ep">
-  <div class="sig"><span class="m m-get">GET</span><code>/api/v1/domains</code></div>
+  <div class="sig" id="ep-get-domains"><span class="m m-get">GET</span><code>/api/v1/domains</code></div>
   <p><strong>페이지네이션</strong> 도메인 목록. 응답 body 는 JSON 배열(각 원소는 경량 <code>DomainView</code>)이고, <strong>페이지 정보는 응답 헤더</strong>에 실린다. 파라미터 <code>?page</code>(0-based, 기본 0)·<code>?size</code>(기본 1000, 범위 <code>[1,1000]</code>). host 오름차순 정렬(결정적).</p>
   <pre><code>curl -i 'http://&lt;host&gt;:8080/api/v1/domains?page=0&amp;size=2'</code></pre>
   <pre><code># 응답 헤더
@@ -196,7 +225,7 @@ X-Current-Page: 0
 </div>
 
 <div class="ep">
-  <div class="sig"><span class="m m-post">POST</span><code>/api/v1/domains</code></div>
+  <div class="sig" id="ep-post-domains"><span class="m m-post">POST</span><code>/api/v1/domains</code></div>
   <p>도메인 등록. host 는 정규화(소문자·trim)되며 이미 있으면 <code>409 Conflict</code>. 성공 시 <code>201 Created</code> + 등록된 <code>DomainView</code>. (CLI(Command-Line Interface) <code>-domain -register</code> 로도 등록 가능.)</p>
   <pre><code>curl -X POST http://&lt;host&gt;:8080/api/v1/domains \
   -H 'Content-Type: application/json' \
@@ -205,7 +234,7 @@ X-Current-Page: 0
 </div>
 
 <div class="ep">
-  <div class="sig"><span class="m m-get">GET</span><code>/api/v1/domains/{host}</code></div>
+  <div class="sig" id="ep-get-domain"><span class="m m-get">GET</span><code>/api/v1/domains/{host}</code></div>
   <p>한 도메인의 <strong>상세</strong>(<code>DomainDetailView</code>). 목록(경량)과 달리 <code>lastScanAt</code> 과 <strong>도메인 현재 effective 설정</strong>(<code>effectiveClassification</code>)·활성 스펙 메타(<code>spec</code>)까지 보강해 준다. <strong>활동 상태 3필드</strong>도 포함한다 — <code>activityStatus</code>(<code>ACTIVE</code>/<code>INACTIVE</code>, 7일 무요청 자동 강등, <a class="dref" href="#d82">D82</a>)·<code>activityStatusChangedAt</code>(마지막 전이 시각, 미전이 시 null)·<code>ghostSuppressed</code>(유령 억제 여부, 가역, <a class="dref" href="#d83">D83</a>). 스캔 대상 = <code>enabled AND activityStatus=ACTIVE AND NOT ghostSuppressed</code>.</p>
   <pre><code>curl http://&lt;host&gt;:8080/api/v1/domains/api.weble.net</code></pre>
   <pre><code>{
@@ -244,7 +273,7 @@ X-Current-Page: 0
 </div>
 
 <div class="ep">
-  <div class="sig"><span class="m m-put">PUT</span><code>/api/v1/domains/{host}</code> &nbsp;·&nbsp; <span class="m m-del">DELETE</span><code>/api/v1/domains/{host}</code></div>
+  <div class="sig" id="ep-put-delete-domain"><span class="m m-put">PUT</span><code>/api/v1/domains/{host}</code> &nbsp;·&nbsp; <span class="m m-del">DELETE</span><code>/api/v1/domains/{host}</code></div>
   <p><strong>PUT</strong> 은 <strong>부분 수정</strong>(PATCH 의미)이다 — body 에 <strong>전달한 필드만</strong> 반영하고 미전달 필드는 기존값을 유지한다. 전 항목을 다 보낼 필요가 없다. <strong>DELETE</strong> 는 삭제 후 <code>204 No Content</code>(없으면 404).</p>
   <pre><code># 부분 수정 — enabled 만 비활성으로 (나머지 설정은 그대로 유지)
 curl -X PUT http://&lt;host&gt;:8080/api/v1/domains/api.weble.net \
@@ -261,7 +290,7 @@ curl -X DELETE http://&lt;host&gt;:8080/api/v1/domains/api.weble.net   # → 204
 <h3 id="s2-2">2.2 스캔 상태 · 결과 · 즉시 스캔 — <code>/scan-result</code> · <code>/scan-result/detail</code> · <code>/scan</code> · <code>/scan-now</code></h3>
 
 <div class="ep">
-  <div class="sig"><span class="m m-get">GET</span><code>/api/v1/domains/{host}/scan-result</code></div>
+  <div class="sig" id="ep-get-scan-result"><span class="m m-get">GET</span><code>/api/v1/domains/{host}/scan-result</code></div>
   <p>상태 메타 + <strong>유형별 API 목록</strong>. 중앙 서버가 <code>version</code>·<code>lastScanAt</code> 만 비교해 결과 재조회 여부를 결정한다. <code>latestSpec</code> 은 최근 업로드된 활성 스펙 요약(파일명·업로드 일시·파일에서 추출한 API 수)이며 스펙이 없으면 null. <code>apis</code> 는 이번 스캔 리포트의 finding 을 유형별로 나열한 목록(아래)이다. <code>summary</code> 카운트 의미는 <a href="#s2-3">§2.3</a>·DB 스키마 매뉴얼 참조.</p>
   <pre><code>curl http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/scan-result</code></pre>
   <pre><code>{
@@ -299,7 +328,7 @@ curl -X DELETE http://&lt;host&gt;:8080/api/v1/domains/api.weble.net   # → 204
 </div>
 
 <div class="ep">
-  <div class="sig"><span class="m m-get">GET</span><code>/api/v1/domains/{host}/scan-result/detail</code></div>
+  <div class="sig" id="ep-get-scan-result-detail"><span class="m m-get">GET</span><code>/api/v1/domains/{host}/scan-result/detail</code></div>
   <p>스캔 전체 리포트(<code>DiscoveryReport</code> JSON). <strong>조건부 GET 대상</strong> — <code>ETag</code> 응답 헤더에 <code>version</code> 이 실린다(<a href="#s3">§3</a>). 아직 완료된 스캔이 없으면 <code>204 No Content</code>. <strong>200 응답에는 판단 근거가 각 finding 에 인라인</strong>된다 — 매칭되는 <code>findings[i]</code> 마다 <code>classification</code>·<code>basis</code>(<a href="#s2-3">§2.3</a> 의 <code>/discovery</code> rationale 와 동일 shape)가 가산되고, <code>reason</code> 은 <code>classification</code> 뒤로 재배치된다(별도 top-level <code>rationale[]</code> 배열은 없다. basis shape 는 <a href="#s2-3">§2.3</a> <code>/discovery/detail</code> rationale 와 동일). 기존 <code>report_json</code> 필드 값은 불변이라 중앙 조건부 GET 은 깨지지 않는다.</p>
   <pre><code>curl -i http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/scan-result/detail</code></pre>
   <p>응답 본문 상위 키와 핵심 부분(트림). 각 finding 에 <code>classification</code>·<code>reason</code>·<code>basis</code> 가 <code>classification</code> 뒤 순서로 정렬된다.</p>
@@ -364,13 +393,13 @@ curl -X DELETE http://&lt;host&gt;:8080/api/v1/domains/api.weble.net   # → 204
 </div>
 
 <div class="ep">
-  <div class="sig"><span class="m m-post">POST</span><code>/api/v1/domains/{host}/scan</code> <span class="loki">⚠️ Loki</span></div>
+  <div class="sig" id="ep-post-scan"><span class="m m-post">POST</span><code>/api/v1/domains/{host}/scan</code> <span class="loki">⚠️ Loki</span></div>
   <p>온디맨드 재스캔 트리거(<strong>비동기</strong>). <strong>운영 Loki 를 호출</strong>하므로 남발 금지. 즉시 <code>202 Accepted</code> 만 반환하고 결과는 따로 <code>/scan-result</code>·<code>/scan-result/detail</code> 로 조회한다(<a href="#s5">비동기 큐잉은 TODO</a>). 즉시 결과가 필요하면 아래 <code>/scan-now</code>. ★수동 스캔은 <code>activity_status</code> 를 <strong>ACTIVE 로 승격</strong>(무접속 INACTIVE 였어도 주기 스캔 대상 재포함, <a class="dref" href="#d82">D82</a>)하고 <code>ghost_suppressed</code> 를 <strong>해제</strong>(유령 억제 복구, <a class="dref" href="#d83">D83</a>)한다(<code>markActive</code>).</p>
   <pre><code>curl -i -X POST http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/scan   # → 202 Accepted</code></pre>
 </div>
 
 <div class="ep">
-  <div class="sig"><span class="m m-post">POST</span><code>/api/v1/domains/{host}/scan-now</code> <span class="loki">⚠️ Loki</span></div>
+  <div class="sig" id="ep-post-scan-now"><span class="m m-post">POST</span><code>/api/v1/domains/{host}/scan-now</code> <span class="loki">⚠️ Loki</span></div>
   <p>즉시 <strong>동기</strong> 스캔. Loki 를 호출해 스캔을 끝낸 뒤 <strong>결합 결과(findings + rationale + effectiveClassification)</strong>를 바로 반환한다(<a href="#s2-3">§2.3 <code>/discovery/detail</code></a> 와 동일 shape). 미등록 도메인이면 <strong>자동 등록(enabled=true) 후 스캔</strong>한다. 파라미터 <code>?window</code>(ISO-8601 Duration, 기본/상한 = <code>scan.max-window</code>). ★<code>/scan</code> 과 동일하게 <code>activity_status</code> → <strong>ACTIVE 승격</strong>(<a class="dref" href="#d82">D82</a>) + <code>ghost_suppressed</code> → <strong>해제</strong>(<a class="dref" href="#d83">D83</a>)한다 — 무접속·유령 억제 도메인을 다시 스캔·주기 대상으로 되돌리는 경로.</p>
   <pre><code>curl -X POST 'http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/scan-now?window=PT1H'</code></pre>
   <div class="callout warn">
@@ -383,7 +412,7 @@ curl -X DELETE http://&lt;host&gt;:8080/api/v1/domains/api.weble.net   # → 204
 <h3 id="s2-3">2.3 총 알려진 API — <code>/discovery</code>(요약) · <code>/discovery/detail</code>(상세)</h3>
 
 <div class="ep">
-  <div class="sig"><span class="m m-get">GET</span><code>/api/v1/domains/{host}/discovery</code></div>
+  <div class="sig" id="ep-get-discovery"><span class="m m-get">GET</span><code>/api/v1/domains/{host}/discovery</code></div>
   <p><strong>총 알려진 API 요약.</strong> 누적 검출 카탈로그(<code>discovered_endpoint</code>)와 스펙을 결합한 전체 API 를 <strong>유형별 카운트+목록</strong>으로 준다 — per-scan <a href="#s2-2"><code>/scan-result</code></a> 와 동형(<code>summary</code>+<code>apis</code>)이되, <strong>특정 스캔 창이 아니라 창 무관 누적</strong>이다. 엔드포인트별 판단 근거·도메인 설정 상세는 아래 <code>/discovery/detail</code>.</p>
   <pre><code>curl http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/discovery</code></pre>
   <pre><code>{
@@ -410,7 +439,7 @@ curl -X DELETE http://&lt;host&gt;:8080/api/v1/domains/api.weble.net   # → 204
 </div>
 
 <div class="ep">
-  <div class="sig"><span class="m m-get">GET</span><code>/api/v1/domains/{host}/discovery/detail</code></div>
+  <div class="sig" id="ep-get-discovery-detail"><span class="m m-get">GET</span><code>/api/v1/domains/{host}/discovery/detail</code></div>
   <p><strong>총 알려진 API 상세정보.</strong> 검출 카탈로그와 스펙을 결합한 결과다. 각 <code>findings[i]</code> 에 <strong>유형(<code>classification</code>: SHADOW/ACTIVE/ZOMBIE/UNUSED)</strong>이 인라인되고, 그 외에 <strong>도메인의 현재 설정(<code>effectiveClassification</code>)</strong>과 <strong>엔드포인트별 판단 근거(<code>rationale</code>, <code>findings</code> 와 동일 순서·병렬)</strong>가 함께 내려온다. 신호·가중치를 읽는 자세한 법은 <em>API 판독 매뉴얼 §4.3</em> 을 참조한다.</p>
   <pre><code>curl http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/discovery/detail</code></pre>
 
@@ -504,7 +533,7 @@ curl -X DELETE http://&lt;host&gt;:8080/api/v1/domains/api.weble.net   # → 204
 <p class="legend">문서화 API 인벤토리는 <strong>스펙 리소스 아래</strong>에 둔다 — <code>GET /spec</code>=업로드된 문서 목록, <code>GET /spec/apis</code>=그 문서들에서 파싱한 API. 관측 트래픽 기반 발견(discovery) 결과(<a href="#s2-2"><code>/scan-result/detail</code></a>·<a href="#s2-3"><code>/discovery</code></a>)와는 구분된다.</p>
 
 <div class="ep">
-  <div class="sig"><span class="m m-put">PUT</span><code>/api/v1/domains/{host}/spec</code> &nbsp;·&nbsp; <span class="m m-get">GET</span><code>/api/v1/domains/{host}/spec</code></div>
+  <div class="sig" id="ep-spec"><span class="m m-put">PUT</span><code>/api/v1/domains/{host}/spec</code> &nbsp;·&nbsp; <span class="m m-get">GET</span><code>/api/v1/domains/{host}/spec</code></div>
   <p><strong>PUT</strong> 은 스펙 원문(OpenAPI / Postman / CSV 바이트)을 <code>Content-Type: application/octet-stream</code> 본문으로 업로드한다. <code>?filename</code> 은 곧 <strong>문서 식별자(<code>specName</code>)로 도출</strong>된다 — 정규화(trim·소문자), 미전달/빈 = <code>"default"</code>. 서로 다른 filename = 별개 문서, 같은 filename 재업로드 = 그 문서의 새 버전이다.</p>
   <p>★업로드 시 파싱된 API 목록·파라미터가 <strong>영속 API 인벤토리(<code>documented_api</code>)</strong>에 <code>specName</code> 단위로 <strong>reconcile</strong> 된다 — 이미 있으면 파라미터·deprecated·version 변경 시 갱신(<code>UPDATED</code>), 신규면 추가(<code>ADDED</code>), 그 문서에서 빠지면 삭제 표시(<code>status=DELETED</code>, 행 보존). <strong>★다른 filename 문서는 건드리지 않는다(union)</strong>. 인벤토리 조회는 아래 <code>GET /spec/apis</code>.</p>
   <p><strong>GET</strong> 은 활성 스펙 문서 <strong>목록</strong>을 반환하며, 스펙이 없으면 <code>404</code> 가 아니라 <strong>빈 목록 <code>{ "count":0, "items":[] }</code>(200)</strong>이다. 각 문서는 <code>specName</code>·<code>filename</code>·<code>uploadedAt</code> 등을 포함한다.</p>
@@ -544,7 +573,7 @@ curl http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/spec   # → { "count
 </div>
 
 <div class="ep">
-  <div class="sig"><span class="m m-get">GET</span><code>/api/v1/domains/{host}/spec/apis</code></div>
+  <div class="sig" id="ep-get-spec-apis"><span class="m m-get">GET</span><code>/api/v1/domains/{host}/spec/apis</code></div>
   <p>도메인의 <strong>문서화된 API 인벤토리</strong>(파라미터·상태)다. 스펙 업로드마다 <strong>reconcile 로 영속·갱신</strong>되며(조회 시점 계산이 아니다), 문서에서 제거된 API 도 행을 보존(soft-delete)한다.</p>
   <p>파라미터: <code>?specName</code>(특정 문서, 정규화) · <code>?status=ACTIVE|DELETED</code>(그 외 값 → 400) · <code>?method</code> · <code>?breaking=true</code>(breaking UPDATED 만, 아래) · <code>?view=merged</code>(도메인 병합 뷰, 아래). host 정규화 null → 400.</p>
   <pre><code>curl http://&lt;host&gt;:8080/api/v1/domains/inv-demo.example.com/spec/apis</code></pre>
@@ -675,7 +704,7 @@ curl http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/spec   # → { "count
 <h3 id="s2-5">2.5 분류 설정 · 가중치 편집 — <code>/classification</code></h3>
 
 <div class="ep">
-  <div class="sig"><span class="m m-get">GET</span><code>/api/v1/classification</code> &nbsp;·&nbsp; <span class="m m-put">PUT</span><code>/api/v1/classification</code></div>
+  <div class="sig" id="ep-classification"><span class="m m-get">GET</span><code>/api/v1/classification</code> &nbsp;·&nbsp; <span class="m m-put">PUT</span><code>/api/v1/classification</code></div>
   <p>전역 분류 기본값(profile·임계·가중치·힌트). <strong>PUT</strong> 으로 수정한다. 도메인이 따로 override 하지 않으면 이 값을 상속한다. 응답은 <strong>저장값</strong>(profile·thresholdOverride·customWeights·matcher·updatedAt) 외에 <code>effective</code>(preset 이어도 <strong>실제 적용 중인</strong> 임계·14 가중치)와 <code>descriptions</code>(각 신호 의미 ko/en)를 함께 준다(<a class="dref" href="#d78">D78</a>).</p>
   <pre><code>curl http://&lt;host&gt;:8080/api/v1/classification</code></pre>
   <pre><code>{
@@ -742,7 +771,7 @@ curl http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/spec   # → { "count
 <p class="legend">적용 우선순위: <strong>도메인 override → 전역 → preset/MIDDLE</strong>(<code>EffectiveClassificationResolver</code>). 신호·가중치·모드 상세는 <em>API 판독 매뉴얼 §4.3·§4.4</em>.</p>
 
 <div class="ep">
-  <div class="sig"><span class="m m-get">GET</span><code>/api/v1/domains/{host}/classification</code> &nbsp;·&nbsp; <span class="m m-put">PUT</span><code>/api/v1/domains/{host}/classification</code></div>
+  <div class="sig" id="ep-domain-classification"><span class="m m-get">GET</span><code>/api/v1/domains/{host}/classification</code> &nbsp;·&nbsp; <span class="m m-put">PUT</span><code>/api/v1/domains/{host}/classification</code></div>
   <p>도메인별 override. 응답은 <code>override</code>(그 도메인이 명시한 값, 없으면 전부 null)와 <code>effective</code>(상속까지 합산된 실효 설정)를 함께 준다. <strong>PUT</strong> 으로 도메인 override 를 설정한다.</p>
   <pre><code>curl http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/classification</code></pre>
   <pre><code>{
@@ -762,7 +791,7 @@ curl http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/spec   # → { "count
 </div>
 
 <div class="ep">
-  <div class="sig"><span class="m m-patch">PATCH</span><code>/api/v1/classification/weights</code> &nbsp;·&nbsp; <span class="m m-patch">PATCH</span><code>/api/v1/domains/{host}/classification/weights</code></div>
+  <div class="sig" id="ep-weights"><span class="m m-patch">PATCH</span><code>/api/v1/classification/weights</code> &nbsp;·&nbsp; <span class="m m-patch">PATCH</span><code>/api/v1/domains/{host}/classification/weights</code></div>
   <p>신호 가중치를 <strong>부분 편집</strong>한다. body = 편집할 키만 담은 weight map. ★편집하면 <code>profile</code> 이 <strong>자동으로 CUSTOM</strong> 이 되고, <strong>편집하지 않은 키는 현재 effective 값을 유지</strong>한다(MIDDLE 로 리셋되지 않음). <code>threshold</code>·<code>matcher</code> 는 건드리지 않는다(그건 <code>PUT /classification</code>). unknown 키·비유한 값은 <code>400</code>, 도메인 PATCH 는 미등록 도메인이면 <code>404</code>.</p>
   <pre><code># 전역 MIDDLE 도메인에 apiSegment 가중치만 0.7 로
 curl -X PATCH http://&lt;host&gt;:8080/api/v1/classification/weights \
@@ -787,7 +816,7 @@ curl -X PATCH http://&lt;host&gt;:8080/api/v1/classification/weights \
 <p class="legend">정적 파일 분류 규칙(확장자·파일명 토큰)을 <strong>DB 로 관리</strong>한다 — 소스 하드코드 대신 런타임 편집. <code>kind</code> 는 <code>EXTENSION</code>(확장자) 또는 <code>NAME_TOKEN</code>(파일명 토큰) 둘뿐이다. add/remove 는 즉시 재적용되고, 외부에서 DB 를 직접 수정했으면 <code>reload</code> 로 반영한다.</p>
 
 <div class="ep">
-  <div class="sig"><span class="m m-get">GET</span><code>/api/v1/config/static-classify</code></div>
+  <div class="sig" id="ep-get-static-classify"><span class="m m-get">GET</span><code>/api/v1/config/static-classify</code></div>
   <p>현재 규칙 목록. 응답은 <code>extensions</code>·<code>nameTokens</code> 두 배열이다(확장자는 leading <code>.</code> 로 저장된다).</p>
   <pre><code>curl http://&lt;host&gt;:8080/api/v1/config/static-classify</code></pre>
   <pre><code>{
@@ -805,7 +834,7 @@ curl -X PATCH http://&lt;host&gt;:8080/api/v1/classification/weights \
 </div>
 
 <div class="ep">
-  <div class="sig"><span class="m m-post">POST</span><code>/api/v1/config/static-classify</code> &nbsp;·&nbsp; <span class="m m-del">DELETE</span><code>/api/v1/config/static-classify/{kind}/{value}</code></div>
+  <div class="sig" id="ep-post-delete-static-classify"><span class="m m-post">POST</span><code>/api/v1/config/static-classify</code> &nbsp;·&nbsp; <span class="m m-del">DELETE</span><code>/api/v1/config/static-classify/{kind}/{value}</code></div>
   <p><strong>POST</strong> 는 규칙을 추가(멱등)하고 즉시 재적용한 뒤 <code>201 Created</code> + 갱신된 목록을 반환한다. body 는 <code>{"kind":"EXTENSION"|"NAME_TOKEN", "value":"..."}</code>. <code>value</code> 는 trim·소문자 정규화되고 <code>EXTENSION</code> 은 leading <code>.</code> 이 없으면 보정된다(<code>woff3</code> → <code>.woff3</code>). <code>kind</code> 가 두 값 밖이거나 <code>value</code> 가 빈 값이면 <code>400</code>. <strong>DELETE</strong> 는 경로의 <code>{kind}/{value}</code> 규칙을 삭제하고 즉시 재적용한 뒤 <code>204 No Content</code>(없으면 <code>404</code>).</p>
   <pre><code># 확장자 규칙 추가 (value 는 .woff3 로 정규화됨)
 curl -X POST http://&lt;host&gt;:8080/api/v1/config/static-classify \
@@ -817,7 +846,7 @@ curl -X DELETE http://&lt;host&gt;:8080/api/v1/config/static-classify/NAME_TOKEN
 </div>
 
 <div class="ep">
-  <div class="sig"><span class="m m-post">POST</span><code>/api/v1/config/static-classify/reload</code></div>
+  <div class="sig" id="ep-static-classify-reload"><span class="m m-post">POST</span><code>/api/v1/config/static-classify/reload</code></div>
   <p>DB 규칙을 classifier 에 재적용한다(외부에서 DB 를 직접 수정한 경우 반영용). 갱신된 목록(<code>200</code>)을 반환한다.</p>
   <pre><code>curl -X POST http://&lt;host&gt;:8080/api/v1/config/static-classify/reload</code></pre>
 </div>
@@ -825,7 +854,7 @@ curl -X DELETE http://&lt;host&gt;:8080/api/v1/config/static-classify/NAME_TOKEN
 <!-- ===== 2.7 ===== -->
 <h3 id="s2-7">2.7 운영 — <code>/actuator</code></h3>
 <div class="ep">
-  <div class="sig"><span class="m m-get">GET</span><code>/actuator/health</code></div>
+  <div class="sig" id="ep-get-health"><span class="m m-get">GET</span><code>/actuator/health</code></div>
   <p>헬스체크(DB 연결 포함). 그 외 <code>info</code>·<code>metrics</code>·<code>configprops</code> 등이 노출된다.</p>
   <pre><code>curl http://&lt;host&gt;:8080/actuator/health</code></pre>
   <pre><code>{ "status":"UP" }</code></pre>
@@ -915,5 +944,119 @@ curl -i -H 'If-None-Match: "829bfa4c628a7ede"' \
 
 
 </div>
+<script>
+/* 다이어그램·표·수식·이미지 확대(zoom/pan) 모달 (공용, api-discovery-manual 이식) */
+(function(){
+  // 0) 확대 안내 팁 삽입 (header 뒤 또는 body 상단)
+  var tip = document.createElement('div');
+  tip.className = 'zoom-tip';
+  tip.innerHTML = '💡 <strong>확대해서 보기</strong> — 다이어그램·표·수식·이미지 위에 마우스를 올리면 우측 상단에 <strong>🔍 확대</strong> 버튼이 나타납니다(다이어그램·수식은 직접 클릭해도 됩니다). 확대 화면에서 <strong>+ / −</strong> 버튼이나 마우스 휠로 배율을 조절하고, 드래그로 이동, <strong>ESC</strong> 로 닫습니다.';
+  var hdr = document.querySelector('header');
+  if (hdr && hdr.parentNode) hdr.parentNode.insertBefore(tip, hdr.nextSibling);
+  else document.body.insertBefore(tip, document.body.firstChild);
+
+  // 1) 확대 대상을 래퍼로 감싸고 '🔍 확대' 버튼 부착
+  var targets = Array.prototype.slice.call(
+    document.querySelectorAll('.mermaid, .flow, table, .formula, img, svg'));
+  targets.forEach(function(el){
+    if (el.closest('.zoom-content')) return;        // 모달 내부 복제본 제외
+    if (el.closest('.zoom-wrap')) return;           // 이미 래핑됨
+    if (el.matches('svg') && el.closest('.mermaid, .formula')) return; // mermaid/수식 내부 svg 는 컨테이너로 처리
+    var wrap = document.createElement('div');
+    wrap.className = 'zoom-wrap';
+    el.parentNode.insertBefore(wrap, el);
+    wrap.appendChild(el);
+    var btn = document.createElement('button');
+    btn.className = 'zoom-btn'; btn.type = 'button'; btn.textContent = '🔍 확대';
+    wrap.appendChild(btn);
+    btn.addEventListener('click', function(e){ e.stopPropagation(); openZoom(el); });
+    if (!el.matches('table')) {                      // 표 외에는 직접 클릭도 확대
+      el.classList.add('zoomable');
+      el.addEventListener('click', function(){ openZoom(el); });
+    }
+  });
+
+  // 2) 모달 1회 생성
+  var overlay = document.createElement('div');
+  overlay.className = 'zoom-overlay'; overlay.hidden = true;
+  overlay.innerHTML =
+    '<div class="zoom-toolbar">' +
+      '<button data-act="out" title="축소">−</button>' +
+      '<span class="zoom-level">100%</span>' +
+      '<button data-act="in" title="확대">+</button>' +
+      '<button data-act="reset">원래 크기</button>' +
+      '<span class="zoom-hint">휠: 확대/축소 · 드래그: 이동 · ESC: 닫기</span>' +
+      '<span class="sp"></span>' +
+      '<button data-act="close" class="zoom-close">✕ 닫기</button>' +
+    '</div>' +
+    '<div class="zoom-stage"><div class="zoom-content"></div></div>';
+  document.body.appendChild(overlay);
+
+  var stage   = overlay.querySelector('.zoom-stage');
+  var content = overlay.querySelector('.zoom-content');
+  var levelEl = overlay.querySelector('.zoom-level');
+  var scale = 1;
+
+  function render(){
+    content.style.transform = 'scale(' + scale + ')';
+    levelEl.textContent = Math.round(scale * 100) + '%';
+  }
+  function setScale(s){ scale = Math.min(6, Math.max(0.4, s)); render(); }
+  function openZoom(el){
+    content.innerHTML = '';
+    content.appendChild(el.cloneNode(true));         // 렌더된 SVG/표/수식 그대로 복제
+    scale = 1; render();
+    overlay.hidden = false;
+    document.body.style.overflow = 'hidden';
+    stage.scrollTop = 0; stage.scrollLeft = 0;
+  }
+  function closeZoom(){
+    overlay.hidden = true;
+    document.body.style.overflow = '';
+    content.innerHTML = '';
+  }
+
+  // 3) 툴바 / 배경 클릭
+  overlay.addEventListener('click', function(e){
+    var act = e.target.getAttribute && e.target.getAttribute('data-act');
+    if (act === 'in')        setScale(scale * 1.25);
+    else if (act === 'out')  setScale(scale / 1.25);
+    else if (act === 'reset')setScale(1);
+    else if (act === 'close')closeZoom();
+    else if (e.target === stage || e.target === overlay) closeZoom();  // 빈 배경 클릭
+  });
+
+  // 4) 휠 확대/축소
+  stage.addEventListener('wheel', function(e){
+    if (overlay.hidden) return;
+    e.preventDefault();
+    setScale(scale * (e.deltaY < 0 ? 1.12 : 0.89));
+  }, { passive: false });
+
+  // 5) 드래그로 이동(pan)
+  var dragging = false, sx, sy, sl, st;
+  stage.addEventListener('mousedown', function(e){
+    if (e.target.closest('button')) return;
+    dragging = true; stage.classList.add('grabbing');
+    sx = e.clientX; sy = e.clientY; sl = stage.scrollLeft; st = stage.scrollTop;
+  });
+  window.addEventListener('mousemove', function(e){
+    if (!dragging) return;
+    stage.scrollLeft = sl - (e.clientX - sx);
+    stage.scrollTop  = st - (e.clientY - sy);
+  });
+  window.addEventListener('mouseup', function(){
+    dragging = false; stage.classList.remove('grabbing');
+  });
+
+  // 6) 키보드
+  window.addEventListener('keydown', function(e){
+    if (overlay.hidden) return;
+    if (e.key === 'Escape')            closeZoom();
+    else if (e.key === '+' || e.key === '=') setScale(scale * 1.25);
+    else if (e.key === '-')            setScale(scale / 1.25);
+  });
+})();
+</script>
 </body>
 </html>
