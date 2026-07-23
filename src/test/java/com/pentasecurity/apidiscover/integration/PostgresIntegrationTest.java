@@ -14,6 +14,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pentasecurity.apidiscover.batch.DiscoveryJobService;
 import com.pentasecurity.apidiscover.classify.EffectiveClassificationResolver;
 import com.pentasecurity.apidiscover.domain.ActivityStatus;
@@ -40,8 +41,11 @@ import com.pentasecurity.apidiscover.spec.SpecFormat;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -525,24 +529,24 @@ class PostgresIntegrationTest {
         // ①문서A 업로드→A API+params(ACTIVE/ADDED) ②문서B 업로드→union(A 불변·B 추가) ④★격리(B 가 A 미삭제) ⑥결정적 정렬
         String host = "inv-union.example.com";
         registerDomain(host);
-        putSpec(host, "a.csv", csv(
+        putSpec(host, "a.json", oas(
                 "GET,/a/{id},false,v1,id:path:true:integer;q:query:false:string",
                 "POST,/a,false,v1,name:body:true:object"));
         // ① A 의 API ACTIVE/ADDED + params 보존
-        mvc.perform(get("/api/v1/domains/{host}/spec/apis", host).param("specName", "a.csv"))
+        mvc.perform(get("/api/v1/domains/{host}/spec/apis", host).param("specName", "a.json"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.count").value(2))
                 .andExpect(jsonPath("$.items[?(@.pathTemplate=='/a/{id}')].status").value(hasItem("ACTIVE")))
                 .andExpect(jsonPath("$.items[?(@.pathTemplate=='/a/{id}')].lastChange").value(hasItem("ADDED")))
                 .andExpect(jsonPath("$.items[?(@.pathTemplate=='/a/{id}')].params.items[?(@.name=='id')].in").value(hasItem("PATH")));
         // ② 다른 specName 문서 B 업로드 → union
-        putSpec(host, "b.csv", csv("GET,/b,false,v1,"));
+        putSpec(host, "b.json", oas("GET,/b,false,v1,"));
         mvc.perform(get("/api/v1/domains/{host}/spec/apis", host))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.count").value(3))                       // A2 + B1
-                .andExpect(jsonPath("$.items[0].specName").value("a.csv"))              // ⑥ 결정적 정렬(specName asc)
+                .andExpect(jsonPath("$.items[0].specName").value("a.json"))              // ⑥ 결정적 정렬(specName asc)
                 // ④ ★격리: B 업로드가 A 의 API 를 DELETED 로 만들지 않음(WHERE spec_name 한정). 위반 시 RED.
-                .andExpect(jsonPath("$.items[?(@.specName=='a.csv')].status",
+                .andExpect(jsonPath("$.items[?(@.specName=='a.json')].status",
                         everyItem(org.hamcrest.Matchers.is("ACTIVE"))));
     }
 
@@ -551,16 +555,16 @@ class PostgresIntegrationTest {
         // ③ 문서 재업로드(같은 specName) → param 변경=UPDATED·drop=DELETED·신규=ADDED·동일=UNCHANGED ⑧ param 변경 판정
         String host = "inv-reconcile.example.com";
         registerDomain(host);
-        putSpec(host, "s.csv", csv(
+        putSpec(host, "s.json", oas(
                 "GET,/x/{id},false,v1,q:query:false:string",
                 "GET,/drop,false,v1,",
                 "GET,/same,false,v1,k:query:false:string"));
         // v2: /x param type string→integer=UPDATED, /drop 제거=DELETED, /new 추가=ADDED, /same 동일=UNCHANGED
-        putSpec(host, "s.csv", csv(
+        putSpec(host, "s.json", oas(
                 "GET,/x/{id},false,v1,q:query:false:integer",
                 "GET,/new,false,v1,",
                 "GET,/same,false,v1,k:query:false:string"));
-        mvc.perform(get("/api/v1/domains/{host}/spec/apis", host).param("specName", "s.csv"))
+        mvc.perform(get("/api/v1/domains/{host}/spec/apis", host).param("specName", "s.json"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[?(@.pathTemplate=='/x/{id}')].lastChange").value(hasItem("UPDATED")))
                 .andExpect(jsonPath("$.items[?(@.pathTemplate=='/x/{id}')].params.items[?(@.name=='q')].type").value(hasItem("integer")))
@@ -574,8 +578,8 @@ class PostgresIntegrationTest {
         // ⑨ ★사용자 핵심: DELETED 인벤토리 키 ∩ 관측 트래픽 → Zombie(deleted-from-spec·confidence 0.8), SHADOW 아님.
         String host = "inv-zombie.example.com";
         registerDomain(host);
-        putSpec(host, "z.csv", csv("GET,/legacy/{id},false,v1,"));     // v1: /legacy/{id} 문서화
-        putSpec(host, "z.csv", csv("GET,/other,false,v1,"));            // v2: /legacy/{id} 제거 → DELETED
+        putSpec(host, "z.json", oas("GET,/legacy/{id},false,v1,"));     // v1: /legacy/{id} 문서화
+        putSpec(host, "z.json", oas("GET,/other,false,v1,"));            // v2: /legacy/{id} 제거 → DELETED
         mvc.perform(get("/api/v1/domains/{host}/spec/apis", host).param("status", "DELETED"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[?(@.pathTemplate=='/legacy/{id}')].status").value(hasItem("DELETED")));
@@ -611,7 +615,7 @@ class PostgresIntegrationTest {
         // 한 문서의 v1→v2 재업로드로 6 규칙 + 호환 widening 을 동시 검증. lastChangeBreaking + changedParams 영속·노출.
         String host = "inv-breaking.example.com";
         registerDomain(host);
-        putSpec(host, "b.csv", csv(
+        putSpec(host, "b.json", oas(
                 "GET,/req-add,false,v1,",
                 "GET,/opt-add,false,v1,",
                 "GET,/opt-rm,false,v1,q:query:false:string",
@@ -619,7 +623,7 @@ class PostgresIntegrationTest {
                 "GET,/req2opt,false,v1,q:query:true:string",
                 "GET,/typechg,false,v1,q:query:false:string",
                 "GET,/widen,false,v1,q:query:false:integer"));
-        putSpec(host, "b.csv", csv(
+        putSpec(host, "b.json", oas(
                 "GET,/req-add,false,v1,x:query:true:string",      // required 추가=breaking
                 "GET,/opt-add,false,v1,x:query:false:string",     // optional 추가=non
                 "GET,/opt-rm,false,v1,",                          // optional 제거=breaking
@@ -628,7 +632,7 @@ class PostgresIntegrationTest {
                 "GET,/typechg,false,v1,q:query:false:integer",    // type 비호환(string→integer)=breaking
                 "GET,/widen,false,v1,q:query:false:number"));     // type 호환(integer→number)=non
 
-        var r = mvc.perform(get("/api/v1/domains/{host}/spec/apis", host).param("specName", "b.csv"))
+        var r = mvc.perform(get("/api/v1/domains/{host}/spec/apis", host).param("specName", "b.json"))
                 .andExpect(status().isOk());
         r.andExpect(jsonPath("$.items[?(@.pathTemplate=='/req-add')].lastChangeBreaking").value(hasItem(true)));
         r.andExpect(jsonPath("$.items[?(@.pathTemplate=='/opt-add')].lastChangeBreaking").value(hasItem(false)));
@@ -644,7 +648,7 @@ class PostgresIntegrationTest {
         r.andExpect(jsonPath("$.items[?(@.pathTemplate=='/widen')].changedParams.modified.items[*].fromType").value(hasItem("integer")));
 
         // ?breaking=true → breaking UPDATED 만(req-add·opt-rm·opt2req·typechg=4)
-        mvc.perform(get("/api/v1/domains/{host}/spec/apis", host).param("specName", "b.csv").param("breaking", "true"))
+        mvc.perform(get("/api/v1/domains/{host}/spec/apis", host).param("specName", "b.json").param("breaking", "true"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.count").value(4))
                 .andExpect(jsonPath("$.items[*].lastChangeBreaking", everyItem(org.hamcrest.Matchers.is(true))));
@@ -657,10 +661,10 @@ class PostgresIntegrationTest {
         // docA·docB 가 같은 (method,path) 정의 → merged 1행: status ACTIVE·deprecated OR·version/params latest(sourceSpecVersion)·contributing 2.
         String host = "inv-merged.example.com";
         registerDomain(host);
-        putSpec(host, "a.csv", csv(
+        putSpec(host, "a.json", oas(
                 "GET,/shared,false,v1,q:query:false:string",
                 "GET,/a-only,false,v1,"));
-        putSpec(host, "b.csv", csv(
+        putSpec(host, "b.json", oas(
                 "GET,/shared,true,v2,q:query:false:integer",       // deprecated·version v2·param integer (sourceSpecVersion 더 큼)
                 "GET,/b-only,false,v2,"));
 
@@ -675,9 +679,9 @@ class PostgresIntegrationTest {
         // 비-merged(현행 기본)와 공존 — per-document 행(specName 보유, /shared 는 문서별 2행)
         mvc.perform(get("/api/v1/domains/{host}/spec/apis", host))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.count").value(4))                                   // a.csv 2 + b.csv 2
+                .andExpect(jsonPath("$.count").value(4))                                   // a.json 2 + b.json 2
                 .andExpect(jsonPath("$.items[?(@.pathTemplate=='/shared')].specName")
-                        .value(org.hamcrest.Matchers.containsInAnyOrder("a.csv", "b.csv")));
+                        .value(org.hamcrest.Matchers.containsInAnyOrder("a.json", "b.json")));
     }
 
     @Test
@@ -685,10 +689,10 @@ class PostgresIntegrationTest {
         // 전부 DELETED→DELETED, 혼합(한쪽 ACTIVE)→ACTIVE.
         String host = "inv-merged-status.example.com";
         registerDomain(host);
-        putSpec(host, "c.csv", csv("GET,/alldel,false,v1,", "GET,/mixed,false,v1,"));
-        putSpec(host, "d.csv", csv("GET,/mixed,false,v1,", "GET,/d-only,false,v1,"));
-        // c.csv 재업로드(둘 다 제거) → c 의 /alldel·/mixed = DELETED
-        putSpec(host, "c.csv", csv("GET,/placeholder,false,v1,"));
+        putSpec(host, "c.json", oas("GET,/alldel,false,v1,", "GET,/mixed,false,v1,"));
+        putSpec(host, "d.json", oas("GET,/mixed,false,v1,", "GET,/d-only,false,v1,"));
+        // c.json 재업로드(둘 다 제거) → c 의 /alldel·/mixed = DELETED
+        putSpec(host, "c.json", oas("GET,/placeholder,false,v1,"));
 
         mvc.perform(get("/api/v1/domains/{host}/spec/apis", host).param("view", "merged"))
                 .andExpect(status().isOk())
@@ -710,9 +714,9 @@ class PostgresIntegrationTest {
         // merged 대표값은 ACTIVE pool 기준 — version=1.0.0(삭제 문서 2.0.0 아님). 수정 전(latestAll) 이면 2.0.0 으로 RED.
         String host = "inv-merged-ver.example.com";
         registerDomain(host);
-        putSpec(host, "a.csv", csv("GET,/shared,false,1.0.0,"));                 // sourceSpecVersion 1·ACTIVE 유지
-        putSpec(host, "b.csv", csv("GET,/shared,false,2.0.0,", "GET,/b-keep,false,2.0.0,")); // sourceSpecVersion 2
-        putSpec(host, "b.csv", csv("GET,/b-keep,false,2.0.0,"));                 // /shared 제거 → b.csv /shared DELETED(sourceSpecVersion 2)
+        putSpec(host, "a.json", oas("GET,/shared,false,1.0.0,"));                 // sourceSpecVersion 1·ACTIVE 유지
+        putSpec(host, "b.json", oas("GET,/shared,false,2.0.0,", "GET,/b-keep,false,2.0.0,")); // sourceSpecVersion 2
+        putSpec(host, "b.json", oas("GET,/b-keep,false,2.0.0,"));                 // /shared 제거 → b.json /shared DELETED(sourceSpecVersion 2)
 
         mvc.perform(get("/api/v1/domains/{host}/spec/apis", host).param("view", "merged"))
                 .andExpect(status().isOk())
@@ -728,13 +732,69 @@ class PostgresIntegrationTest {
                 .andExpect(status().isOk());
     }
 
-    /** CSV 스펙(method,path,deprecated,version,params) — params=name:in:required:type 세미콜론 구분(doc/37 §2). */
-    private static byte[] csv(String... rows) {
-        StringBuilder sb = new StringBuilder("method,path,deprecated,version,params\n");
-        for (String r : rows) {
-            sb.append(r).append('\n');
+    /**
+     * OpenAPI 3.0(JSON) 스펙 — row="METHOD,path,deprecated,version,params". params=name:in:required:type 세미콜론 구분(doc/37 §2).
+     * in=body → OpenAPI requestBody(파서가 name="body" SpecParam 생성), 그 외 → parameters. version 은 doc 당 동일하므로
+     * 첫 행 값을 info.version 으로. host 는 servers 미방출(도메인이 채움 — CSV 무 host 컬럼과 동치).
+     */
+    private static byte[] oas(String... rows) {
+        Map<String, Object> root = new LinkedHashMap<>();
+        root.put("openapi", "3.0.1");
+        Map<String, Object> info = new LinkedHashMap<>();
+        info.put("title", "Example API");
+        info.put("version", rows.length > 0 ? rows[0].split(",", 5)[3] : "1");
+        root.put("info", info);
+
+        Map<String, Object> paths = new LinkedHashMap<>();
+        for (String row : rows) {
+            String[] f = row.split(",", 5);
+            Map<String, Object> op = new LinkedHashMap<>();
+            if (Boolean.parseBoolean(f[2].trim())) {
+                op.put("deprecated", true);
+            }
+            op.put("responses", Map.of("200", Map.of("description", "ok")));
+
+            List<Map<String, Object>> parameters = new ArrayList<>();
+            String paramSpec = f.length > 4 ? f[4] : "";
+            for (String tok : paramSpec.split(";")) {
+                String t = tok.trim();
+                if (t.isEmpty()) {
+                    continue;
+                }
+                String[] p = t.split(":", 4);
+                String name = p[0].trim();
+                String in = p.length > 1 ? p[1].trim().toLowerCase(Locale.ROOT) : "";
+                boolean required = p.length > 2 && Boolean.parseBoolean(p[2].trim());
+                String type = (p.length > 3 && !p[3].isBlank()) ? p[3].trim() : "string";
+                if ("body".equals(in)) {
+                    op.put("requestBody", Map.of(
+                            "required", required,
+                            "content", Map.of("application/json", Map.of("schema", Map.of("type", type)))));
+                } else {
+                    Map<String, Object> param = new LinkedHashMap<>();
+                    param.put("name", name);
+                    param.put("in", in);
+                    param.put("required", required);
+                    param.put("schema", Map.of("type", type));
+                    parameters.add(param);
+                }
+            }
+            if (!parameters.isEmpty()) {
+                op.put("parameters", parameters);
+            }
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> pathItem =
+                    (Map<String, Object>) paths.computeIfAbsent(f[1].trim(), k -> new LinkedHashMap<>());
+            pathItem.put(f[0].trim().toLowerCase(Locale.ROOT), op);
         }
-        return sb.toString().getBytes(StandardCharsets.UTF_8);
+        root.put("paths", paths);
+
+        try {
+            return new ObjectMapper().writeValueAsBytes(root);
+        } catch (Exception e) {
+            throw new IllegalStateException("failed to build OpenAPI JSON", e);
+        }
     }
 
     /** 최소 유효 OpenAPI(servers /v2 prefix → canonical /v2 path). paths=GET 엔드포인트들. */

@@ -751,6 +751,14 @@ gap-free 크롤은 활성 수요(~22.6k 윈도우/h) vs 예산 용량(D65 후 ~7
 - **영향**: 새 스캔부터 반영(재배포 필요). 기존 검출 행은 다음 스캔 때 새 템플릿으로 재수렴. build green 576.
 - **관련**: doc/02 §3.2(정규화 휴리스틱), doc/13(고카디널리티 2-pass).
 
+### D88. CSV 스펙 입력 포맷 제거 (2026-07-23, 사용자 요청)
+- **배경**: 지원 스펙 포맷 OpenAPI/Postman/CSV 중 **CSV 는 자체 임의 포맷**(method,path,… 평면 표)이라 생태계 가치가 낮아 제거. ★Swagger 는 별개 포맷이 아니라 OpenAPI 2.0 이라 이미 지원(D70)이므로 추가할 것 없음. Postman 은 산업 표준 export 라 **유지**(사용자 확정).
+- **결정**: `SpecFormat.CSV`·`CsvSpecParser` 삭제, `SpecFormatDetector` 의 CSV 감지(`looksLikeCsv`) 제거 → CSV 내용 업로드는 "unsupported"(400). **지원 포맷 = OpenAPI(Swagger 2.0 + 3.0/3.1, JSON·YAML) + Postman v2.x**. `swagger-parser 2.1.22`.
+- **★유지**: CLI 결과 export CSV(`DomainCsvWriter`·`-domain -export`)는 스펙 입력과 무관한 별개 기능이라 그대로.
+- **안전**: 운영 `spec_record` 0행(CSV 포맷 행 없음) → enum 제거 무위험(기존 행 역직렬화 문제 없음).
+- **테스트**: reconcile/인벤토리 테스트의 CSV 업로드를 OpenAPI 로 전환(`csv()`→`oas()` OpenAPI 생성 헬퍼, row 형식 유지·파일명 .csv→.json). `ThreeFormatEquivalenceTest`→`TwoFormatEquivalenceTest`(OpenAPI↔Postman). body param 은 OpenAPI requestBody→SpecParam name="body"(CSV 는 토큰명) 차이 있으나 어떤 단언도 미참조라 무영향. build green **567**(실패 0).
+- **관련**: doc/03(포맷), doc/14 D21(canonical 동일성), D70(Swagger=OpenAPI 2.0).
+
 ### D14. 세션 메모리 문서 운용
 `doc/TASKS.md`(할일/완료), `doc/PROJECT_LOG.md`(작업로그), `doc/DECISIONS.md`(결정)를 세션 메모리로 운용.
 새 세션은 항상 이 3개를 참고해 이어서 작업(CLAUDE.md 에 명시). 기존 checklist.md·context-notes.md 는 이 문서들로 흡수·일원화.

@@ -1,10 +1,10 @@
-// 스펙 포맷 공유 정규화 — template/host 를 3종 포맷 간 동일하게 (doc/14 §0.1, doc/03 §1.1)
+// 스펙 포맷 공유 정규화 — template/host 를 2종 포맷 간 동일하게 (doc/14 §0.1, doc/03 §1.1)
 package com.pentasecurity.apidiscover.spec;
 
 import java.util.Locale;
 import java.util.regex.Pattern;
 
-/** Postman/CSV 공용 path/host 정규화(OpenAPI 슬래시 규칙과 동일 산출). package-private. */
+/** Postman 공용 path/host 정규화(OpenAPI 슬래시 규칙과 동일 산출). package-private. */
 final class SpecNormalize {
 
     private SpecNormalize() {

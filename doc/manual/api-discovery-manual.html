@@ -176,7 +176,7 @@
 <!-- ============================================================= -->
 <h2 id="s1">1. 개요 — 무엇을, 왜 탐지하는가</h2>
 
-<p>APIDiscover 는 방화벽(WAAP, Web Application and API Protection — 웹 애플리케이션·API 보호) 앞단 nginx 의 <strong>access log</strong> 만으로 API 인벤토리를 만들고, 문서(OpenAPI/Postman/CSV 스펙)와 대조해 <strong>관리되지 않는 API</strong> 를 찾아낸다. 로그에는 요청/응답의 <em>본문(body)·헤더가 없으므로</em>, "어떤 경로가 호출됐는가" 라는 관측 사실에서 출발한다.</p>
+<p>APIDiscover 는 방화벽(WAAP, Web Application and API Protection — 웹 애플리케이션·API 보호) 앞단 nginx 의 <strong>access log</strong> 만으로 API 인벤토리를 만들고, 문서(OpenAPI/Postman 스펙)와 대조해 <strong>관리되지 않는 API</strong> 를 찾아낸다. 로그에는 요청/응답의 <em>본문(body)·헤더가 없으므로</em>, "어떤 경로가 호출됐는가" 라는 관측 사실에서 출발한다.</p>
 
 <table>
   <thead><tr><th>구분</th><th>정의</th><th>집합식</th></tr></thead>
@@ -1302,7 +1302,7 @@ access_log /var/log/nginx/access.log api_discovery;</code></pre>
   <thead><tr><th>결정</th><th>한 줄 요약</th></tr></thead>
   <tbody>
     <tr><td><code id="d1">D1</code></td><td>범위 — access log(본문·헤더 없음)로 엔드포인트 인벤토리 + Shadow(<code>D\S</code>)·Zombie(<code>S_deprecated∩D</code>)까지. 스키마·PII·인증은 범위 밖.</td></tr>
-    <tr><td><code id="d2">D2</code></td><td>대표 스펙 포맷 = OpenAPI + Postman + CSV. Postman 은 표준 deprecated 부재라 <code>[DEPRECATED]</code> 이름/폴더 규약.</td></tr>
+    <tr><td><code id="d2">D2</code></td><td>대표 스펙 포맷 = OpenAPI(Swagger 2.0 포함) + Postman. (CSV 는 지원 중단·제거) Postman 은 표준 deprecated 부재라 <code>[DEPRECATED]</code> 이름/폴더 규약.</td></tr>
     <tr><td><code id="d3">D3</code></td><td>경로 정규화 우선순위 = 스펙 우선 → 휴리스틱(uuid/id/token/date) → 통계 보정.</td></tr>
     <tr><td><code id="d17">D17</code></td><td>분류 설정 DB 저장(전역 1행 + 도메인 override) + effective 병합(도메인→전역→MIDDLE). weights override 는 CUSTOM 한정, threshold 는 어떤 프로파일에서도 override.</td></tr>
     <tr><td><code id="d18">D18</code></td><td>분류 설정 중앙 REST 4종(전역·도메인 GET/PUT) + host별 effective 캐시(PUT 시 무효화). 단일 인스턴스 전제.</td></tr>

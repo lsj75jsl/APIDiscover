@@ -540,7 +540,7 @@ curl -X DELETE http://&lt;host&gt;:8080/api/v1/domains/api.weble.net   # → 204
 
 <div class="ep">
   <div class="sig" id="ep-spec"><span class="m m-put">PUT</span><code>/api/v1/domains/{host}/spec</code> &nbsp;·&nbsp; <span class="m m-get">GET</span><code>/api/v1/domains/{host}/spec</code></div>
-  <p><strong>PUT</strong> 은 스펙 원문(OpenAPI / Postman / CSV 바이트)을 <code>Content-Type: application/octet-stream</code> 본문으로 업로드한다. <code>?filename</code> 은 곧 <strong>문서 식별자(<code>specName</code>)로 도출</strong>된다 — 정규화(trim·소문자), 미전달/빈 = <code>"default"</code>. 서로 다른 filename = 별개 문서, 같은 filename 재업로드 = 그 문서의 새 버전이다.</p>
+  <p><strong>PUT</strong> 은 스펙 원문(OpenAPI / Postman 바이트)을 <code>Content-Type: application/octet-stream</code> 본문으로 업로드한다. <code>?filename</code> 은 곧 <strong>문서 식별자(<code>specName</code>)로 도출</strong>된다 — 정규화(trim·소문자), 미전달/빈 = <code>"default"</code>. 서로 다른 filename = 별개 문서, 같은 filename 재업로드 = 그 문서의 새 버전이다.</p>
   <p>★업로드 시 파싱된 API 목록·파라미터가 <strong>영속 API 인벤토리(<code>documented_api</code>)</strong>에 <code>specName</code> 단위로 <strong>reconcile</strong> 된다 — 이미 있으면 파라미터·deprecated·version 변경 시 갱신(<code>UPDATED</code>), 신규면 추가(<code>ADDED</code>), 그 문서에서 빠지면 삭제 표시(<code>status=DELETED</code>, 행 보존). <strong>★다른 filename 문서는 건드리지 않는다(union)</strong>. 인벤토리 조회는 아래 <code>GET /spec/apis</code>.</p>
   <p><strong>GET</strong> 은 활성 스펙 문서 <strong>목록</strong>을 반환하며, 스펙이 없으면 <code>404</code> 가 아니라 <strong>빈 목록 <code>{ "count":0, "items":[] }</code>(200)</strong>이다. 각 문서는 <code>specName</code>·<code>filename</code>·<code>uploadedAt</code> 등을 포함한다.</p>
   <pre><code># 등록 후 업로드 — filename 이 specName 으로 도출됨
@@ -565,7 +565,7 @@ curl http://&lt;host&gt;:8080/api/v1/domains/api.weble.net/spec   # → { "count
   <table>
     <thead><tr><th>키</th><th>타입</th><th>의미</th></tr></thead>
     <tbody>
-      <tr><td><code>format</code></td><td>string</td><td>스펙 포맷 — <code>OPENAPI</code>/<code>POSTMAN</code>/<code>CSV</code>.</td></tr>
+      <tr><td><code>format</code></td><td>string</td><td>스펙 포맷 — <code>OPENAPI</code>(Swagger 2.0 포함)/<code>POSTMAN</code>.</td></tr>
       <tr><td><code>specVersion</code></td><td>number</td><td>이 문서(<code>specName</code>)의 업로드 버전(재업로드마다 증가).</td></tr>
       <tr><td><code>endpointCount</code></td><td>number</td><td>이 문서에서 파싱된 엔드포인트 수.</td></tr>
       <tr><td><code>uploadedAt</code></td><td>string(ISO-8601)</td><td>업로드 시각.</td></tr>

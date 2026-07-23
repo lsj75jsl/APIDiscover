@@ -19,12 +19,7 @@ public class SpecFormatDetector {
             throw new IllegalArgumentException("empty document");
         }
 
-        // 1) CSV: 헤더 행에 method,path 컬럼 (doc/03 §4)
-        if (looksLikeCsv(text)) {
-            return SpecFormat.CSV;
-        }
-
-        // 2) JSON/YAML 트리 검사
+        // JSON/YAML 트리 검사
         try {
             JsonNode root = yamlMapper.readTree(content);
             if (root != null && root.isObject()) {
@@ -45,24 +40,5 @@ public class SpecFormatDetector {
         }
 
         throw new IllegalArgumentException("unsupported or unrecognized spec format");
-    }
-
-    private static boolean looksLikeCsv(String text) {
-        String firstLine = text.lines()
-                .map(String::strip)
-                .filter(line -> !line.isEmpty())
-                .findFirst()
-                .orElse("");
-        boolean hasMethod = false;
-        boolean hasPath = false;
-        for (String col : firstLine.toLowerCase().split(",")) {
-            String c = col.strip();
-            if (c.equals("method")) {
-                hasMethod = true;
-            } else if (c.equals("path")) {
-                hasPath = true;
-            }
-        }
-        return hasMethod && hasPath;
     }
 }

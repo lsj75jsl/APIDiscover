@@ -1,4 +1,4 @@
-// 3종 포맷 Canonical 동일성 — OpenAPI/Postman/CSV → (method,host,template,deprecated,version) 동일 (doc/14 §5, §6)
+// 2종 포맷 Canonical 동일성 — OpenAPI/Postman → (method,host,template,deprecated,version) 동일 (doc/14 §5, §6)
 package com.pentasecurity.apidiscover.spec;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -11,7 +11,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
-class ThreeFormatEquivalenceTest {
+class TwoFormatEquivalenceTest {
 
     // 동일 논리 스펙: host api.example.com, basePath /v2, version 2.0.0, 4 endpoint(1 deprecated, {id} var)
     private static final String OPENAPI = """
@@ -59,14 +59,6 @@ class ThreeFormatEquivalenceTest {
             }
             """;
 
-    private static final String CSV = """
-            method,path,host,deprecated,version
-            GET,/v2/users/:id,api.example.com,false,2.0.0
-            POST,/v2/users,api.example.com,false,2.0.0
-            GET,/v2/orders/:orderId,api.example.com,true,2.0.0
-            GET,/v2/health,api.example.com,false,2.0.0
-            """;
-
     private static final Set<String> EXPECTED = Set.of(
             "GET|api.example.com|/v2/users/{id}|false|2.0.0",
             "POST|api.example.com|/v2/users|false|2.0.0",
@@ -74,15 +66,13 @@ class ThreeFormatEquivalenceTest {
             "GET|api.example.com|/v2/health|false|2.0.0");
 
     @Test
-    void threeFormatsProduceEquivalentCanonical() {
+    void twoFormatsProduceEquivalentCanonical() {
         Set<String> openapi = tuples(new OpenApiSpecParser().parse(bytes(OPENAPI)).endpoints());
         Set<String> postman = tuples(new PostmanSpecParser(new ObjectMapper()).parse(bytes(POSTMAN)).endpoints());
-        Set<String> csv = tuples(new CsvSpecParser().parse(bytes(CSV)).endpoints());
 
         // sourceRef(포맷별 provenance) 제외, (method,host,template,deprecated,version) 동일
         assertThat(openapi).isEqualTo(EXPECTED);
         assertThat(postman).isEqualTo(EXPECTED);
-        assertThat(csv).isEqualTo(EXPECTED);
     }
 
     /** SpecCanonicalizer 적용 후 (method,host,template,deprecated,version) 튜플 집합. */

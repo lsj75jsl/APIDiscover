@@ -3,6 +3,5 @@ package com.pentasecurity.apidiscover.spec;
 
 public enum SpecFormat {
     OPENAPI,
-    POSTMAN,
-    CSV
+    POSTMAN
 }
