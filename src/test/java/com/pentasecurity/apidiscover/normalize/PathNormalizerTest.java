@@ -26,8 +26,17 @@ class PathNormalizerTest {
     }
 
     @Test
+    void numericIdWithParenLabelBecomesId() {
+        // 앱이 경로에 넣은 사람용 라벨(숫자ID(라벨)) → {id} 로 수렴 (인코딩·비인코딩 라벨 모두)
+        assertThat(normalizer.inferTemplate("/campaigns/1337477(%EC%B2%B4%ED%97%98%EB%8B%A8)"))
+                .isEqualTo("/campaigns/{id}");
+        assertThat(normalizer.inferTemplate("/campaigns/990312(체험단)")).isEqualTo("/campaigns/{id}");
+    }
+
+    @Test
     void staticSegmentIsKept() {
         assertThat(normalizer.inferTemplate("/users/me")).isEqualTo("/users/me");
+        assertThat(normalizer.inferTemplate("/campaigns/summer(2026)")).isEqualTo("/campaigns/summer(2026)"); // 숫자 시작 아님=유지
     }
 
     @Test

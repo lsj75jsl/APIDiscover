@@ -39,6 +39,7 @@
 
 #### 분류 (04/16 문서)
 > (OPTIONS preflight·cross-scan recency severity 완료, Done 참조)
+- [x] **경로 정규화 — 숫자ID(라벨) 세그먼트 → {id} (D87)** **(구현·테스트 완료 — build green 576·커밋/재배포 진행. 사용자 요청)** — `PathNormalizer` 에 `^\d+\(.*\)$` → `{id}`(예 `/campaigns/1337477(체험단)` → `/campaigns/{id}`). 앱이 URL 에 넣은 사람용 라벨 흡수·순수숫자 규칙 밖이던 문제 해소. 숫자 비시작(`summer(2026)`)은 유지. → D87. (부수: brand-zones SHADOW 오분류 문의는 근거 분석만·코드 변경 없음 — api 서브도메인+CORS preflight 로 임계 도달, endpoint_kind DORMANT.)
 > (초장문 path_template 가드 — D68 로 구현 완료, Done 참조)
 > (Swagger 2.0 업로드 지원 — D70 구현 완료, Done 참조)
 - [x] **정적 파일 API 오탐 수정 — 하드 veto + 정적 리소스 파일명 감점** **(구현 완료 — build green 504·실 PG OK·RED-확인·커밋 보류·머지 시 Done. D56, 사용자 요청)** — ① 정적 확장자(.css/.js/.png/.webp… isStaticPath 또는 $type=library=STATIC) → `Gate.DROP_STATIC` 하드 veto(점수·api키워드 무관 비-API). `DroppedNonApi` +staticFile. ② 정적 리소스 파일명 토큰(img/image/thumb/resize/css/download… `hasStaticResourceName`) → `staticAssetPenalty`(-0.6) 발화 → img.php(WEB_PAGE) 오탐 탈락. ★.php 는 정적 확장자 미포함(veto 아님·감점만, 실 API 보존)·모호 토큰 제외. 매뉴얼(TW)=후속.

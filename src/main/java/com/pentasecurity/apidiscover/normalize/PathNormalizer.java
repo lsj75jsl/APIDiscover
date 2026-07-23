@@ -14,6 +14,9 @@ public class PathNormalizer {
     private static final Pattern UUID =
             Pattern.compile("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
     private static final Pattern NUMERIC = Pattern.compile("^\\d+$");
+    // 숫자 ID 에 (라벨)이 경로에 붙은 형태: 1337477(체험단)·1337477(%EC%B2%B4%ED%97%98%EB%8B%A8) → {id}
+    // (앱이 URL 에 사람용 라벨을 함께 넣는 경우. 라벨은 흡수해 캠페인 상세를 하나의 {id} 로 수렴)
+    private static final Pattern NUMERIC_LABELED = Pattern.compile("^\\d+\\(.*\\)$");
     private static final Pattern LONG_HEX = Pattern.compile("^[0-9a-fA-F]{16,}$");
     private static final Pattern TOKENISH = Pattern.compile("^[A-Za-z0-9_-]{20,}$");
     private static final Pattern DATE = Pattern.compile("^\\d{4}-\\d{2}-\\d{2}$");
@@ -39,7 +42,7 @@ public class PathNormalizer {
         if (UUID.matcher(seg).matches()) {
             return "{uuid}";
         }
-        if (NUMERIC.matcher(seg).matches()) {
+        if (NUMERIC.matcher(seg).matches() || NUMERIC_LABELED.matcher(seg).matches()) {
             return "{id}";
         }
         if (DATE.matcher(seg).matches()) {
